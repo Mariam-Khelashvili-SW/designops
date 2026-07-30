@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Run log — Design Ops{% endblock %}
+{% block body %}
+<h1>Run log</h1>
+<p class="sub">One row per run. Every run points at the exact input document set it was built from (§12.3).</p>
+
+<div class="card">
+  <form method="post" action="/pipelines/daily-digest/run" class="row">
+    <div><label>Report date</label><input type="date" name="report_date" value="{{ today }}" required></div>
+    <div><label>Ingest</label>
+      <select name="reuse_ingest">
+        <option value="on">Reuse cached corpus</option>
+        <option value="off">Force fresh pull</option>
+      </select>
+    </div>
+    <button class="btn" type="submit">Run digest now</button>
+    <span class="sub" style="margin:0">On-demand, any date, into the viewer. Nothing is sent (§12.1).</span>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr>
+      <th>Started</th><th>Report date</th><th>Status</th><th>Reported</th>
+      <th>Coverage</th><th>Excluded</th><th>Tokens</th><th>Cost</th><th>Validated</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for r in runs %}
+      <tr>
+        <td class="mono">{{ r.started_at | dt }}</td>
+        <td>{{ r.report_date }}</td>
+        <td><span class="pill {{ r.status }}">{{ r.status }}</span></td>
+        <td>{{ r.counts.get('reported', '—') }}</td>
+        <td>{{ '%.0f%%' % (r.counts.get('coverage_ratio', 0) * 100) }}</td>
+        <td>{{ r.counts.get('excluded', '—') }}</td>
+        <td>{{ r.input_tokens + r.output_tokens }}</td>
+        <td>${{ '%.4f' % r.cost_usd }}</td>
+        <td>{% if r.validated_at %}<span class="pill ok">✓</span>{% else %}<span class="pill mut">—</span>{% endif %}</td>
+        <td><a href="/runs/{{ r.id }}">View →</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="10" class="sub">No runs yet. Run one above.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

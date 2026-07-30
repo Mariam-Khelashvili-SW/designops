@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "designops",
+      "runtimeExecutable": ".venv/bin/uvicorn",
+      "runtimeArgs": ["designops.api.main:app", "--port", "8077", "--reload"],
+      "port": 8077
+    }
+  ]
+}

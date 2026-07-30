@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Pipelines — Design Ops{% endblock %}
+{% block body %}
+<h1>Pipelines</h1>
+<p class="sub">Behaviour lives in versioned skill files in git. This screen edits configuration only (§0).</p>
+
+{% for d in pipelines %}
+{% set p = d.p %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+    <div>
+      <b style="font-size:15px">{{ p.name }}</b> <code>{{ p.key }}</code>
+      {% if p.go_live %}<span class="pill red">go-live</span>{% else %}<span class="pill mut">go_live: false — nothing sent</span>{% endif %}
+    </div>
+    <div class="sub">
+      {% if d.last %}last run {{ d.last.started_at | dt }} · <span class="pill {{ d.last.status }}">{{ d.last.status }}</span>{% else %}never run{% endif %}
+    </div>
+  </div>
+  <p class="sub">{{ p.description }}</p>
+  <p class="sub">Skill: <code>{{ p.skill_path }}</code> · ingest <code>{{ p.config.get('ingest_cron','—') }}</code> · source <code>{{ p.config.get('source_mode','fairwind') }}</code></p>
+
+  <form method="post" action="/pipelines/{{ p.key }}" class="row" style="margin-top:6px">
+    <div><label>Synthesis schedule (cron)</label><input name="schedule_cron" value="{{ p.schedule_cron or '' }}" style="width:150px"></div>
+    <div><label>Recipients (comma-sep)</label><input name="recipients" value="{{ p.recipients | join(', ') }}" style="width:230px"></div>
+    <div><label>Send mode</label>
+      <select name="send_mode">
+        {% for m in ['none','self','draft','send'] %}
+        <option value="{{ m }}" {{ 'selected' if p.send_mode==m }}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><label>Enabled</label>
+      <select name="enabled"><option value="on" {{ 'selected' if p.enabled }}>on</option><option value="off" {{ 'selected' if not p.enabled }}>off</option></select>
+    </div>
+    <button class="btn sm" type="submit">Save</button>
+  </form>
+  <p class="sub" style="margin-top:8px">Send mode is stored, but no email leaves the system until <code>go_live</code> is promoted — a deliberate gate, not editable here (§12.4).</p>
+
+  {% if p.key in ['daily-digest', 'weekly-backlog', 'weekly-health'] %}
+  <form method="post" action="/pipelines/{{ p.key }}/run" class="row" style="margin-top:10px;border-top:1px solid #f1f2f4;padding-top:12px">
+    {% if p.key == 'weekly-health' %}
+    <div><label>Snapshot</label><p class="sub" style="margin:2px 0 0">Always as of today</p></div>
+    {% else %}
+    <div><label>{% if p.key == 'weekly-backlog' %}Week of (Monday){% else %}On-demand report date{% endif %}</label><input type="date" name="report_date" required></div>
+    {% endif %}
+    <button class="btn sm ghost" type="submit">Run now →</button>
+  </form>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

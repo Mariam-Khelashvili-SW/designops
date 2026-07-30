@@ -1,0 +1,144 @@
+# Roster — Olga's design team (§3: curated, git-seeded, DB-stored, UI-edited).
+#
+# IDENTITY IS EMAIL-FIRST (§2 fix #1/#3/#8, §11.3). display_aliases are for rendering
+# and reconciling transliterations ONLY — never for matching. Matching is on `emails`
+# / `jira_account_id`, exact, never substring.
+#
+# NAMES derived from the 17 Jul 2026 design contract (design-daily-2026-07-17-v8.html):
+# the nine active designers who appear in that reference digest, plus Agnese Čākure
+# (status OUT, §2 fix #7). This resolves the surnames the spec left open (Kirill
+# Rogovets, Maarja Truu) and adds Arturs Boroviks + Dorota Umiastowska.
+#
+# §9.3 / §11.3 — RESOLVED 28 Jul 2026: all nine active-designer emails were confirmed
+# by the team owner AND resolved to Jira accountIds via GET /user/search, so they are
+# identity_verified: true with jira_account_id pinned here (the seed owns these fields;
+# leaving them out would wipe runtime-resolved IDs on re-seed). Only Agnese (status=out,
+# not in the confirmed list) remains unverified.
+
+people:
+  - full_name: "Arturs Boroviks"
+    emails: ["arturs.boroviks@scandiweb.com"]        # confirmed by owner 28 Jul 2026
+    jira_account_id: "5bd967d73aa82432ce72c26e"
+    display_aliases: ["Arturs Boroviks", "Arturs"]
+    role: "Designer"
+    status: active
+    squad: "Design"
+    identity_verified: true
+    notes: "Reported 17 Jul on Acer (PLP pages/components)."
+
+  - full_name: "Dorota Umiastowska"
+    emails: ["dorota.umiastowska@scandiweb.com"]     # confirmed by owner 28 Jul 2026
+    jira_account_id: "712020:b0b7e92a-96a6-4280-ab87-f22af7d4232c"
+    display_aliases: ["Dorota Umiastowska", "Dorota"]
+    role: "Designer"
+    status: active
+    squad: "Design"
+    identity_verified: true
+    notes: "Reported 17 Jul on Acer + Sports Group Denmark."
+
+  - full_name: "Elene Chekurishvili"
+    emails: ["elene.chekurishvili@scandiweb.com"]    # confirmed by owner 28 Jul 2026
+    jira_account_id: "712020:99a1ff7e-9d63-4a1e-8c32-974b1abbf622"
+    display_aliases: ["Elene Chekurishvili", "Elene C", "Elene"]
+    role: "Designer (Creatives)"
+    status: active
+    squad: "Design"
+    identity_verified: true
+    notes: "§2 fix #8 / §11.3: MUST NOT collide with Elene Minashvili (PM). Guarded below. Carries 17 Jul's blocker (Furniture Trader) + escalation (Redeker)."
+
+  - full_name: "Kirill Rogovets"
+    emails: ["kirill.rogovets@scandiweb.com"]        # confirmed by owner 28 Jul 2026
+    jira_account_id: "61f7ef4ef5f5b80070c66b4e"
+    display_aliases: ["Kirill Rogovets", "Kirill"]
+    role: "Designer"
+    status: active
+    squad: "Design"
+    identity_verified: true
+    notes: "Reported 17 Jul on University of Michigan (Base Template). §11.1 also links Kirill to Wienerberger (WIEND)."
+
+  - full_name: "Predrag Gavrilovikj"
+    emails: ["predrag.gavrilovikj@scandiweb.com"]    # confirmed by owner 28 Jul 2026; §10.3 test subject
+    jira_account_id: "712020:b8a6e111-b8d7-4715-861b-4bedcf6babf1"
+    display_aliases: ["Predrag Gavrilovikj", "Predrag"]
+    role: "Designer"
+    status: active
+    squad: "Design"
+    identity_verified: true
+    notes: "§11.2 — zero Fairwind SEARCH hits over 60 days, yet highest-output on 17 Jul (Northerner). Test subject for the §10.3 gate."
+
+  - full_name: "Vlad Shemetovets"
+    emails: ["vlad.shemetovets@scandiweb.com"]       # confirmed by owner 28 Jul 2026
+    jira_account_id: "6245699ced4d6b0070134c5c"
+    display_aliases: ["Vlad Shemetovets", "Vlad", "Vladlens SW"]
+    role: "Designer"
+    status: active
+    squad: "Design"
+    identity_verified: true
+    notes: "17 Jul: active in Predrag's work, no direct report. Collides with Vladislavs Piscikovs, Vladyslav Ivashchenko (§11.3)."
+
+  - full_name: "Maarja Truu"
+    emails: ["maarja.truu@scandiweb.com"]            # confirmed by owner 28 Jul 2026
+    jira_account_id: "712020:edc8936c-e0e8-4cb5-a4b4-8b0fb9df7bd9"
+    display_aliases: ["Maarja Truu", "Maarja"]
+    role: "Designer"
+    status: active
+    squad: "Design"
+    identity_verified: true
+    notes: "17 Jul: no report (silent since 13 Jul). §11.1 links Maarja to Wienerberger design."
+
+  - full_name: "Mariam Makharadze"
+    emails: ["mariam.makharadze@scandiweb.com"]      # corpus + owner confirmed 28 Jul 2026
+    jira_account_id: "61f7928dc6bd1a006918be23"
+    display_aliases: ["Mariam Makharadze", "Mariam"]
+    role: "Designer"
+    status: active
+    squad: "Design"
+    identity_verified: true
+    notes: "Collides with Mariami Tetradze (PM). 17 Jul: no daily this month."
+
+  - full_name: "Tamari Giunashvili"
+    emails: ["tamari.giunashvili@scandiweb.com"]     # corpus + owner confirmed 28 Jul 2026
+    jira_account_id: "624fea762e101c006a935cff"
+    display_aliases: ["Tamari Giunashvili", "Tamari"]
+    role: "Designer"
+    status: active
+    squad: "Design"
+    identity_verified: true
+    notes: "Collides with Tako Okruashvili, Salome Tevdorashvili. 17 Jul: last report 2 Jul."
+
+  - full_name: "Agnese Čākure"
+    emails: ["agnese.cakure@scandiweb.com"]          # DERIVED — verify
+    jira_account_id: null
+    display_aliases: ["Agnese Čākure", "Agnese Cakure", "Agnese"]
+    role: "Designer"
+    status: out                                      # §2 fix #7 — one source of truth for status
+    squad: "Design"
+    identity_verified: false
+    notes: "CONFIG said 'OUT'. Not counted in coverage while status=out. Confirm current status (§9.3)."
+
+# ---------------------------------------------------------------------------
+# Identity guards (§2 fix #8, §11.3) — NON-roster people who collide by display
+# name. Loaded as decoys the scope-filter test asserts NEVER enter the corpus.
+# They are NOT inserted into `person`; they exist so email-first matching is proven
+# to exclude them even when their display name matches a roster alias.
+identity_guards:
+  - full_name: "Elene Minashvili"
+    email: "elene.minashvili@scandiweb.com"
+    role: "PM"
+    collides_with: "Elene Chekurishvili"
+    seen_in: ["Felco", "Jollyes", "Sportland"]
+  - full_name: "Mariami Tetradze"
+    email: "mariami.tetradze@scandiweb.com"
+    role: "PM"
+    collides_with: "Mariam Makharadze"
+    seen_in: ["Moon Climbing", "Vapo"]
+  - full_name: "Vladislavs Piscikovs"
+    email: "vladislavs.piscikovs@scandiweb.com"
+    role: "Dev"
+    collides_with: "Vlad Shemetovets"
+    seen_in: ["Sportland", "Legeakademiet"]
+  - full_name: "Tako Okruashvili"
+    email: "tako.okruashvili@scandiweb.com"
+    role: "PM"
+    collides_with: "Tamari Giunashvili"
+    seen_in: ["Enviropack", "Everything Wine"]

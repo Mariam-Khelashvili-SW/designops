@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Daily report — Design Ops{% endblock %}
+{% block body %}
+<h1>Daily report</h1>
+<p class="sub">
+  Pick a day. For every enabled account we pull that day's Fairwind export, search the internal
+  threads for the design team's daily reports, cross-check Jira, and compose Olga's digest.
+</p>
+
+{% if not anthropic_ready %}
+<div class="banner warn">
+  No <code>ANTHROPIC_API_KEY</code> set, so the model can't compose new reports yet. 17 Jul 2026 still
+  renders from the recorded reference; other dates will show a failed run until the key is in
+  <code>.env</code>.
+</div>
+{% endif %}
+
+{% if google_flash == 'connected' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Google connected{% if google_email %} as <b>{{ google_email }}</b>{% endif %}. Reports can now be emailed.</div>
+{% elif google_flash == 'disconnected' %}<div class="banner" style="background:#eef0f3;border:1px solid #dfe2e7;color:#5b6470">Google disconnected.</div>
+{% elif google_flash == 'error' %}<div class="banner warn">Google connection failed: {{ google_msg or 'unknown error' }}</div>
+{% elif google_flash == 'notconfigured' %}<div class="banner warn">Google OAuth isn't set up yet — add <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code> first.</div>
+{% endif %}
+
+<div class="card">
+  <h1 style="font-size:16px;margin-bottom:2px">Delivery</h1>
+  {% if google_connected %}
+    <p class="sub" style="margin-bottom:8px"><span class="pill ok">Gmail connected</span>
+      {% if google_email %}as <b>{{ google_email }}</b>{% endif %} · reports email to {{ owner_email }}.</p>
+    <form method="post" action="/settings/google/disconnect" style="display:inline">
+      <button class="btn ghost sm" type="submit">Disconnect</button>
+    </form>
+  {% elif google_configured %}
+    <p class="sub" style="margin-bottom:8px">Connect your Google account to send reports securely (no password stored).</p>
+    <a class="btn" href="/settings/google/connect">Connect Google</a>
+  {% else %}
+    <p class="sub">To email reports, either connect Google (add <code>GOOGLE_CLIENT_ID</code> /
+      <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code>, then a Connect button appears here)
+      {% if smtp_ready %}— or the SMTP app password is set and ready{% else %}or set a Gmail app password{% endif %}.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h1 style="font-size:16px;margin-bottom:2px">Daily schedule</h1>
+  <p class="sub">Each working day, generate the previous day's report (2-day export window) and — if delivery is on — email it to the recipients. Runs on the in-app scheduler, so the server must be running.</p>
+  {% if flash == 'schedule_saved' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Schedule saved{% if sched_next %} · next run {{ sched_next }}{% endif %}.</div>{% endif %}
+  <form method="post" action="/daily-report/schedule" class="row" style="align-items:flex-end;gap:14px">
+    <div><label>Time (Riga)</label><input type="time" name="sched_time" value="{{ sched_time }}"></div>
+    <div><label>Days</label>
+      <select name="days">
+        <option value="weekdays" {{ 'selected' if sched_days=='weekdays' }}>Weekdays</option>
+        <option value="all" {{ 'selected' if sched_days=='all' }}>Every day</option>
+      </select>
+    </div>
+    <div><label>Delivery</label>
+      <select name="send_mode">
+        <option value="none" {{ 'selected' if sched_send=='none' }}>Generate only</option>
+        <option value="send" {{ 'selected' if sched_send=='send' }}>Email recipients</option>
+      </select>
+    </div>
+    <div style="flex:1;min-width:240px"><label>Recipients (comma-separated)</label>
+      <input type="text" name="recipients" value="{{ sched_recipients }}" placeholder="olga@scandiweb.com, …" style="width:100%"></div>
+    <div><label style="display:flex;align-items:center;gap:6px;margin-top:14px"><input type="checkbox" name="enabled" {{ 'checked' if sched_enabled }} style="width:auto"> On</label></div>
+    <button class="btn" type="submit">Save</button>
+  </form>
+  <p class="sub" style="margin-top:8px">
+    {% if sched_enabled and sched_next %}⏰ Next run <b>{{ sched_next }}</b>{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
+    {% elif sched_enabled %}Enabled.{% else %}Off — nothing runs automatically.{% endif %}
+    {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ Connect Google above to actually send.</span>{% endif %}
+  </p>
+</div>
+
+<div class="card">
+  <h1 style="font-size:16px;margin-bottom:2px">Generate a report</h1>
+  <p class="sub">One account export per enabled account, then one model call. This runs synchronously —
+  the page waits until the digest is ready, then opens it.</p>
+  <form method="post" action="/daily-report/run" class="row" style="align-items:flex-end">
+    <div>
+      <label>Report date</label>
+      <input type="date" name="report_date" value="{{ default_date }}" required>
+    </div>
+    <div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:14px">
+        <input type="checkbox" name="reuse_ingest" checked style="width:auto">
+        Reuse the day's export if already pulled
+      </label>
+    </div>
+    <button class="btn" type="submit">Generate report →</button>
+  </form>
+  <p class="sub" style="margin-top:10px">
+    Pulls <b>{{ enabled | length }}</b> enabled account(s) ·
+    {% for t in data_types %}<code>{{ t }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+  </p>
+</div>
+
+<div class="row" style="align-items:stretch;gap:16px">
+  <div class="card" style="flex:1;min-width:280px">
+    <h1 style="font-size:15px;margin-bottom:2px">Accounts in the report ({{ enabled | length }})</h1>
+    <p class="sub">The design-program accounts you've enabled. <a href="/accounts">Manage →</a></p>
+    {% if enabled %}
+      <table>
+        <tbody>
+        {% for a in enabled %}
+          <tr><td><b>{{ a.name }}</b></td>
+              <td class="sub mono">{{ a.jira_project_keys[:3] | join(', ') }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="sub">None enabled yet. <a href="/accounts">Enable accounts →</a></p>
+    {% endif %}
+  </div>
+
+  <div class="card" style="flex:1;min-width:280px">
+    <h1 style="font-size:15px;margin-bottom:2px">Design team searched ({{ team | length }})</h1>
+    <p class="sub">Whose daily reports we look for in the internal threads. Matched by email, never name.
+      <a href="/config">Edit →</a></p>
+    <table>
+      <thead><tr><th>Name</th><th>Role</th><th>Status</th></tr></thead>
+      <tbody>
+      {% for p in team %}
+        <tr>
+          <td><b>{{ p.full_name }}</b>{% if p.emails %}<br><span class="sub mono">{{ p.emails[0] }}</span>{% endif %}</td>
+          <td class="sub">{{ p.role or '—' }}</td>
+          <td>{% if p.status == 'active' %}<span class="pill ok">active</span>
+              {% elif p.status == 'on_leave' %}<span class="pill mut">on leave</span>
+              {% else %}<span class="pill mut">{{ p.status }}</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h1 style="font-size:15px;margin-bottom:2px">Recent reports</h1>
+  {% if recent %}
+  <table>
+    <thead><tr><th>Date</th><th>Run</th><th>Status</th><th>Reported</th><th></th></tr></thead>
+    <tbody>
+    {% for r in recent %}
+      <tr>
+        <td class="mono">{{ r.report_date }}</td>
+        <td class="sub">{{ r.started_at | dt }}</td>
+        <td><span class="pill {{ r.status }}">{{ r.status }}</span></td>
+        <td class="sub">{{ r.counts.get('reported', '—') if r.counts else '—' }}</td>
+        <td><a href="/runs/{{ r.id }}">Open →</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="sub">No reports generated yet.</p>
+  {% endif %}
+</div>
+
+{% if recent | selectattr('status', 'equalto', 'running') | list %}
+<script>setTimeout(function(){ location.reload(); }, 4000);</script>
+{% endif %}
+{% endblock %}

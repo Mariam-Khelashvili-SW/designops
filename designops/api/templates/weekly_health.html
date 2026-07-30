@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Weekly health — Design Ops{% endblock %}
+{% block body %}
+<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:4px">
+  <div>
+    <h1 style="margin:0">Weekly Project Health &amp; Budget</h1>
+    <p class="sub" style="margin:4px 0 0;max-width:54ch">
+      Monday brief for Olga — design-only burn vs signed estimate, hygiene, and client-action ageing. Report only.
+    </p>
+  </div>
+</div>
+
+{% if not jira_ready %}
+<div class="banner warn">
+  No Jira credentials — set <code>JIRA_BASE_URL</code>, <code>JIRA_EMAIL</code>, and
+  <code>JIRA_API_TOKEN</code> in <code>.env</code>. Without them, burn tables stay empty.
+</div>
+{% endif %}
+{% if not anthropic_ready %}
+<div class="banner warn">
+  No <code>ANTHROPIC_API_KEY</code> — health lines fall back to code-side status/time checks.
+</div>
+{% endif %}
+
+<div class="card">
+  <h1 style="font-size:16px;margin-bottom:2px">Tracked projects</h1>
+  <p class="sub">Allowlisted via <code>track_weekly_health</code> on the project registry.</p>
+  {% if tracked %}
+  <table>
+    <thead><tr><th>Project</th><th>Jira</th><th>Signed est.</th><th>Subtitle</th></tr></thead>
+    <tbody>
+    {% for t in tracked %}
+      <tr>
+        <td>{{ t.canonical_name }}</td>
+        <td><code>{{ t.jira_project_key or '—' }}</code></td>
+        <td>{% if t.signed_design_estimate_h is not none %}{{ t.signed_design_estimate_h|int }}h{% else %}n/a{% endif %}</td>
+        <td class="sub">{{ t.display_subtitle or '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="sub">No projects flagged yet — run <code>python -m scripts.seed</code> after migrating.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h1 style="font-size:16px;margin-bottom:2px">Monday schedule</h1>
+  <p class="sub">Fires Mondays (Europe/Riga). Reports the week that just ended (Mon–Fri).</p>
+  {% if flash == 'schedule_saved' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Schedule saved{% if sched_next %} · next run {{ sched_next }}{% endif %}.</div>{% endif %}
+  <form method="post" action="/weekly-health/schedule" class="row" style="align-items:flex-end;gap:14px">
+    <div><label>Time (Riga, Mondays)</label><input type="time" name="sched_time" value="{{ sched_time }}"></div>
+    <div><label>Delivery</label>
+      <select name="send_mode">
+        <option value="none" {{ 'selected' if sched_send=='none' }}>Generate only</option>
+        <option value="send" {{ 'selected' if sched_send=='send' }}>Email recipients</option>
+      </select>
+    </div>
+    <div style="flex:1;min-width:240px"><label>Recipients (comma-separated)</label>
+      <input type="text" name="recipients" value="{{ sched_recipients }}" placeholder="olga@scandiweb.com, …" style="width:100%"></div>
+    <div><label style="display:flex;align-items:center;gap:6px;margin-top:14px"><input type="checkbox" name="enabled" {{ 'checked' if sched_enabled }} style="width:auto"> On</label></div>
+    <button class="btn" type="submit">Save</button>
+  </form>
+  <p class="sub" style="margin-top:8px">
+    {% if sched_enabled and sched_next %}⏰ Next run <b>{{ sched_next }}</b>{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
+    {% elif sched_enabled %}Enabled.{% else %}Off — nothing runs automatically.{% endif %}
+    {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ Connect Google on Daily report to actually send.</span>{% endif %}
+  </p>
+</div>
+
+<div class="card">
+  <h1 style="font-size:16px;margin-bottom:2px">Generate a health brief</h1>
+  <p class="sub">Snapshot as of today ({{ today_label }}) — latest Jira burn + Fairwind client comms from the last 7 days.</p>
+  <form method="post" action="/weekly-health/run" class="row" style="align-items:flex-end">
+    <div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:14px">
+        <input type="checkbox" name="reuse_ingest" checked style="width:auto">
+        Reuse Fairwind export if already pulled (commercial + week emails)
+      </label>
+    </div>
+    <button class="btn" type="submit">Generate health report →</button>
+  </form>
+</div>
+
+<div class="card">
+  <h1 style="font-size:15px;margin-bottom:2px">Recent health runs</h1>
+  {% if recent %}
+  <table>
+    <thead><tr><th>As of</th><th>Started</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for r in recent %}
+      <tr>
+        <td>{{ r.report_date }}</td>
+        <td>{{ r.started_at | dt }}</td>
+        <td><span class="pill {{ r.status }}">{{ r.status }}</span></td>
+        <td><a href="/runs/{{ r.id }}">Open →</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="sub">No health runs yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

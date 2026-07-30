@@ -1,0 +1,17 @@
+# NEVER ship local secrets or state into the image
+.env
+.env.*
+var/                 # local corpus store AND var/google_oauth.json (the refresh token!)
+
+# dev cruft
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.git/
+.gitignore
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.DS_Store

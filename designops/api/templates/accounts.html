@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Accounts — Design Ops{% endblock %}
+{% block body %}
+<h1>Accounts</h1>
+<p class="sub">
+  {{ active }} active accounts (of {{ total }} synced · {{ enabled }} enabled for the daily digest).
+  Pick a date range and pull a Fairwind export for any one account, on demand.
+</p>
+
+{% if not fairwind_configured %}
+<div class="banner warn">
+  Fairwind credentials aren't loaded. Set <code>FW_CLIENT_ID</code> / <code>FW_CLIENT_SECRET</code>
+  in <code>.env</code> before exporting.
+</div>
+{% endif %}
+
+<div class="banner" style="background:#eef0fb;border:1px solid #ccd0ec;color:#333">
+  Each export pulls
+  {% for t in data_types %}<code>{{ t }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+  for the selected account and range. It runs synchronously (create → poll → download), so the
+  page waits until Fairwind returns. Raw payloads are cached to the corpus store.
+</div>
+
+<div class="card">
+  <input id="q" type="search" placeholder="Filter by name, domain, or Jira key…"
+         style="width:100%;margin-bottom:12px" oninput="filterRows()">
+  {% if accounts %}
+  <table id="acct-table">
+    <thead><tr>
+      <th>Account</th><th>Domains</th><th>Jira keys</th><th>In daily report</th>
+      <th style="width:340px">One-off export</th>
+    </tr></thead>
+    <tbody>
+    {% for a in accounts %}
+      <tr data-search="{{ (a.name ~ ' ' ~ (a.domains | join(' ')) ~ ' ' ~ (a.jira_project_keys | join(' '))) | lower }}">
+        <td><b>{{ a.name }}</b><br><span class="sub mono">{{ a.fairwind_account_id }}</span></td>
+        <td class="sub">{{ a.domains | join(', ') or '—' }}</td>
+        <td class="sub mono">{{ a.jira_project_keys[:4] | join(', ') or '—' }}</td>
+        <td>
+          <form method="post" action="/accounts/{{ a.fairwind_account_id }}/enable">
+            {% if a.digest_enabled %}
+              <input type="hidden" name="enable" value="off">
+              <button class="btn sm" type="submit" title="Remove from the daily report"
+                style="background:#e5f6f2;color:#0f8a7e;border:1px solid #9fd9cf">✓ Enabled</button>
+            {% else %}
+              <input type="hidden" name="enable" value="on">
+              <button class="btn sm ghost" type="submit" title="Include in the daily report">Enable</button>
+            {% endif %}
+          </form>
+        </td>
+        <td>
+          <form method="post" action="/accounts/{{ a.fairwind_account_id }}/export" class="row" style="gap:8px">
+            <div>
+              <label>From</label>
+              <input type="date" name="date_from" value="{{ default_from }}" required>
+            </div>
+            <div>
+              <label>To</label>
+              <input type="date" name="date_to" value="{{ default_to }}" required>
+            </div>
+            <button class="btn sm" type="submit"{% if not fairwind_configured %} disabled{% endif %}>Export</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="sub" id="count" style="margin-top:10px">{{ active }} accounts</p>
+  {% else %}
+  <p class="sub">No active accounts. Run <code>python -m scripts.sync_accounts</code> to populate the directory.</p>
+  {% endif %}
+</div>
+
+<script>
+  function filterRows() {
+    var q = document.getElementById('q').value.trim().toLowerCase();
+    var rows = document.querySelectorAll('#acct-table tbody tr');
+    var shown = 0;
+    rows.forEach(function (r) {
+      var hit = !q || r.getAttribute('data-search').indexOf(q) !== -1;
+      r.style.display = hit ? '' : 'none';
+      if (hit) shown++;
+    });
+    document.getElementById('count').textContent = shown + ' accounts';
+  }
+</script>
+{% endblock %}

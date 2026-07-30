@@ -1,0 +1,22 @@
+# Local Postgres 16 for development. `docker compose up -d db`.
+# Port 5435 on the host to avoid clashing with system Postgres (5432/5433)
+# and transcript-processor (5434).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: designops
+      POSTGRES_PASSWORD: designops
+      POSTGRES_DB: designops
+    ports:
+      - "5435:5432"
+    volumes:
+      - designops_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U designops"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  designops_pgdata:

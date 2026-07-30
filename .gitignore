@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env & secrets — NEVER commit FW_CLIENT_SECRET / ANTHROPIC_API_KEY
+.env
+.env.*
+!.env.example
+
+# Local data / cached export payloads
+/var/
+/data/exports/
+*.sqlite
+*.db
+
+# OS
+.DS_Store

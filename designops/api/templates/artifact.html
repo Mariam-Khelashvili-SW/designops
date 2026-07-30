@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run.report_date }} — Design Ops{% endblock %}
+{% block body %}
+<h1>Digest — {{ run.report_date }}
+  <span class="pill {{ run.status }}">{{ run.status }}</span>
+  {% if run.note %}<span class="pill mut">{{ run.skill_version }}</span>{% endif %}
+</h1>
+<p class="sub">
+  Started {{ run.started_at | dt }} · read {{ run.counts.get('read', 0) }},
+  included {{ run.counts.get('included', 0) }}, excluded {{ run.counts.get('excluded', 0) }}.
+  {% if run.note %}<br>{{ run.note }}{% endif %}
+</p>
+
+{% if run.status == 'running' %}
+<div class="banner" style="background:#e8f0fb;border:1px solid #ccd0ec;color:#1d5fb0">
+  <span class="spin"></span><b>Generating…</b> pulling the day's exports and composing the digest.
+  This page refreshes itself — you can leave and come back.
+</div>
+<script>setTimeout(function(){ location.reload(); }, 3000);</script>
+{% endif %}
+
+{% if run.error %}
+<div class="banner warn"><b>Run failed:</b> {{ run.error }} — no partial digest was produced (§6.6).</div>
+{% endif %}
+
+{% if sent == 'ok' %}
+<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">
+  ✓ Sent to <b>{{ sent_to or owner_email }}</b>.
+</div>
+{% elif sent == 'error' %}
+<div class="banner warn">Couldn't send: {{ sent_msg or 'unknown error' }}</div>
+{% endif %}
+
+{% if run.status not in ('running',) and not run.error %}
+<div style="margin-bottom:16px">
+  <form method="post" action="/runs/{{ run.id }}/email" class="row" style="gap:8px;align-items:flex-end">
+    <div>
+      <label>Send report to (comma-separated for multiple)</label>
+      <input type="text" name="recipient" value="{{ owner_email }}"
+             placeholder="olga@company.com, liana@company.com"
+             required style="min-width:360px">
+    </div>
+    <button class="btn" type="submit"{% if not can_send %} disabled{% endif %}>Send</button>
+  </form>
+  {% if not can_send %}<p class="sub" style="margin-top:6px">Connect Google or set a Gmail app password on the <a href="/daily-report">Daily report</a> page to enable sending.</p>{% endif %}
+</div>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:1.15fr .95fr;gap:16px;align-items:start">
+
+  <!-- PANE 1 — rendered digest -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--line);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)">1 · Rendered digest</div>
+    {% if run.status == 'running' %}
+    <div class="sub" style="padding:40px 16px;text-align:center"><span class="spin"></span> Composing the digest…</div>
+    {% elif not run.error %}
+    <iframe src="/runs/{{ run.id }}/digest" style="width:100%;height:640px;border:none"></iframe>
+    {% else %}
+    <div class="sub" style="padding:16px">No digest — run failed.</div>
+    {% endif %}
+  </div>
+
+  <div>
+    <!-- PANE 3 — coverage + flags -->
+    <div class="card">
+      <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:8px">3 · Coverage &amp; flags</div>
+      <table>
+        <tr><td>Roster coverage</td><td><b>{{ '%.0f%%' % (run.counts.get('coverage_ratio',0)*100) }}</b> ({{ run.counts.get('reported',0) }} reported, {{ run.counts.get('silent',0) }} silent)</td></tr>
+        <tr><td>Duplicates collapsed</td><td>{{ run.counts.get('duplicates', 0) }}</td></tr>
+        <tr><td>Unmatched projects</td><td>{{ run.counts.get('unmatched_projects', 0) }}</td></tr>
+        <tr><td>Tokens / cost</td><td>{{ run.input_tokens + run.output_tokens }} · ${{ '%.4f' % run.cost_usd }}</td></tr>
+      </table>
+      {% if flags %}
+      <div style="margin-top:10px">
+        {% for f in flags %}
+        <div style="margin:6px 0;font-size:12.5px"><span class="pill {{ 'red' if f.type in ('blocker','ingest_gap') else 'blue' }}">{{ f.type }}</span> {{ f.body }}</div>
+        {% endfor %}
+      </div>
+      {% else %}<p class="sub" style="margin:8px 0 0">No flags.</p>{% endif %}
+    </div>
+
+    <!-- validation / sign-off (§12.4) -->
+    <div class="card">
+      <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:8px">Sign-off</div>
+      {% if run.validated_at %}
+        <p style="margin:0"><span class="pill ok">Validated</span> by {{ run.validated_by }} at {{ run.validated_at | dt }}.<br>
+        {% if run.validation_note %}<span class="sub">{{ run.validation_note }}</span>{% endif %}</p>
+      {% else %}
+      <form method="post" action="/runs/{{ run.id }}/validate">
+        <input name="validation_note" placeholder="Validation note (optional)" style="width:100%;margin-bottom:8px">
+        <button class="btn sm" type="submit">Mark validated</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- PANE 2 — input corpus with verdicts -->
+<div class="card">
+  <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:8px">2 · Input corpus — what was read, and what was dropped &amp; why (§5)</div>
+  <table>
+    <thead><tr><th>Verdict</th><th>Source</th><th>Person</th><th>Project</th><th>Date</th><th>Title / external id</th></tr></thead>
+    <tbody>
+    {% for d in docs %}
+      <tr>
+        <td>{% if d.included %}<span class="pill ok">included</span>{% else %}<span class="pill mut">{{ d.exclusion_reason }}</span>{% endif %}</td>
+        <td>{{ d.source }}</td>
+        <td>{{ people.get(d.person_id, '—') }}</td>
+        <td>{{ projects.get(d.project_id, '—') }}</td>
+        <td class="mono">{{ d.event_date }}</td>
+        <td>{{ d.title or '' }} <span class="sub mono">{{ d.external_id }}</span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

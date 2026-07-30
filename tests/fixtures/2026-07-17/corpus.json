@@ -1,0 +1,64 @@
+{
+  "_comment": "Ingested (pre-filter) corpus for 17 Jul 2026. Five roster dailies that survive the filter, plus decoys that each demonstrate one exclusion reason. The four no-report designers (Mariam, Tamari, Maarja, Vlad) deliberately produce no records. Bodies are faithful to design-daily-2026-07-17-v8.html so a live LLM run can reproduce the golden digest.",
+  "documents": [
+    {"_path": "emails/internal", "account_id": "acer",
+     "from": "arturs.boroviks@scandiweb.com", "event_date": "2026-07-17",
+     "message_id": "<arturs-20260717@scandiweb.com>",
+     "subject": "Daily — Arturs", "project": "Acer",
+     "body": "Acer: Started PLP pages; built PLP components (product pods, filters); shared updates; catch-up with Dorota. Monday: continue PLP + components; client kick-off — present Base Template & Homepage."},
+
+    {"_path": "emails/internal", "account_id": "acer",
+     "from": "dorota.umiastowska@scandiweb.com", "event_date": "2026-07-17",
+     "message_id": "<dorota-20260717@scandiweb.com>",
+     "subject": "Daily — Dorota", "project": "Acer",
+     "body": "Acer: Client call; adjusting registration, cart and CMS pages; client comms via Figma. Monday: call with Acer; My Account. Sports Group Denmark: Finished PLP; started PDP; scheduled a QA call for Monday with Viktoria. Monday: internal call about the Club Portal."},
+
+    {"_path": "emails/internal", "account_id": "felco",
+     "from": "elene.chekurishvili@scandiweb.com", "event_date": "2026-07-17",
+     "message_id": "<elene-20260717@scandiweb.com>",
+     "subject": "Daily — Elene", "project": "Felco",
+     "body": "Felco: Finalised all July creatives and email creatives; internal comms; FELCO colours landing page + feedback changes. The Furniture Trader: Finished the My Account designs. Blocker: I think tickets aren't up yet to log time — I can't log my time against them. Reuzel: Emails finished and shared with the client; second part (14 new) planned for mid next week. Redeker Aesthetics: Made two videos for socials. I didn't have much time to start UI for the wireframe, because Felco and Reuzel were the priorities."},
+
+    {"_path": "emails/internal", "account_id": "uom",
+     "from": "kirill.rogovets@scandiweb.com", "event_date": "2026-07-17",
+     "message_id": "<kirill-20260717@scandiweb.com>",
+     "subject": "Daily — Kirill", "project": "University of Michigan",
+     "body": "University of Michigan: Continued working on the Base Template. Monday: finalise the Base Template; start the Home Page."},
+
+    {"_path": "emails/internal", "account_id": "northerner",
+     "from": "predrag.gavrilovikj@scandiweb.com", "event_date": "2026-07-17",
+     "message_id": "<predrag-20260717@scandiweb.com>",
+     "subject": "Daily — Predrag", "project": "Northerner",
+     "body": "Northerner / Nicokick: Finished the Subscription landing page; wrapped PLP filters & sorting; prepped breakpoint aspect ratios (360/1170/1440/1920); aligned with Vlad; sent everything to the US team (Joe). Monday: finish aspect ratios to the US team; wrap the Friend Referral page."},
+
+    {"_path": "emails/internal", "account_id": "felco",
+     "from": "elene.minashvili@scandiweb.com", "event_date": "2026-07-17",
+     "message_id": "<minashvili-pm-20260717@scandiweb.com>",
+     "subject": "PM update — Felco timeline", "project": "Felco",
+     "body": "DECOY: PM status update. Must be excluded (not_in_roster) — Elene Minashvili is a PM, not the designer Elene Chekurishvili."},
+
+    {"_path": "emails/internal", "account_id": "acer",
+     "from": "some.dev@scandiweb.com", "event_date": "2026-07-17",
+     "message_id": "<dev-20260717@scandiweb.com>",
+     "subject": "Dev daily — deploy notes", "project": "Acer",
+     "body": "DECOY: developer daily. Must be excluded (not_in_roster)."},
+
+    {"_path": "emails/internal", "account_id": "northerner",
+     "from": "predrag.gavrilovikj@scandiweb.com", "event_date": "2026-07-20",
+     "message_id": "<predrag-monday-20260720@scandiweb.com>",
+     "subject": "Monday plan", "project": "Northerner",
+     "body": "DECOY: dated 20 Jul (Monday). Must be excluded (after_report_day) from a 17 Jul digest."},
+
+    {"_path": "jira", "account_id": "furniture-trader",
+     "assignee_account_id": "acct-unknown-pm", "event_date": "2026-07-17",
+     "id": "FT-TIMELOG-1", "issue_type": "Time Logs", "jira_project_key": "FT",
+     "title": "Time Logs bucket (non-roster assignee)",
+     "body": "DECOY: a Jira ticket whose assignee is not a roster designer. Excluded not_in_roster. (The time_log_bucket exclusion itself is covered by test_time_log_bucket_excluded, which needs a seeded jira_account_id.)"},
+
+    {"_path": "emails/internal", "account_id": "reuzel",
+     "from": "elene.chekurishvili@scandiweb.com", "event_date": "2026-07-17",
+     "message_id": "<elene-20260717@scandiweb.com>",
+     "subject": "Daily — Elene (copy under Reuzel export)", "project": "Reuzel",
+     "body": "DECOY: same Message-ID as Elene's daily, arriving under a second account export. Must be collapsed (duplicate_of)."}
+  ]
+}

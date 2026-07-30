@@ -1,0 +1,29 @@
+[project]
+name = "designops"
+version = "0.1.0"
+description = "Design Ops Pipeline App — A1 Daily Ops Digest (v1)"
+requires-python = ">=3.12"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["ignore::DeprecationWarning"]
+# Scope-filter tests must be runnable without Postgres or any network:
+#   pytest -m "not db and not llm and not fairwind and not jira"
+markers = [
+    "db: needs a live Postgres (docker compose up -d db)",
+    "llm: needs ANTHROPIC_API_KEY and makes a real model call",
+    "fairwind: needs FW_CLIENT_ID/SECRET and hits the live export API",
+    "jira: needs JIRA_* env and hits live Jira Cloud",
+]
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["designops/migrations/versions"]  # generated
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# B008: FastAPI's Depends()/Form() in argument defaults is the intended idiom.
+ignore = ["B008"]

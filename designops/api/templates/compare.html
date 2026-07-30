@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Compare runs — Design Ops{% endblock %}
+{% block body %}
+<h1>Compare runs</h1>
+<p class="sub">Two runs over the same date differ only by skill version — the diff shows exactly what a prompt change did (§12.2).</p>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  {% for r in [a, b] %}
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--line)">
+      <b>{{ r.report_date }}</b> · {{ r.started_at | dt }} · <span class="pill {{ r.status }}">{{ r.status }}</span>
+      <span class="sub">{{ r.skill_version }} · reported {{ r.counts.get('reported',0) }}</span>
+    </div>
+    <iframe src="/runs/{{ r.id }}/digest" style="width:100%;height:620px;border:none"></iframe>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,194 @@
+{#
+  A3 Weekly Planning Board — locked to design-weekly-planning-board.html
+  Context: digest, week_label, friday_label, coverage, sample
+#}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design Team — Weekly Planning Board · Mon {{ week_label }}</title>
+<style>
+  body{margin:0;background:#f4f5f7;color:#1f2328;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:26px 18px 60px}
+  .card{background:#fff;border:1px solid #e6e8ec;border-radius:14px;padding:24px 26px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .eyebrow{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:#6b7280;font-weight:700}
+  h1{font-size:23px;line-height:1.15;margin:7px 0 3px;letter-spacing:-.01em}
+  h1 .g{color:#12a594}
+  .sub{color:#6b7280;font-size:13.5px;margin:0}
+  .roll{border:1px solid #d7f0ec;background:#f2fbf9;border-radius:11px;margin:18px 0 4px;overflow:hidden;width:100%;border-collapse:separate;border-spacing:0}
+  .roll td.rg{padding:13px 12px;border-right:1px solid #dcefeb;width:25%;vertical-align:top}
+  .roll td.rg:last-child{border-right:none}
+  .rg .n{font-size:21px;font-weight:800;color:#0f8a7e;line-height:1}
+  .rg .n.red{color:#c0392b}.rg .n.blue{color:#1d5fb0}.rg .n.mut{color:#9aa2ad}
+  .rg .l{font-size:10px;color:#5b6673;margin-top:5px;text-transform:uppercase;letter-spacing:.03em}
+  .capnote{font-size:11px;color:#9aa2ad;margin:7px 2px 0;font-style:italic}
+  h2{font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:#0f8a7e;font-weight:700;margin:26px 0 8px}
+  .action{margin-top:8px;background:#fff8f1;border:1px solid #f3d7b3;border-radius:12px;padding:16px 18px}
+  .action .ah{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#b45309;font-weight:800;margin-bottom:4px}
+  .action .asub{font-size:12px;color:#9a7a4a;margin-bottom:10px}
+  .ai{width:100%;border-collapse:collapse;margin:9px 0;font-size:13.5px}
+  .ai td{padding:0;vertical-align:top}
+  .ai td.numcell{width:28px;padding-right:8px}
+  .ai .num{display:block;width:20px;height:20px;line-height:20px;border-radius:50%;background:#b45309;color:#fff;font-size:11px;font-weight:800;text-align:center}
+  .ai .t{color:#2b3038;line-height:1.45}
+  .ai .pj{font-size:10.5px;font-weight:700;color:#9a7a4a;text-transform:uppercase;letter-spacing:.03em}
+  .board{border:1px solid #e9ebef;border-radius:12px;overflow:hidden;margin-top:6px;width:100%;border-collapse:collapse}
+  .board td,.board th{padding:9px 14px;border-bottom:1px solid #f1f2f4;font-size:13px;vertical-align:middle;text-align:left}
+  .board tr:last-child td{border-bottom:none}
+  .board tr.head td,.board tr.head th{background:#fafbfc;border-bottom:1px solid #e9ebef;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:#9aa2ad;font-weight:700;padding:9px 14px}
+  .board .who{font-weight:650;color:#2b3038;width:158px}
+  .board tr.out .who{color:#9aa2ad}
+  .board .col-status{width:62px}
+  .board .col-load{width:auto}
+  .board .col-flag{width:150px;text-align:right}
+  .chip{display:inline-block;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:2px 8px;border-radius:20px;text-align:center}
+  .chip.ok{color:#0f8a7e;background:#e6f7f4;border:1px solid #bfe9e2}
+  .chip.out{color:#8a94a1;background:#f1f2f4;border:1px solid #e2e5ea}
+  .flag{font-size:11px;font-weight:700;text-align:right;display:block}
+  .flag.over{color:#c0392b}.flag.hot{color:#a01f0f}.flag.bal{color:#0f8a7e}.flag.idle{color:#1d5fb0}.flag.out{color:#9aa2ad}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:8px 2px 0;font-size:11px;color:#6b7280}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .person{border:1px solid #eceef1;border-radius:12px;padding:14px 16px;margin-top:11px}
+  .phead{width:100%;border-collapse:collapse;border-bottom:1px solid #f1f2f4;padding-bottom:0;margin-bottom:8px}
+  .phead td{padding:0 0 7px;vertical-align:middle}
+  .phead .pn{font-weight:750;font-size:15.5px;line-height:1.3;color:#2b3038}
+  .phead .meta{font-size:12px;line-height:1.3;color:#6b7280;font-weight:600;text-align:right;white-space:nowrap}
+  .phead .meta b{font-weight:800}
+  .phead .meta.over b,.phead .meta.over{color:#c0392b}.phead .meta.idle b{color:#1d5fb0}.phead .meta.bal b{color:#0f8a7e}
+  .plan{font-size:13.5px;margin:2px 0 8px}
+  .plan .k{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#8a94a1;margin-bottom:3px}
+  .plan ul{margin:0;padding-left:18px}.plan li{margin:2px 0;color:#2b3038}
+  .plan.notes{margin:8px 0 6px;padding:10px 12px;background:#f7f8fa;border:1px solid #eef0f2;border-radius:8px}
+  .plan.notes .k{color:#5b6673;margin-bottom:5px}
+  .plan.notes .body{font-size:12.5px;line-height:1.45;color:#33404e;white-space:pre-wrap;margin:0}
+  .flagline{width:100%;border-collapse:collapse;margin:6px 0 2px;font-size:12.5px}
+  .flagline td{padding:0;vertical-align:top}
+  .flagline td.labcell{width:1%;white-space:nowrap;padding-right:8px;padding-top:1px}
+  .flagline .lab{display:inline-block;font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:2px 8px;border-radius:20px;line-height:1.3;text-align:center}
+  .flagline.over .lab{color:#c0392b;background:#fdecea;border:1px solid #f3c0b8}
+  .flagline.idle .lab{color:#1d5fb0;background:#e8f0fb;border:1px solid #c3d8f4}
+  .flagline.gap .lab{color:#b45309;background:#fff5e8;border:1px solid #f3d18a}
+  .flagline .t{color:#33404e;line-height:1.45}
+  table.tt{width:100%;border-collapse:collapse;margin-top:9px;font-size:11.5px}
+  table.tt th{text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#9aa2ad;font-weight:700;padding:3px 6px;border-bottom:1px solid #eceef1}
+  table.tt th:nth-child(1){width:82px}
+  table.tt th:nth-child(2){width:104px}
+  table.tt th:nth-child(4),table.tt th:nth-child(5){width:34px;text-align:right}
+  table.tt th:nth-child(6){width:44px;text-align:right}
+  table.tt th:nth-child(7){width:46px;text-align:right}
+  td.pr{color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:104px}
+  table.tt td{padding:4px 6px;border-bottom:1px solid #f4f5f7;vertical-align:top}
+  table.tt tr:last-child td{border-bottom:none}
+  td.id{font-weight:700;color:#1d5fb0;white-space:nowrap}
+  td.id a{color:#1d5fb0;text-decoration:none;font-weight:700}
+  td.sm{color:#33404e;line-height:1.35}
+  td.nu{text-align:right;color:#5b6470;white-space:nowrap;font-variant-numeric:tabular-nums}
+  td.nu.rm{font-weight:700;color:#33404e}
+  .pc{text-align:right;white-space:nowrap;font-weight:700;font-variant-numeric:tabular-nums}
+  .pc.over{color:#c0392b}.pc.hi{color:#d17d1a}.pc.mid{color:#8a8a1f}.pc.lo{color:#0f8a7e}.pc.ok{color:#2f9e57}.pc.mut{color:#c2c8d0;font-weight:500}
+  .grp{margin-top:11px}
+  .ghead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;background:#f7f8fa;border:1px solid #eef0f2;border-radius:7px;padding:5px 10px}
+  .ghead .gt{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#5b6673}
+  .grp.blk .ghead .gt{color:#a08469}
+  .ghead .gs{font-size:10.5px;color:#9aa2ad}
+  .ghead .gs b{color:#6b7280;font-weight:700}
+  .grp.blk .ghead{background:#fbf8f4;border-color:#f0e6da}
+  footer{margin-top:24px;font-size:11.5px;line-height:1.6;color:#8a94a1;padding:14px 4px 0;border-top:1px solid #eef0f2}
+  footer b{color:#6b7280}
+  @media(max-width:600px){table.tt td.sm{display:none}table.tt th:nth-child(3){display:none}}
+</style>
+</head>
+<body>
+{% set g = digest.at_a_glance %}
+{% set cap = digest.capacity if digest.capacity is defined else 40 %}
+{% set rb = digest.rebalance if digest.rebalance is defined else none %}
+{% macro hrs(v) -%}
+{%- if v is none or v is undefined -%}—{%- elif v == (v|int) -%}{{ v|int }}h{%- else -%}{{ v }}h{%- endif -%}
+{%- endmacro %}
+{% set bar_colors = {'bal': '#12a594', 'over': '#e0894a', 'hot': '#d0654a', 'idle': '#9fb8c9'} %}
+{#- Email-safe capacity bar: nested table + bgcolor + inline styles + fixed pixel
+    widths (percent widths collapse inside auto-layout board cells). Track = 180px
+    = normal week hours (40h). Fill length = planned ÷ capacity, capped at 100%,
+    so 25h renders at ~62% of the track. padding:0/border:0 inline so the board's
+    cell padding and row borders never leak into the bar. -#}
+{% macro loadbar(fill, pct) -%}
+{%- set w = [([pct or 0, 0]|max), 100]|min -%}
+{%- set fill_px = [((w * 1.8)|round|int), 10]|max -%}
+<table role="presentation" width="180" cellpadding="0" cellspacing="0" style="width:180px;border-collapse:separate;background:#eef0f2;border-radius:999px"><tr>
+{%- if fill and w > 0 -%}
+<td width="{{ fill_px }}" height="9" bgcolor="{{ bar_colors.get(fill, '#12a594') }}" style="width:{{ fill_px }}px;height:9px;padding:0;border:0;font-size:1px;line-height:9px;border-radius:999px">&nbsp;</td>
+{%- endif -%}
+{%- if w < 100 -%}
+<td height="9" style="height:9px;padding:0;border:0;font-size:1px;line-height:9px">&nbsp;</td>
+{%- endif -%}
+</tr></table>
+{%- endmacro %}
+<div class="wrap">
+<div class="card">
+
+  <div class="eyebrow">Design team · weekly planning board · for Olga</div>
+  <h1><span class="g">Planned week</span> — Mon {{ week_label }}</h1>
+  <p class="sub">Every person's planned tasks, each sized and health-checked (estimate · logged · left · status), against a {{ cap|int }}h week.</p>
+
+  <table role="presentation" class="roll" width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      <td class="rg"><div class="n red">{{ g.fully_booked or 0 }}</div><div class="l">fully booked</div></td>
+      <td class="rg"><div class="n blue">{{ g.spare_capacity or 0 }}</div><div class="l">spare capacity</div></td>
+      <td class="rg"><div class="n" style="color:#b45309">{{ g.have_blocked or 0 }}</div><div class="l">have blocked work</div></td>
+      <td class="rg"><div class="n mut">{{ g.on_leave or 0 }}</div><div class="l">on leave</div></td>
+    </tr>
+  </table>
+  <div class="capnote">Fully booked = planned ≥ {{ cap|int }}h · spare = room to take work · blocked = has ON HOLD/blocked tickets (overlaps the other counts). Team planned ~{{ g.team_planned or 0 }}h vs {{ g.team_capacity or 0 }}h capacity{% if g.team_ratio %} — ~{{ g.team_ratio }}×{% if g.team_ratio > 1 %} over{% endif %}{% endif %}.</div>
+
+  {% if rb and rb.moves %}
+  <h2>Where to rebalance</h2>
+  <div class="action">
+    <div class="ah">{{ rb.title or 'Before Monday' }}</div>
+    {% if rb.subtitle %}<div class="asub">{{ rb.subtitle }}</div>{% endif %}
+    {% for m in rb.moves %}
+    {% set parts = m.text.split('. ', 1) %}
+    <table role="presentation" class="ai" width="100%" cellpadding="0" cellspacing="0"><tr><td class="numcell"><span class="num">{{ loop.index }}</span></td><td class="t">{% if parts|length > 1 %}<b>{{ parts[0] }}.</b> {{ parts[1] }}{% else %}<b>{{ m.text }}</b>{% endif %}{% if m.project %} <span class="pj">· {{ m.project }}</span>{% endif %}</td></tr></table>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <h2>Capacity board · planned hours vs {{ cap|int }}h</h2>
+  <table role="presentation" class="board" width="100%" cellpadding="0" cellspacing="0">
+    <tr class="head"><td class="who">Person</td><td class="col-status">Status</td><td class="col-load">Planned load</td><td class="col-flag">Flag</td></tr>
+{% for p in digest.people -%}
+{% set flag_class = 'out' if p.band == 'OUT' else (p.bar_fill or 'bal') -%}
+{% if p.availability == 'OUT' -%}
+<tr class="out"><td class="who">{{ p.name }}</td><td class="col-status"><span class="chip out">Out</span></td><td class="col-load"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td width="180" style="width:180px;vertical-align:middle;padding:0;border:0">{{ loadbar('', 0) }}</td><td style="vertical-align:middle;padding:0 0 0 10px;border:0;font-size:11.5px;font-weight:700;color:#33404e;white-space:nowrap">— on leave</td></tr></table></td><td class="col-flag"><span class="flag out">Out</span></td></tr>
+{% else -%}
+<tr><td class="who">{{ p.name }}</td><td class="col-status"><span class="chip ok">{{ p.avail_label }}</span></td><td class="col-load"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td width="180" style="width:180px;vertical-align:middle;padding:0;border:0">{{ loadbar(p.bar_fill, p.bar_pct) }}</td><td style="vertical-align:middle;padding:0 0 0 10px;border:0;font-size:11.5px;font-weight:700;color:#33404e;white-space:nowrap">{{ hrs(p.planned_hours) }}{% if p.blocked_hours %} <span style="color:#b45309;font-weight:600">· {{ hrs(p.blocked_hours) }} blocked</span>{% endif %}</td></tr></table></td><td class="col-flag"><span class="flag {{ flag_class }}">{{ p.flag }}</span></td></tr>
+{% endif -%}
+{% endfor -%}
+  </table>
+  <div class="legend">
+    <span><span class="sw" style="background:#d0654a"></span>Over-planned (&gt;{{ cap|int }}h) — track full</span>
+    <span><span class="sw" style="background:#12a594"></span>At capacity (30–{{ cap|int }}h)</span>
+    <span><span class="sw" style="background:#9fb8c9"></span>Spare / idle (&lt;30h) — partial fill</span>
+    <span>fill = planned ÷ {{ cap|int }}h (capped at 100%) · blocked hours shown separately, not in load</span>
+  </div>
+
+  <h2>The plan, per person — tasks by status</h2>
+{% for p in digest.people -%}
+{% if p.availability == 'OUT' -%}
+<div class="person" style="border-style:dashed;background:#fafbfc"><table role="presentation" class="phead" width="100%" cellpadding="0" cellspacing="0"><tr><td class="pn" style="color:#9aa2ad">{{ p.name }}</td><td class="meta" style="color:#9aa2ad">Out / leave</td></tr></table><div class="plan" style="margin-bottom:0"><div class="k">Availability</div><ul><li style="color:#9aa2ad">On leave — no plan expected. On the roster for completeness; not a capacity gap.</li></ul></div></div>
+{% else -%}
+<div class="person"><table role="presentation" class="phead" width="100%" cellpadding="0" cellspacing="0"><tr><td class="pn">{{ p.name }}</td><td class="meta {{ p.meta_class }}"{% if p.meta_class == 'over' %} style="color:#c0392b"{% elif p.meta_class == 'idle' %} style="color:#1d5fb0"{% elif p.meta_class == 'bal' %} style="color:#0f8a7e"{% endif %}><b>{{ hrs(p.planned_hours) }} planned</b> <span style="color:#6b7280;font-weight:600">/ {{ p.normal_hours|int }}h{% if p.blocked_hours %} · {{ hrs(p.blocked_hours) }} blocked{% endif %}</span></td></tr></table>{% if p.flagline and p.flagline.lab %}<table role="presentation" class="flagline {{ p.flagline.kind }}" width="100%" cellpadding="0" cellspacing="0"><tr><td class="labcell"><span class="lab">{{ p.flagline.lab }}</span></td><td class="t">{{ p.flagline.text }}</td></tr></table>{% endif %}{% for grp in p.status_groups or [] %}<div class="grp{% if grp.blocked %} blk{% endif %}"><div class="ghead"><span class="gt">{{ grp.status }}</span><span class="gs">{{ grp.count }} · {{ hrs(grp.est_hours) }} est · {{ hrs(grp.log_hours) }} log · <b>{{ hrs(grp.left_hours) }} left</b></span></div><table class="tt"><thead><tr><th>Ticket</th><th>Project</th><th>Name</th><th>Est</th><th>Log</th><th>%</th><th>Left</th></tr></thead><tbody>{% for t in grp.tickets %}<tr><td class="id">{% if t.url %}<a href="{{ t.url }}">{{ t.key }}</a>{% else %}{{ t.key }}{% endif %}</td><td class="pr">{{ t.project_name or t.project_key or '—' }}</td><td class="sm">{{ t.summary }}</td><td class="nu">{{ hrs(t.original_hours) }}</td><td class="nu">{{ hrs(t.spent_hours) }}</td><td class="pc {{ t.burn_class }}">{% if t.burn_pct is not none %}{{ t.burn_pct }}%{% else %}—{% endif %}</td><td class="nu rm">{{ hrs(t.remaining_hours) }}</td></tr>
+{% endfor %}</tbody></table></div>{% else %}<div class="plan" style="margin-bottom:0"><div class="k">Plan</div><ul><li style="color:#9aa2ad">{% if p.no_plan %}No Friday plan and no open assigned tickets.{% else %}No tickets in plan.{% endif %}</li></ul></div>{% endfor %}</div>
+{% endif -%}
+{% endfor %}
+
+  <footer>
+    <b>How this is built:</b> each person's Friday-planned tickets (Jira keys named in the Friday daily, else open assigned), grouped by status. <b>Est / Log / Left</b> are the Jira estimate, logged and remaining hours; <b>%</b> is logged ÷ estimate (burn) — green is early, red is at/over estimate. <b>Planned load</b> = Σ Left over the non-blocked groups; ON HOLD / blocked groups are listed but excluded from the load (shown as "blocked" on the board).<br>
+    "Left" (remaining estimate) is to-completion, not literal weekly hours. Where there's no Friday report the plan is Jira-inferred. Never reassigns — reports load only (A3, Tier 1). Elene <b>Chekurishvili</b> ≠ Elene Minashvili · Agnese = on leave.<br>
+    {% if coverage.get('incomplete') or coverage.get('jira_incomplete') %}<br><b>⚠ Incomplete inputs</b> — some Fairwind exports or Jira lookups failed; treat load as partial.{% endif %}
+  </footer>
+
+</div>
+</div>
+</body>
+</html>

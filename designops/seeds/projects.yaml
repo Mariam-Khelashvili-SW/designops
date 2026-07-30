@@ -1,0 +1,124 @@
+# Project registry (§3, §6, §11.4). Its job is CANONICALISATION, not filtering.
+# aliases[] map the many strings people type -> one canonical name. Resolve EXACTLY;
+# route misses to the `unmatched_project` flag rather than fuzzy-guessing (§11.4).
+#
+# track_daily is the §11.4 flag Liana toggles in the config UI.
+# track_weekly_health allowlists projects for the A2 Weekly Project Health & Budget report.
+#
+# Weekly health display fields (subtitle, agreement/SOW facts, unpaid UX/UI
+# invoices, client comms) are pulled live from Fairwind at generate time.
+# signed_design_estimate_h is the ONE seeded commercial number: confirmed signed
+# SOW design hours (Fairwind has no structured field for it). Null = show n/a.
+
+projects:
+  - canonical_name: "Acer"
+    aliases: ["Acer"]
+    jira_project_key: "ACERP1"
+    fairwind_account_id: "ccde943e-c8b2-46bf-aca8-f82c27e21683"
+    active: true
+    track_daily: true
+    track_weekly_health: true
+    signed_design_estimate_h: 1009.5
+    notes: "Arturs + Dorota (PLP pages/components, base template, homepage)."
+
+  - canonical_name: "Tobis UAB"
+    aliases: ["Tobis UAB", "Tobis", "TOB"]
+    jira_project_key: "TOB"
+    fairwind_account_id: "fb8aebf4-6a9a-4850-9023-09df3e6fc676"
+    active: true
+    track_daily: false
+    track_weekly_health: true
+    signed_design_estimate_h: 187
+    notes: "Phase 1 UX & IA — Fairwind SOW linked via account id."
+
+  - canonical_name: "The Furniture Trader"
+    aliases: ["The Furniture Trader", "Furniture Trader", "FurnitureTrader", "FT"]
+    jira_project_key: null
+    fairwind_account_id: null          # §11.5 needs_resolution — carries 17 Jul's live blocker
+    active: true
+    track_daily: true
+    notes: "17 Jul blocker (Elene / time logging). No Fairwind account found yet (§11.4/§11.5)."
+
+  - canonical_name: "Redeker Aesthetics"
+    aliases: ["Redeker Aesthetics", "Redecker", "Redeker"]   # dailies say 'Redecker' — one consonant off (§11.4)
+    jira_project_key: null
+    fairwind_account_id: null
+    active: true
+    track_daily: true
+    notes: "17 Jul escalation (Elene / wireframe). Alias trap: daily 'Redecker' vs account 'Redeker Aesthetics'."
+
+  - canonical_name: "Northerner"
+    aliases: ["Northerner", "Nicokick", "Nicokick / Northerner", "nicokick/northerner", "Nicokick/Northerner"]
+    jira_project_key: null
+    fairwind_account_id: null
+    active: true
+    track_daily: true
+    notes: "§7.2 test: all Nicokick/Northerner strings must resolve here. Predrag's work (§11.2)."
+
+  - canonical_name: "Sports Group Denmark"
+    aliases: ["Sports Group Denmark", "Sports Group Denmark B2B", "SGD", "SGDCP"]
+    jira_project_key: "SGDCP"
+    fairwind_account_id: "d7de8cda-3184-408e-947c-847bcd5c1e52"
+    active: true
+    track_daily: true
+    track_weekly_health: true
+    signed_design_estimate_h: 94.5
+    notes: "'SGD' abbrev observed (§11.4). Felco is a SEPARATE client/account, not this."
+
+  - canonical_name: "Felco"
+    aliases: ["Felco"]
+    jira_project_key: null
+    fairwind_account_id: "017b51c4-c052-4934-842c-c7c48bb40acb"
+    active: true
+    track_daily: true
+    notes: "Own Fairwind account — distinct from Sports Group Denmark (22 Jul)."
+
+  - canonical_name: "Reuzel"
+    aliases: ["Reuzel"]
+    jira_project_key: null
+    fairwind_account_id: null          # §11.5 needs_resolution
+    active: true
+    track_daily: true
+
+  - canonical_name: "Wienerberger"
+    aliases: ["Wienerberger"]
+    jira_project_key: "WIEND"
+    fairwind_account_id: null
+    active: true
+    track_daily: true
+    notes: "Heaviest design account in the corpus (Kirill + Maarja) yet absent from 17 Jul digest (§11.1). Fetch, don't display-gate."
+
+  - canonical_name: "Enmedify"
+    aliases: ["Enmedify", "MediCrops"]  # 'MediCrops' observed in its own transcripts (§11.4)
+    jira_project_key: null
+    fairwind_account_id: null
+    active: true
+    track_daily: false
+
+  - canonical_name: "Jollyes"
+    aliases: ["Jollyes"]
+    jira_project_key: null
+    fairwind_account_id: null
+    active: true
+    track_daily: false
+
+  - canonical_name: "Sportland"
+    aliases: ["Sportland"]
+    jira_project_key: null
+    fairwind_account_id: null
+    active: true
+    track_daily: false
+
+  - canonical_name: "University of Michigan"
+    aliases: ["University of Michigan", "UMich", "U of M", "UoM"]
+    jira_project_key: "UOM"
+    fairwind_account_id: "559219f6-295b-4cad-b2ec-25111803cadb"
+    active: true
+    track_daily: false
+    track_weekly_health: true
+    signed_design_estimate_h: 135
+    estimate_basis: "Confirmed design estimate for live CRO UX/UI epic (UOM-481)"
+    jira_scope:
+      epic_key: "UOM-481"
+      note: "Live 2026 CRO UX/UI epic — burn includes UOM-481 and all current children"
+    notes: "Fairwind account linked for invoices + client comms. Scoped to epic UOM-481 (auto children)."

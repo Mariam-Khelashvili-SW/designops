@@ -1,0 +1,20 @@
+# Runtime — pinned loosely; lock before deploy
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+jinja2==3.1.*
+python-multipart==0.0.*        # form posts from the read UI
+sqlalchemy==2.0.*
+alembic==1.14.*
+psycopg[binary]==3.2.*         # Postgres 16 driver
+pydantic==2.10.*
+pydantic-settings==2.7.*
+apscheduler==3.11.*            # in-process cron (§4)
+httpx==0.28.*                  # Fairwind REST + OAuth
+pyyaml==6.0.*                  # seed files
+anthropic==0.42.*             # LLM synthesis
+css-inline==0.21.*             # inline email CSS (Gmail strips <style> in full view)
+
+# Dev / test
+pytest==8.3.*
+pytest-asyncio==0.25.*
+ruff==0.9.*

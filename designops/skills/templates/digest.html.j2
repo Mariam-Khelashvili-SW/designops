@@ -1,0 +1,141 @@
+{#
+  Locked digest layout — EMAIL-SAFE (table-based; no flex/grid, which Gmail drops).
+  Rendering lives in code, never in the model. Structure: KPIs → By project [person
+  rows + beyond-the-dailies] → Mentioned-but-not-tracked → No report + availability →
+  Where your action is needed (last). Context: digest (JSON), report_date_label, coverage.
+#}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design Team — Daily Digest · {{ report_date_label }}</title>
+<style>
+  body{margin:0;background:#f4f5f7;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6}
+  table{border-collapse:collapse}
+  .card{background:#fff;border:1px solid #e6e8ec;border-radius:14px}
+  .eyebrow{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:#6b7280;font-weight:700}
+  h1{font-size:23px;line-height:1.15;margin:7px 0 3px}
+  h1 .g{color:#12a594}
+  .sub{color:#6b7280;font-size:13.5px;margin:0}
+  .gg .n{font-size:22px;font-weight:800;color:#0f8a7e;line-height:1}
+  .gg .n.warn{color:#b45309}.gg .n.red{color:#c0392b}
+  .gg .l{font-size:10px;color:#5b6673;padding-top:5px;text-transform:uppercase;letter-spacing:.03em}
+  h2{font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:#0f8a7e;font-weight:700;margin:24px 0 6px}
+  .ptitle{font-weight:750;font-size:16px;border-bottom:2px solid #eef0f2;padding-bottom:5px;margin:16px 0 9px}
+  .untracked{font-size:11px;font-weight:700;color:#b45309;background:#fff5e8;border:1px solid #f5c66b;border-radius:6px;padding:1px 7px;margin-left:8px;letter-spacing:0}
+  .pname{font-weight:700;font-size:14px;margin:6px 0 2px}
+  .k{color:#8a94a1;font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;padding:3px 9px 3px 0}
+  .v{font-size:13.5px;color:#2b3038;padding:3px 0}
+  .k.wait,.k.escal{color:#b45309}.k.blocker{color:#c0392b}.k.heads,.k.jira{color:#1d5fb0}
+  .k.next{color:#8a94a1}.v.next{color:#5b6470}
+  .k.agent{color:#7a6ff0}.v.agent{color:#5b6470;font-style:italic}
+  .beyond{border-left:2px solid #e2e5ea;padding:2px 0 2px 11px;margin:6px 0 4px}
+  .beyond .r{font-size:13px;margin:3px 0;color:#3a424c}
+  .bl{font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;font-weight:700;margin-right:7px}
+  .bl.blocker{color:#c0392b}.bl.escalation{color:#b45309}.bl.heads_up{color:#1d5fb0}
+  .src{color:#9aa2ad;font-size:11.5px}
+  .box{border:1px solid #eceef1;border-radius:10px;margin-top:6px}
+  .nrname{font-weight:600;font-size:13px}
+  .nrctx{color:#8a94a1;font-size:12.5px;padding-top:2px}
+  .leave{color:#0f8a7e;font-weight:600;font-size:11px;background:#e5f6f2;border-radius:20px;padding:1px 8px;margin-left:7px}
+  .coverage{font-size:12px;color:#8a94a1;margin:6px 2px 0}
+  .coverage.warn{color:#b4451f;font-weight:600}
+  .action li{font-size:14px;margin:7px 0;color:#2b3038}
+  .tag{font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;font-weight:700;color:#8a94a1;margin-left:6px}
+  .tag.high{color:#c0392b}
+  footer{margin-top:22px;font-size:11.5px;line-height:1.55;color:#8a94a1;padding:14px 4px 0;border-top:1px solid #eef0f2}
+  footer b{color:#6b7280}
+</style>
+</head>
+<body>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:26px 14px 60px">
+<table role="presentation" width="682" cellpadding="0" cellspacing="0" style="max-width:682px;width:100%">
+<tr><td class="card" style="padding:24px 26px">
+
+  <div class="eyebrow">Design team · consolidated daily · for Olga</div>
+  <h1><span class="g">Daily Digest</span> — {{ report_date_label }}</h1>
+  <p class="sub">Each designer's daily, grouped by project, with a Jira cross-check and report-day client signal where it adds something.</p>
+
+  {% set g = digest.at_a_glance %}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f2fbf9" style="border:1px solid #d7f0ec;border-radius:11px;margin:16px 0 4px">
+    <tr>
+      <td class="gg" width="25%" align="center" style="padding:13px 8px;border-right:1px solid #dcefeb"><div class="n">{{ g.reported }}</div><div class="l">reported</div></td>
+      <td class="gg" width="25%" align="center" style="padding:13px 8px;border-right:1px solid #dcefeb"><div class="n red">{{ g.blocked }}</div><div class="l">blocked</div></td>
+      <td class="gg" width="25%" align="center" style="padding:13px 8px;border-right:1px solid #dcefeb"><div class="n warn">{{ g.escalations }}</div><div class="l">escalations</div></td>
+      <td class="gg" width="25%" align="center" style="padding:13px 8px"><div class="n warn">{{ g.no_report }}</div><div class="l">no report</div></td>
+    </tr>
+  </table>
+
+  <h2>By project</h2>
+
+  {% for project in digest.projects %}
+  <div class="ptitle">{{ project.name }}{% if project.untracked %}<span class="untracked">⚠ export not pulled — enable on Accounts for Jira/client cross-check</span>{% endif %}</div>
+  {% for p in project.people %}
+  <div class="pname">{{ p.name }}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    {% macro line(cls, label, value) %}
+    <tr><td class="k {{ cls }}" width="86" valign="top">{{ label }}</td><td class="v {{ cls }}" valign="top">{{ value }}</td></tr>
+    {% endmacro %}
+    {% if p.done %}{{ line('done', 'Done', p.done) }}{% endif %}
+    {% if p.blocker %}{{ line('blocker', 'Blocker', p.blocker) }}{% endif %}
+    {% if p.waiting %}{{ line('wait', 'Waiting', p.waiting) }}{% endif %}
+    {% if p.escalation %}{{ line('escal', 'Escalation', p.escalation) }}{% endif %}
+    {% if p.heads_up %}{{ line('heads', 'Heads-up', p.heads_up) }}{% endif %}
+    {% if p.next %}{{ line('next', 'Next', p.next) }}{% endif %}
+    {% if p.agent_note %}{{ line('agent', 'Agent', p.agent_note) }}{% endif %}
+    {% if p.jira %}{{ line('jira', ('✓ Jira' if p.jira.kind == 'match' else '🔎 Jira'), p.jira.text) }}{% endif %}
+  </table>
+  {% endfor %}
+  {% if project.beyond_daily %}
+  <div class="beyond">
+    {% for b in project.beyond_daily %}
+    <div class="r"><span class="bl {{ b.kind }}">{{ b.kind | replace('_',' ') }}</span>{{ b.text }}{% if b.source %} <span class="src">— {{ b.source }}</span>{% endif %}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  <h2>No report + availability</h2>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="box">
+    {% for nr in digest.no_report %}
+    <tr><td style="padding:8px 12px;{% if not loop.last %}border-bottom:1px solid #f1f2f4{% endif %}">
+      <span class="nrname">{{ nr.name }}</span>{% if nr.status == 'on_leave' %}<span class="leave">on leave</span>{% endif %}
+      <div class="nrctx">{{ nr.context }}</div>
+    </td></tr>
+    {% else %}
+    <tr><td style="padding:8px 12px"><span class="nrname">Everyone active reported.</span></td></tr>
+    {% endfor %}
+  </table>
+  {% if coverage %}
+  <div class="coverage{% if coverage.get('incomplete') %} warn{% endif %}">
+    Coverage: {{ coverage.get('accounts_requested', 0) }} accounts tracked, {{ coverage.get('exports_succeeded', 0) }} returned.
+    A designer working outside these accounts can surface here wrongly.
+    {%- if coverage.get('incomplete') %} ⚠ Coverage incomplete — {{ coverage.get('exports_failed', 0) }} export(s) failed; treat the no-report list with caution.{% endif %}
+  </div>
+  {% endif %}
+
+  <h2>Where your action is needed</h2>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#fffdf6" style="border:1px solid #f5c66b;border-radius:12px;margin-top:10px">
+    <tr><td style="padding:12px 18px 14px">
+    {% if digest.action_needed %}
+    <ol class="action" style="margin:0;padding-left:20px">
+      {% for a in digest.action_needed %}
+      <li>{{ a.text }}{% if a.project %}<span class="tag">{{ a.project }}</span>{% endif %}{% if a.urgency == 'high' %}<span class="tag high">urgent</span>{% endif %}</li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <span style="color:#8a94a1;font-size:13px">Nothing needs you today.</span>
+    {% endif %}
+    </td></tr>
+  </table>
+
+  <footer>
+    <b>UX/UI design only</b> — PM/dev/QA/SEO work is filtered out before synthesis.
+    Reports are quoted close to verbatim; severity tags and agent notes are the agent's.
+  </footer>
+
+</td></tr>
+</table>
+</td></tr></table>
+</body>
+</html>

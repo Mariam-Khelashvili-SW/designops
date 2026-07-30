@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Export — {{ account.name }}{% endblock %}
+{% block body %}
+<p class="sub"><a href="/accounts">← Accounts</a></p>
+<h1>Export — {{ account.name }}</h1>
+<p class="sub">
+  {{ date_from }} → {{ date_to }} ·
+  {% for t in data_types %}<code>{{ t }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+</p>
+
+{% if error %}
+<div class="banner warn"><b>Export failed.</b> {{ error }}</div>
+{% else %}
+<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">
+  <b>Export ready.</b> {{ result.file_count }} file(s)
+  ({{ (result.zip_bytes / 1024) | round(1) }} KB) extracted to the corpus store.
+</div>
+
+<div class="card">
+  <table>
+    <tbody>
+      <tr><th>Export id</th><td class="mono">{{ result.export_id }}</td></tr>
+      <tr><th>Contents</th><td>
+        {% set labels = {'threads':'email threads','jira_issues':'Jira issues',
+          'jira_projects':'Jira projects','transcripts':'transcripts',
+          'documents':'documents','notion_pages':'Notion pages'} %}
+        {% set shown = [] %}
+        {% for key, label in labels.items() %}
+          {% if result.counts.get(key) %}
+            <span class="pill blue" style="margin-right:6px">{{ label }}: {{ result.counts[key] }}</span>
+            {% set _ = shown.append(key) %}
+          {% endif %}
+        {% endfor %}
+        {% if not shown %}<span class="sub">nothing in this range</span>{% endif %}
+      </td></tr>
+      <tr><th>Files</th><td>{{ result.file_count }} extracted · <code>export.zip</code> + <code>manifest.json</code></td></tr>
+      <tr><th>Stored at</th><td class="mono">{{ result.store_path }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<form method="post" action="/accounts/{{ account.fairwind_account_id }}/export" class="row">
+  <input type="hidden" name="date_from" value="{{ date_from }}">
+  <input type="hidden" name="date_to" value="{{ date_to }}">
+  <button class="btn ghost" type="submit">Re-run this export</button>
+</form>
+{% endif %}
+{% endblock %}

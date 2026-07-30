@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Config — Design Ops{% endblock %}
+{% block body %}
+<h1>Config · roster &amp; registry</h1>
+<p class="sub">The roster stays curated — Fairwind has no concept of "Olga's design team" (§0). Identity is email-first (§11.3).</p>
+
+<div class="banner warn">
+  <b>Before go-live (§9.3):</b> emails marked <i>unverified</i> are DERIVED from the
+  firstname.lastname@ pattern. Verify each against the Fairwind Directory — transliterated
+  names (Čākure, Umiastowska, Gavrilovikj) especially. Only Mariam &amp; Tamari are corpus-confirmed.
+</div>
+
+<div class="card">
+  <b>Roster ({{ people | length }})</b>
+  <table style="margin-top:8px">
+    <thead><tr><th>Name</th><th>Email (identity)</th><th>Jira accountId</th><th>Role</th><th>Status</th><th>Verified</th></tr></thead>
+    <tbody>
+    {% for p in people %}
+      <tr>
+        <td><b>{{ p.full_name }}</b></td>
+        <td class="mono">{{ p.emails | join(', ') or '⚠ none' }}</td>
+        <td class="mono">{{ p.jira_account_id or '—' }}</td>
+        <td class="sub">{{ p.role }}</td>
+        <td>{% if p.status=='active' %}<span class="pill ok">active</span>{% elif p.status=='out' %}<span class="pill red">out</span>{% else %}<span class="pill mut">{{ p.status }}</span>{% endif %}</td>
+        <td>{% if p.identity_verified %}<span class="pill ok">✓</span>{% else %}<span class="pill flagged">unverified</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <b>Project registry ({{ projects | length }})</b>
+  <table style="margin-top:8px">
+    <thead><tr><th>Canonical</th><th>Aliases</th><th>Jira key</th><th>Fairwind account</th><th>Track daily</th></tr></thead>
+    <tbody>
+    {% for p in projects %}
+      <tr>
+        <td><b>{{ p.canonical_name }}</b></td>
+        <td class="sub">{{ p.aliases | join(' · ') }}</td>
+        <td class="mono">{{ p.jira_project_key or '—' }}</td>
+        <td class="mono">{{ p.fairwind_account_id or '⚠ unresolved' }}</td>
+        <td>{% if p.track_daily %}<span class="pill ok">tracked</span>{% else %}<span class="pill mut">—</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
