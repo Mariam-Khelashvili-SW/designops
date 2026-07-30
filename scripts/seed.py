@@ -11,8 +11,9 @@ from pathlib import Path
 
 import yaml
 
+from designops.core.bootstrap import ensure_pipelines
 from designops.core.db import session_scope
-from designops.core.models import Person, Pipeline, Project
+from designops.core.models import Person, Project
 
 SEEDS = Path(__file__).resolve().parent.parent / "designops" / "seeds"
 
@@ -99,104 +100,14 @@ def seed_projects(session) -> tuple[int, int]:
     return created, updated
 
 
-def seed_pipeline(session) -> None:
-    """The A1 daily digest pipeline. Ships locked: send_mode=none, go_live=false (§12)."""
-    key = "daily-digest"
-    existing = session.query(Pipeline).filter_by(key=key).one_or_none()
-    if existing is None:
-        session.add(
-            Pipeline(
-                key=key,
-                name="A1 — Daily Ops Digest",
-                description="Design-team daily ops digest for Olga Kimalana (Head of Design).",
-                skill_path="designops/skills/daily-ops-digest.md",
-                schedule_cron="0 11 * * 1-5",  # synthesis; ingest is 06:00 (§6)
-                timezone="Europe/Riga",
-                recipients=[],
-                send_mode="none",
-                enabled=False,
-                go_live=False,
-                config={
-                    "source_mode": "fairwind",     # §1 switch; gmail dormant
-                    "min_coverage": 0.6,
-                    "ingest_cron": "0 6 * * 1-5",
-                    "carry_forward_blockers": False,  # §9.4 recommendation
-                },
-            )
-        )
-
-
-def seed_weekly_backlog_pipeline(session) -> None:
-    """A3 weekly backlog + availability. Generate-only until deliberately enabled."""
-    key = "weekly-backlog"
-    existing = session.query(Pipeline).filter_by(key=key).one_or_none()
-    if existing is not None:
-        return
-    session.add(
-        Pipeline(
-            key=key,
-            name="A3 — Weekly Backlog + Availability",
-            description=(
-                "Monday weekly planned backlog with availability markers for Olga — "
-                "Friday dailies + open assigned Jira (remaining hours)."
-            ),
-            skill_path="designops/skills/weekly-backlog.md",
-            schedule_cron="0 11 * * 1",  # Monday 11:00 Europe/Riga
-            timezone="Europe/Riga",
-            recipients=[],
-            send_mode="none",
-            enabled=False,
-            go_live=False,
-            config={
-                "source_mode": "fairwind+jira",
-                "normal_week_hours": 40,
-            },
-        )
-    )
-
-
-def seed_weekly_health_pipeline(session) -> None:
-    """A2 weekly project health & budget."""
-    key = "weekly-health"
-    existing = session.query(Pipeline).filter_by(key=key).one_or_none()
-    if existing is not None:
-        existing.go_live = True
-        existing.send_mode = "self"
-        return
-    session.add(
-        Pipeline(
-            key=key,
-            name="A2 — Weekly Project Health & Budget",
-            description=(
-                "Monday design-only project health & budget burn for Olga — "
-                "full-history Jira by project key + Fairwind client comms."
-            ),
-            skill_path="designops/skills/weekly-health.md",
-            schedule_cron="0 11 * * 1",
-            timezone="Europe/Riga",
-            recipients=[],
-            send_mode="self",
-            enabled=False,
-            go_live=True,
-            config={
-                "source_mode": "jira+fairwind",
-            },
-        )
-    )
-
-
 def main() -> None:
     with session_scope() as session:
         pc, pu = seed_people(session)
         jc, ju = seed_projects(session)
-        seed_pipeline(session)
-        seed_weekly_backlog_pipeline(session)
-        seed_weekly_health_pipeline(session)
+        created = ensure_pipelines(session)
     print(f"people:   {pc} created, {pu} updated")
     print(f"projects: {jc} created, {ju} updated")
-    print("pipeline: daily-digest ensured (send_mode=none, go_live=false)")
-    print("pipeline: weekly-backlog ensured (Mon 11:00, send_mode=none, go_live=false)")
-    print("pipeline: weekly-health ensured (go_live=true, send_mode=self)")
+    print(f"pipelines created: {created or '(none — already present)'}")
 
 
 if __name__ == "__main__":

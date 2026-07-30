@@ -56,6 +56,16 @@ templates.env.filters["dt"] = lambda v: v.strftime("%Y-%m-%d %H:%M") if v else "
 
 
 @app.on_event("startup")
+def _ensure_pipelines() -> None:
+    """Fresh managed DBs get schema from alembic but no pipeline rows — insert defaults."""
+    from designops.core.bootstrap import ensure_pipelines
+    from designops.core.db import session_scope
+
+    with session_scope() as s:
+        ensure_pipelines(s)
+
+
+@app.on_event("startup")
 def _reap_orphaned_runs() -> None:
     """Workers are in-process threads, so any run still 'running' at boot was orphaned by
     the previous process's exit. Mark them failed so they don't hang forever."""

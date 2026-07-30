@@ -80,12 +80,43 @@ class Settings(BaseSettings):
     # Delivery — Google OAuth (preferred: click-to-authorize, revocable) …
     google_client_id: str = Field(default="", alias="GOOGLE_CLIENT_ID")
     google_client_secret: str = Field(default="", alias="GOOGLE_CLIENT_SECRET")
-    google_redirect_uri: str = Field(
-        default="http://localhost:8077/oauth/google/callback", alias="GOOGLE_REDIRECT_URI"
-    )
+    # Explicit override. If unset, derived from PUBLIC_APP_URL / RAILWAY_PUBLIC_DOMAIN.
+    google_redirect_uri: str = Field(default="", alias="GOOGLE_REDIRECT_URI")
+    public_app_url: str = Field(default="", alias="PUBLIC_APP_URL")
     google_token_path: str = Field(
         default="./var/google_oauth.json", alias="GOOGLE_TOKEN_PATH"
     )
+
+    @field_validator("google_redirect_uri", mode="before")
+    @classmethod
+    def _resolve_google_redirect_uri(cls, v):
+        # Prefer an explicit GOOGLE_REDIRECT_URI (local + Railway Variables).
+        if isinstance(v, str) and v.strip():
+            return v.strip().rstrip("/")
+        return v
+
+    def model_post_init(self, __context) -> None:
+        if self.google_redirect_uri:
+            return
+        # PUBLIC_APP_URL=https://designops-app-production.up.railway.app
+        # or Railway's injected RAILWAY_PUBLIC_DOMAIN (host only).
+        import os
+
+        base = (self.public_app_url or "").strip().rstrip("/")
+        if not base:
+            host = (os.environ.get("RAILWAY_PUBLIC_DOMAIN") or "").strip().rstrip("/")
+            if host:
+                base = host if host.startswith("http") else f"https://{host}"
+        if base:
+            object.__setattr__(
+                self, "google_redirect_uri", f"{base}/oauth/google/callback"
+            )
+        else:
+            object.__setattr__(
+                self,
+                "google_redirect_uri",
+                "http://localhost:8077/oauth/google/callback",
+            )
     # … and SMTP (Gmail app password) as the simpler fallback sender
     gmail_sender: str = Field(default="", alias="GMAIL_SENDER")  # the From / SMTP login
     gmail_app_password: str = Field(default="", alias="GMAIL_APP_PASSWORD")

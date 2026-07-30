@@ -26,7 +26,8 @@ Rotate the three secrets that passed through chat when you set them here.
 | `FW_RESOURCE` | `https://fairwind.scandiweb.com/api/v1` |
 | `ANTHROPIC_API_KEY` | Anthropic key (**rotate**) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth client (**rotate the secret**) |
-| `GOOGLE_REDIRECT_URI` | `https://<your-app>.up.railway.app/oauth/google/callback` |
+| `PUBLIC_APP_URL` | `https://<your-app>.up.railway.app` (used to build the OAuth callback) |
+| `GOOGLE_REDIRECT_URI` | `https://<your-app>.up.railway.app/oauth/google/callback` (or omit and let the app derive it from `PUBLIC_APP_URL`) |
 | `TIMEZONE` | `Europe/Riga` |
 | `SETUP_OWNER_EMAIL` | your email |
 | `FW_DATA_TYPES` | `emails_internal,emails_external,jira,transcripts` |
@@ -52,9 +53,10 @@ Do this **before** (or right after creating) the app service; `--clean --if-exis
 safe to re-run. Your Google token is in `app_state` and comes across too — but you'll
 re-connect in step 5 anyway because the redirect URI changes.
 
-> Prefer a clean slate instead? Skip the dump; the app auto-runs migrations, then in a
-> Railway shell run `python -m scripts.seed`, `python -m scripts.sync_accounts`,
-> `python -m scripts.enable_accounts` — but you'd lose the manual project/leave tweaks.
+> Prefer a clean slate instead? Skip the dump; the app auto-runs migrations and inserts
+> the three pipeline rows on boot. Then in a Railway shell run `python -m scripts.seed`
+> (roster + projects), `python -m scripts.sync_accounts`, `python -m scripts.enable_accounts`
+> — but you'd lose the manual project/leave tweaks.
 
 ## 4. Deploy
 Trigger a deploy (push to the branch, or Railway **Deploy**). On boot the container runs
