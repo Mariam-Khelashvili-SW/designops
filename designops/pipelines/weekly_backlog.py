@@ -483,6 +483,12 @@ def _fallback_rebalance(people: list[dict], capacity: float) -> dict:
     }
 
 
+def _scrub_transient_person_fields(people_rows: list[dict]) -> None:
+    for p in people_rows:
+        p.pop("friday_excerpt", None)
+        p.pop("person_id", None)
+
+
 def _synthesize_coaching(
     people_rows: list[dict],
     week_monday: date,
@@ -491,6 +497,25 @@ def _synthesize_coaching(
 ) -> tuple[list[dict], dict, dict]:
     """LLM phrases rebalance moves + flag notes; falls back to code defaults."""
     settings = get_settings()
+    rebalance = _fallback_rebalance(people_rows, capacity)
+
+    if not people_rows:
+        raise RuntimeError(
+            "Roster is empty — run `python -m scripts.seed` (or restore a DB dump) "
+            "before generating the weekly backlog."
+        )
+
+    if not settings.anthropic_configured:
+        _scrub_transient_person_fields(people_rows)
+        return people_rows, rebalance, {
+            "mode": "fallback",
+            "model": None,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cost_usd": 0.0,
+            "note": "No ANTHROPIC_API_KEY — used code-side rebalance + flaglines.",
+        }
+
     skill = _SKILL.read_text(encoding="utf-8")
     roster_block = "\n".join(
         f"- {p['name']} ({p['availability']}; "
@@ -507,18 +532,21 @@ def _synthesize_coaching(
     )
     chunks = [
         f"Week of {week_monday.isoformat()} (Friday plans from {friday_date.isoformat()}).",
+        f"PER-PERSON DATA follows ({len(people_rows)} people). "
         "Write rebalance moves and per-person flag notes only. Hours/bands are already set.",
         "Flag notes MUST cite the heaviest tickets (key + hours) and, when a Friday report",
         "exists, weave in what they said they would work on. Example style:",
         '"Over-planned at 48.75h. Heaviest on Acer Client Action wireframes '
         '(ACERP1-35 13h, ACERP1-40 7h) plus SGDCP-29 5h; consider shifting some Acer work to Arturs."',
         "",
+        "Roster summary:",
+        roster_block,
+        "",
     ]
     for p in people_rows:
         chunks.append(
             f"### {p['name']} — {p['availability']} · {p['band']} · "
             f"{p['planned_hours']}h planned / {capacity}h · {p['blocked_hours']}h blocked"
-        
         )
         if p.get("friday_excerpt"):
             chunks.append("Friday daily:")
@@ -536,25 +564,26 @@ def _synthesize_coaching(
                     f"left={t.get('remaining_hours')})"
                 )
         chunks.append("")
+    chunks.append(
+        "Respond with a single JSON object only (schema in the system prompt). No prose."
+    )
     user = "\n".join(chunks)
 
-    rebalance = _fallback_rebalance(people_rows, capacity)
-
-    if not settings.anthropic_configured:
-        for p in people_rows:
-            p.pop("friday_excerpt", None)
-            p.pop("person_id", None)
+    try:
+        result = LLMClient(settings).synthesize(
+            system=system, user_content=user, max_tokens=6000
+        )
+        parsed = parse_digest_json(result.text)
+    except Exception as e:  # noqa: BLE001 — coaching is optional; board numbers are code-side
+        _scrub_transient_person_fields(people_rows)
         return people_rows, rebalance, {
             "mode": "fallback",
-            "model": None,
+            "model": settings.digest_model,
             "input_tokens": 0,
             "output_tokens": 0,
             "cost_usd": 0.0,
-            "note": "No ANTHROPIC_API_KEY — used code-side rebalance + flaglines.",
+            "note": f"LLM coaching failed ({type(e).__name__}: {e}); used code-side rebalance.",
         }
-
-    result = LLMClient(settings).synthesize(system=system, user_content=user, max_tokens=6000)
-    parsed = parse_digest_json(result.text)
 
     rb = parsed.get("rebalance") if isinstance(parsed.get("rebalance"), dict) else None
     if rb and (rb.get("moves") or rb.get("title")):
@@ -603,8 +632,7 @@ def _synthesize_coaching(
                 elif p.get("band") == "AT_CAPACITY":
                     kind = "bal"
                 p["flagline"] = {"kind": kind, "lab": lab, "text": text}
-        p.pop("friday_excerpt", None)
-        p.pop("person_id", None)
+    _scrub_transient_person_fields(people_rows)
 
     return people_rows, rebalance, {
         "mode": "llm",

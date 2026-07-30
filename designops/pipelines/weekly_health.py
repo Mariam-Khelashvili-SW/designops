@@ -194,7 +194,20 @@ def _synthesize(
         }
 
     result = LLMClient(settings).synthesize(system=system, user_content=user, max_tokens=7000)
-    parsed = parse_digest_json(result.text)
+    try:
+        parsed = parse_digest_json(result.text)
+    except Exception as e:  # noqa: BLE001 — keep code-side health rather than fail the run
+        actions = _fallback_actions(cards)
+        for c in cards:
+            c.pop("_agreement", None)
+        return cards, actions, {
+            "mode": "fallback",
+            "model": result.model,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "cost_usd": float(result.cost_usd),
+            "note": f"LLM health phrasing failed ({type(e).__name__}: {e}); used code-side health.",
+        }
     by_name = {
         str(x.get("name", "")).strip(): x
         for x in (parsed.get("projects") or [])
