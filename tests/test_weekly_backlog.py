@@ -143,15 +143,20 @@ def test_planned_excludes_blocked_and_hardware():
     tickets = [
         {"key": "A-1", "status": "In Progress", "remaining_hours": 10, "project_key": "DES", "issue_type": "Task"},
         {"key": "A-2", "status": "ON HOLD", "remaining_hours": 36, "project_key": "DES", "issue_type": "Task"},
+        {"key": "A-3", "status": "Client Action", "remaining_hours": 8, "project_key": "DES", "issue_type": "Task"},
+        {"key": "A-4", "status": "Backlog", "remaining_hours": 20, "project_key": "DES", "issue_type": "Task"},
         {"key": "IMR-9", "status": "In Progress", "remaining_hours": 99, "project_key": "IMR", "issue_type": "In Use"},
     ]
-    assert is_hardware_ticket(tickets[2])
+    assert is_hardware_ticket(tickets[4])
     from designops.pipelines.weekly_availability import filter_work_tickets
 
     work = filter_work_tickets(tickets)
     planned, blocked = planned_and_blocked(work)
+    # Only In Progress / To Do count; Client Action + Backlog do not
     assert planned == 10
     assert blocked == 36
+    planned_ded, _ = planned_and_blocked(work, dedicated_weekly_hours=20)
+    assert planned_ded == 30
 
 
 def test_group_tickets_blocked_last():
@@ -190,6 +195,26 @@ def test_build_person_and_kpis():
             "project_key": "X",
             "issue_type": "Task",
         },
+        {
+            "key": "X-3",
+            "summary": "Waiting on client",
+            "status": "Client Action",
+            "original_hours": 6,
+            "spent_hours": 1,
+            "remaining_hours": 5,
+            "project_key": "X",
+            "issue_type": "Task",
+        },
+        {
+            "key": "X-4",
+            "summary": "Later",
+            "status": "Backlog",
+            "original_hours": 12,
+            "spent_hours": 2,
+            "remaining_hours": 10,
+            "project_key": "X",
+            "issue_type": "Task",
+        },
     ]
     row = build_person_board_row(
         name="Vlad Shemetovets",
@@ -198,11 +223,20 @@ def test_build_person_and_kpis():
         capacity=40,
         has_friday_plan=True,
         friday_keys=["X-1", "X-2"],
+        is_dedicated=True,
+        dedicated_weekly_hours=40,
     )
-    assert row["planned_hours"] == 15
+    # 15h IP + 40h dedicated; Client Action / Backlog / Hold not in planned
+    assert row["planned_hours"] == 55
     assert row["blocked_hours"] == 10
-    assert row["band"] == "SPARE"
+    assert row["band"] == "OVER_PLANNED"
+    assert row["dedicated_weekly_hours"] == 40
     assert not row["unverified"]
+    detail_labels = [g["status"] for g in row["status_groups"]]
+    assert detail_labels == ["In Progress", "Client Action"]
+    assert row["other_summary"]["count"] == 2  # ON HOLD + Backlog
+    assert row["other_summary"]["est_hours"] == 22
+    assert row["other_summary"]["log_hours"] == 2
 
     no_friday = build_person_board_row(
         name="Tamari Giunashvili",
@@ -210,8 +244,11 @@ def test_build_person_and_kpis():
         tickets=tickets,
         capacity=40,
         has_friday_plan=False,
+        is_dedicated=True,
+        dedicated_weekly_hours=20,
     )
-    assert not no_friday["unverified"]  # no "no report" flag anymore
+    assert no_friday["planned_hours"] == 35  # 15 + 20 dedicated
+    assert not no_friday["unverified"]
 
     people = [
         row,
@@ -229,7 +266,7 @@ def test_build_person_and_kpis():
             tickets=[
                 {
                     "key": "K-1",
-                    "status": "New",
+                    "status": "In Progress",
                     "remaining_hours": 180,
                     "original_hours": 180,
                     "spent_hours": None,
@@ -243,12 +280,12 @@ def test_build_person_and_kpis():
         ),
     ]
     glance = at_a_glance_kpis(people, capacity=40)
-    assert glance["fully_booked"] == 1  # Kirill
-    assert glance["spare_capacity"] == 2  # Vlad + Tamari
+    assert glance["fully_booked"] == 2  # Vlad + Kirill
+    assert glance["spare_capacity"] == 0  # Tamari at 35 ≥ SPARE_THRESHOLD 30 → AT_CAPACITY
     assert glance["have_blocked"] == 2  # Vlad + Tamari
     assert glance["on_leave"] == 1
     people.sort(key=board_sort_key)
-    assert people[0]["name"] == "Kirill"  # OVER first
+    assert people[0]["name"] == "Kirill"  # OVER first by hours
 
 
 def test_friday_email_without_jira_keys_is_not_no_report():
@@ -462,6 +499,24 @@ def test_agnese_out_in_merge_shape():
     assert not overload and not idle
 
 
+def test_dedicated_only_person_is_at_capacity():
+    """Dedicated hours alone count as weekly workload with no Jira tickets."""
+    row = build_person_board_row(
+        name="Predrag Gavrilovikj",
+        availability="AVAILABLE",
+        tickets=[],
+        capacity=40,
+        has_friday_plan=False,
+        is_dedicated=True,
+        dedicated_weekly_hours=40,
+    )
+    assert row["planned_hours"] == 40
+    assert row["band"] == "AT_CAPACITY"
+    assert row["status_groups"] == []
+    assert row["other_summary"] is None
+    assert row["dedicated_weekly_hours"] == 40
+
+
 def test_render_planning_board_html():
     people = [
         build_person_board_row(
@@ -478,11 +533,34 @@ def test_render_planning_board_html():
                     "project_key": "SID",
                     "issue_type": "Task",
                     "url": "https://example.atlassian.net/browse/SID-292",
-                }
+                },
+                {
+                    "key": "SID-300",
+                    "summary": "Waiting",
+                    "status": "Client Action",
+                    "original_hours": 4,
+                    "spent_hours": 1,
+                    "remaining_hours": 3,
+                    "project_key": "SID",
+                    "issue_type": "Task",
+                    "url": "https://example.atlassian.net/browse/SID-300",
+                },
+                {
+                    "key": "SID-301",
+                    "summary": "Later idea",
+                    "status": "Backlog",
+                    "original_hours": 8,
+                    "spent_hours": 0,
+                    "remaining_hours": 8,
+                    "project_key": "SID",
+                    "issue_type": "Task",
+                },
             ],
             capacity=40,
             has_friday_plan=True,
             friday_keys=["SID-292"],
+            is_dedicated=True,
+            dedicated_weekly_hours=40,
         ),
         build_person_board_row(
             name="Agnese Čākure",
@@ -495,7 +573,7 @@ def test_render_planning_board_html():
     people[0]["flagline"] = {
         "kind": "over",
         "lab": "Overloaded",
-        "text": "Over-planned at 48.75h. Heaviest on Acer Client Action wireframes.",
+        "text": "Over-planned at 56h. Heaviest on dedicated Northerner + SID To Do.",
     }
     digest = {
         "week_of": "2026-07-20",
@@ -517,10 +595,11 @@ def test_render_planning_board_html():
     assert "Capacity board" in html
     assert "Vlad Shemetovets" in html
     assert "SID-292" in html
+    assert "SID-300" in html  # Client Action listed in detail
+    assert "Other assigned" in html
+    assert "Dedicated" in html
     assert "Where to rebalance" in html
-    assert "Spare" in html or "spare" in html
     assert "Overloaded" in html
-    assert "SID-292" in html
 
 
 @pytest.mark.jira

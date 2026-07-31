@@ -1,7 +1,8 @@
 """Pure helpers for A3 Weekly Planning Board.
 
-Scope is code: availability, planned/blocked hours, capacity bands, and KPIs
-are decided here — never by the LLM.
+Scope is code: availability, planned/blocked hours (In Progress + To Do +
+dedicated), capacity bands, detail vs other ticket partition, and KPIs —
+never by the LLM.
 """
 
 from __future__ import annotations
@@ -15,6 +16,12 @@ from designops.core.identity import effective_status
 # --- Status sets (A3 §6) -----------------------------------------------------
 
 BLOCKED_STATUSES: frozenset[str] = frozenset({"on hold", "blocked by", "blocked"})
+
+# Weekly workload = In Progress + To Do (+ person.dedicated_weekly_hours).
+WEEKLY_LOAD_STATUSES: frozenset[str] = frozenset({"in progress", "to do"})
+
+# Shown ticket-by-ticket under each person (load statuses + Client Action).
+DETAIL_STATUSES: frozenset[str] = frozenset({"in progress", "to do", "client action"})
 
 ACTIVE_STATUSES: frozenset[str] = frozenset(
     {
@@ -195,6 +202,33 @@ def is_active_status(status: str | None) -> bool:
     return status.strip().lower() in ACTIVE_STATUSES
 
 
+def is_weekly_load_status(status: str | None) -> bool:
+    """In Progress / To Do — count toward this week's planned load."""
+    if not status:
+        return False
+    return status.strip().lower() in WEEKLY_LOAD_STATUSES
+
+
+def is_detail_status(status: str | None) -> bool:
+    """In Progress / To Do / Client Action — listed ticket-by-ticket."""
+    if not status:
+        return False
+    return status.strip().lower() in DETAIL_STATUSES
+
+
+def dedicated_hours_value(
+    *,
+    is_dedicated: bool = False,
+    dedicated_weekly_hours: float | None = None,
+) -> float:
+    """Person-level dedicated hours that count as weekly workload."""
+    if not is_dedicated:
+        return 0.0
+    if dedicated_weekly_hours is None:
+        return 0.0
+    return max(0.0, float(dedicated_weekly_hours))
+
+
 def burn_pct(est: float | None, log: float | None) -> int | None:
     """Log / Est × 100, or None when either side is missing/zero (§7)."""
     if est is None or log is None:
@@ -352,17 +386,54 @@ def filter_work_tickets(tickets: list[dict]) -> list[dict]:
     return [t for t in tickets if not is_excluded_ticket(t)]
 
 
-def planned_and_blocked(tickets: list[dict]) -> tuple[float, float]:
-    """Σ Left for non-blocked vs blocked planned tickets (§2–3)."""
+def planned_and_blocked(
+    tickets: list[dict],
+    *,
+    dedicated_weekly_hours: float = 0.0,
+) -> tuple[float, float]:
+    """Σ Left for In Progress/To Do (+ dedicated) vs blocked tickets.
+
+    Client Action and other statuses are visible in the report but do not
+    count toward weekly planned load.
+    """
     planned = 0.0
     blocked = 0.0
     for t in tickets:
         left = ticket_left_hours(t)
         if is_blocked_status(t.get("status")):
             blocked += left
-        else:
+        elif is_weekly_load_status(t.get("status")):
             planned += left
+    planned += float(dedicated_weekly_hours or 0.0)
     return round(planned, 2), round(blocked, 2)
+
+
+def partition_person_tickets(tickets: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split work tickets into detail rows vs collapsed 'other' bucket."""
+    detail: list[dict] = []
+    other: list[dict] = []
+    for t in tickets:
+        if is_detail_status(t.get("status")):
+            detail.append(t)
+        else:
+            other.append(t)
+    return detail, other
+
+
+def summarize_other_tickets(tickets: list[dict]) -> dict | None:
+    """One-line rollup for non-detail assigned tickets (est + log summed)."""
+    if not tickets:
+        return None
+    sum_est = sum(float(t.get("original_hours") or 0) for t in tickets)
+    sum_log = sum(float(t.get("spent_hours") or 0) for t in tickets)
+    sum_left = sum(ticket_left_hours(t) for t in tickets)
+    return {
+        "label": "Other assigned",
+        "count": len(tickets),
+        "est_hours": round(sum_est, 2),
+        "log_hours": round(sum_log, 2),
+        "left_hours": round(sum_left, 2),
+    }
 
 
 def enrich_ticket(ticket: dict) -> dict:
@@ -463,17 +534,25 @@ def build_person_board_row(
     has_friday_plan: bool,
     friday_keys: list[str] | None = None,
     no_plan: bool = False,
+    is_dedicated: bool = False,
+    dedicated_weekly_hours: float | None = None,
 ) -> dict:
     """Assemble one person card + board row for the planning board."""
     work = filter_work_tickets(tickets)
-    planned, blocked = planned_and_blocked(work)
+    dedicated_h = dedicated_hours_value(
+        is_dedicated=is_dedicated,
+        dedicated_weekly_hours=dedicated_weekly_hours,
+    )
+    planned, blocked = planned_and_blocked(work, dedicated_weekly_hours=dedicated_h)
     band_info = classify_capacity_band(
         planned_hours=planned,
         blocked_hours=blocked,
         capacity=capacity,
         availability=availability,
     )
-    groups = group_tickets_by_status(work)
+    detail_tickets, other_tickets = partition_person_tickets(work)
+    groups = group_tickets_by_status(detail_tickets)
+    other_summary = summarize_other_tickets(other_tickets)
     flagline = default_flagline(
         band_info["band"], blocked_hours=blocked
     )
@@ -497,6 +576,8 @@ def build_person_board_row(
         "planned_hours": planned,
         "blocked_hours": blocked,
         "normal_hours": capacity,
+        "is_dedicated": bool(is_dedicated and dedicated_h > 0),
+        "dedicated_weekly_hours": dedicated_h if dedicated_h > 0 else None,
         "unverified": False,
         "no_plan": no_plan,
         "friday_keys": friday_keys or [],
@@ -507,7 +588,8 @@ def build_person_board_row(
         "meta_class": band_info["meta_class"],
         "flagline": flagline,
         "status_groups": groups,
-        "tickets": [enrich_ticket(t) for t in work],
+        "other_summary": other_summary,
+        "tickets": [enrich_ticket(t) for t in detail_tickets],
         # Back-compat aliases used by older template bits / tests
         "booked_hours": planned,
         "overload": band_info["band"] == "OVER_PLANNED",

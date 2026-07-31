@@ -60,7 +60,7 @@ re-connect in step 5 anyway because the redirect URI changes.
 
 ## 4. Deploy
 Trigger a deploy (push to the branch, or Railway **Deploy**). On boot the container runs
-`alembic upgrade head` then starts uvicorn + the scheduler. Open the generated domain —
+`alembic upgrade head` + `python -m scripts.seed` then starts uvicorn + the scheduler. Open the generated domain —
 you should see the Daily report page.
 
 ## 5. Point Google OAuth at production

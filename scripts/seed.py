@@ -48,6 +48,8 @@ def seed_people(session) -> tuple[int, int]:
                     role=row.get("role"),
                     status=row.get("status", "active"),
                     squad=row.get("squad"),
+                    is_dedicated=bool(row.get("is_dedicated", False)),
+                    dedicated_weekly_hours=row.get("dedicated_weekly_hours"),
                     identity_verified=row.get("identity_verified", False),
                     notes=row.get("notes"),
                 )
@@ -61,6 +63,8 @@ def seed_people(session) -> tuple[int, int]:
             existing.role = row.get("role")
             existing.status = row.get("status", "active")
             existing.squad = row.get("squad")
+            existing.is_dedicated = bool(row.get("is_dedicated", False))
+            existing.dedicated_weekly_hours = row.get("dedicated_weekly_hours")
             existing.identity_verified = row.get("identity_verified", False)
             existing.notes = row.get("notes")
             updated += 1

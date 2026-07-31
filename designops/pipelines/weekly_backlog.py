@@ -1,8 +1,8 @@
 """A3 Weekly Planning Board — DB-backed orchestration.
 
-Monday brief for Olga per A3 DEV SPEC: Friday-planned tickets (Σ remaining,
-excluding blocked) + roster leave → capacity board, KPIs, per-person status
-groups. LLM phrases rebalance moves + flag notes; hours/bands are code.
+Monday brief for Olga: weekly load = In Progress + To Do remaining hours
+plus person-level dedicated weekly hours; Client Action listed in detail;
+other assigned tickets collapsed. LLM phrases rebalance moves + flag notes.
 """
 
 from __future__ import annotations
@@ -47,7 +47,6 @@ from designops.pipelines.weekly_availability import (
     doc_to_ticket,
     extract_ticket_keys,
     filter_work_tickets,
-    is_active_status,
     previous_friday,
     resolve_week_monday,
 )
@@ -130,14 +129,12 @@ _NARRATIVE_STOP = frozenset(
 
 
 def _active_assigned(assigned_tickets: list[dict]) -> list[dict]:
-    active = [
-        t
-        for t in assigned_tickets
-        if is_active_status(t.get("status")) or not t.get("status")
-    ]
-    if not active and assigned_tickets:
-        active = list(assigned_tickets)
-    return filter_work_tickets(active)
+    """All open assigned work tickets (hardware / time-log buckets dropped).
+
+    Weekly load filtering (In Progress / To Do) happens in build_person_board_row;
+    Client Action stays detailed; everything else collapses to one summary line.
+    """
+    return filter_work_tickets(assigned_tickets)
 
 
 def _tickets_matching_narrative(friday_text: str, candidates: list[dict]) -> list[dict]:
@@ -247,10 +244,10 @@ def _select_planned_tickets(
     availability: str,
     registry: ProjectRegistry | None = None,
 ) -> tuple[list[dict], list[str], bool]:
-    """Resolve the planned ticket set.
+    """Resolve assigned work tickets for the person board.
 
-    Always returns all active assigned tickets from Jira.
-    Friday report keys are extracted for informational purposes only.
+    Returns all open assigned work tickets (load/detail/other partitioning
+    happens in build_person_board_row). Friday keys are informational only.
 
     Returns (tickets, friday_keys, no_plan).
     """
@@ -287,6 +284,8 @@ def _build_person_rows(
         )
         
         has_friday_report = bool(fdocs) or bool(friday_text.strip())
+        dedicated_h = getattr(p, "dedicated_weekly_hours", None)
+        is_dedicated = bool(getattr(p, "is_dedicated", False))
         row = build_person_board_row(
             name=p.full_name,
             availability=avail,
@@ -295,6 +294,8 @@ def _build_person_rows(
             has_friday_plan=has_friday_report,
             friday_keys=friday_keys,
             no_plan=no_plan and avail != "OUT",
+            is_dedicated=is_dedicated,
+            dedicated_weekly_hours=dedicated_h,
         )
 
         row["friday_excerpt"] = friday_text[:4000] if friday_text else ""
@@ -411,6 +412,9 @@ def _rich_flagline(person: dict, *, capacity: float, peers: list[dict]) -> dict:
 
     if band == "AT_CAPACITY":
         text = f"At capacity ({_fmt_plan_hours(planned)}h)."
+        dedic = person.get("dedicated_weekly_hours")
+        if dedic:
+            text += f" Includes {_fmt_plan_hours(float(dedic))}h dedicated."
         if heaviest:
             text += f" Heaviest: {heaviest}."
         return {"kind": "bal", "lab": "At capacity", "text": text}

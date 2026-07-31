@@ -13,5 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Run DB migrations, then serve. Railway/Render/Fly inject $PORT.
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn designops.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Run DB migrations + roster/project seed, then serve. Seed is idempotent
+# (upsert by email). Railway/Render/Fly inject $PORT.
+CMD ["sh", "-c", "alembic upgrade head && python -m scripts.seed && exec uvicorn designops.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

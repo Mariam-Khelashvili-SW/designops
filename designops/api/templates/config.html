@@ -13,7 +13,7 @@
 <div class="card">
   <b>Roster ({{ people | length }})</b>
   <table style="margin-top:8px">
-    <thead><tr><th>Name</th><th>Email (identity)</th><th>Jira accountId</th><th>Role</th><th>Status</th><th>Verified</th></tr></thead>
+    <thead><tr><th>Name</th><th>Email (identity)</th><th>Jira accountId</th><th>Role</th><th>Dedicated</th><th>Status</th><th>Verified</th></tr></thead>
     <tbody>
     {% for p in people %}
       <tr>
@@ -21,6 +21,7 @@
         <td class="mono">{{ p.emails | join(', ') or '⚠ none' }}</td>
         <td class="mono">{{ p.jira_account_id or '—' }}</td>
         <td class="sub">{{ p.role }}</td>
+        <td>{% if p.is_dedicated and p.dedicated_weekly_hours %}<span class="pill ok">{{ p.dedicated_weekly_hours|int if p.dedicated_weekly_hours == p.dedicated_weekly_hours|int else p.dedicated_weekly_hours }}h/wk</span>{% elif p.is_dedicated %}<span class="pill ok">yes</span>{% else %}<span class="pill mut">—</span>{% endif %}</td>
         <td>{% if p.status=='active' %}<span class="pill ok">active</span>{% elif p.status=='out' %}<span class="pill red">out</span>{% else %}<span class="pill mut">{{ p.status }}</span>{% endif %}</td>
         <td>{% if p.identity_verified %}<span class="pill ok">✓</span>{% else %}<span class="pill flagged">unverified</span>{% endif %}</td>
       </tr>

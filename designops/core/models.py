@@ -62,6 +62,9 @@ class Person(Base):
     # inclusive last day of leave; on report_dates after it the person is active again
     leave_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     squad: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Dedicated designer: fixed weekly hours count as workload regardless of Jira tasks
+    is_dedicated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    dedicated_weekly_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     # true once email + jira_account_id verified against the Directory (§9.3, §11.3)
     identity_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

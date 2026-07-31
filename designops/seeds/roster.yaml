@@ -64,7 +64,9 @@ people:
     status: active
     squad: "Design"
     identity_verified: true
-    notes: "§11.2 — zero Fairwind SEARCH hits over 60 days, yet highest-output on 17 Jul (Northerner). Test subject for the §10.3 gate."
+    is_dedicated: true
+    dedicated_weekly_hours: 40
+    notes: "Northerner dedicated — 40h/week (client Jira). §11.2 — zero Fairwind SEARCH hits over 60 days, yet highest-output on 17 Jul. Test subject for the §10.3 gate."
 
   - full_name: "Vlad Shemetovets"
     emails: ["vlad.shemetovets@scandiweb.com"]       # confirmed by owner 28 Jul 2026
@@ -74,7 +76,9 @@ people:
     status: active
     squad: "Design"
     identity_verified: true
-    notes: "17 Jul: active in Predrag's work, no direct report. Collides with Vladislavs Piscikovs, Vladyslav Ivashchenko (§11.3)."
+    is_dedicated: true
+    dedicated_weekly_hours: 40
+    notes: "Northerner dedicated — 40h/week (client Jira). 17 Jul: active in Predrag's work, no direct report. Collides with Vladislavs Piscikovs, Vladyslav Ivashchenko (§11.3)."
 
   - full_name: "Maarja Truu"
     emails: ["maarja.truu@scandiweb.com"]            # confirmed by owner 28 Jul 2026
@@ -104,7 +108,9 @@ people:
     status: active
     squad: "Design"
     identity_verified: true
-    notes: "Collides with Tako Okruashvili, Salome Tevdorashvili. 17 Jul: last report 2 Jul."
+    is_dedicated: true
+    dedicated_weekly_hours: 20
+    notes: "Byggmax dedicated — 80h/month ≈ 20h/week (client Jira). Collides with Tako Okruashvili, Salome Tevdorashvili. 17 Jul: last report 2 Jul."
 
   - full_name: "Agnese Čākure"
     emails: ["agnese.cakure@scandiweb.com"]          # DERIVED — verify
