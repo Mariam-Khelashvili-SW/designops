@@ -65,7 +65,9 @@ you should see the Daily report page.
 
 ## 5. Point Google OAuth at production
 1. Google Cloud Console → **APIs & Services → Credentials → your OAuth client → Authorized redirect URIs → Add** `https://<your-app>.up.railway.app/oauth/google/callback` (must match `GOOGLE_REDIRECT_URI` exactly). Save.
-2. In the deployed app → Daily report → **Delivery → Connect Google** → authorize. The refresh token is stored in Postgres (`app_state`), so it survives redeploys.
+2. Enable **Gmail API** on the same project (needed for send + CRO read).
+3. In the deployed app → Config → **Delivery → Connect Google** → authorize (send). The refresh token is stored in Postgres (`app_state`), so it survives redeploys.
+4. Optional — Config → **CRO mailbox → Connect CRO mailbox** (separate grant, `gmail.readonly`). Only reads `CRO_MAILBOX_EMAIL` (default `cro@scandiweb.com`). Report-day cro@ mail is pulled into the daily digest as beyond-the-dailies signal.
 
 ## 6. Turn on the schedule
 Daily report → **Daily schedule** card: set the **time** (e.g. 12:00), **Days**, add

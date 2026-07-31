@@ -130,14 +130,16 @@ If a report is received but too ambiguous to classify, do not guess — carry it
 
 ## Beyond-the-dailies (per project, kept lean)
 
-From the report-day client email / transcript / Jira context, add **only**:
-blockers, escalations, and brief heads-ups that **no daily already carried**.
+From the report-day client email / transcript / Jira / **cro@scandiweb.com mailbox**
+context, add **only**: blockers, escalations, and brief heads-ups that **no daily already
+carried**.
 
 - **Omit** granular client change-requests and copy/proofreading decisions ("drop the
   sticky bar", "COLOR not COLOURS").
 - **Recurring rework** is worth flagging — but only when the **team's own report** tags
-  it ("adjusting the PLP again ×2"), never by mining client emails.
-- Every `beyond_daily` item names its `source` (thread/transcript/ticket).
+  it ("adjusting the PLP again ×2"), never by mining client emails alone for that.
+- Every `beyond_daily` item names its `source` (thread/transcript/ticket/`cro@` + subject).
+- cro@ mail is **never** a designer's daily — do not invent `done`/`next` from it.
 
 ## No report + availability
 

@@ -68,6 +68,8 @@ def set_enabled(tokens: list[str], enabled: bool, by: str) -> dict:
             row.enabled_by = by if enabled else None
             row.enabled_at = datetime.now(UTC) if enabled else None
             if enabled:
+                who = by or "enable_accounts"
+                row.notes = f"Enabled via enable_accounts script ({who})."
                 ensure_project_for_account(s, row)
             changed.append(row.name)
         s.flush()

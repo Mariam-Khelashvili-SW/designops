@@ -37,12 +37,14 @@ def _is_internal_daily(doc: Document) -> bool:
 
 def _is_beyond_daily(doc: Document, report_date: date) -> bool:
     """Report-day, non-roster signal the model may mine for blockers/escalations no daily
-    carried (§ user 21 Jul): a meeting transcript, or a client-facing email our own team
-    sent. Report DAY only (never the next-morning window). Automated client/system emails
-    (non-@scandiweb.com senders) are excluded so the layer stays lean."""
+    carried: meeting transcript, outbound client-facing Fairwind email, or cro@ mailbox mail.
+    Report DAY only (never the next-morning window)."""
     if doc.event_date != report_date:
         return False
     if doc.source == "transcript":
+        return True
+    # CRO shared inbox (inbound client + team mail to cro@) — lean beyond_daily only.
+    if doc.source == "gmail" and doc.raw.get("folder") == "cro":
         return True
     return (
         doc.raw.get("folder") == "external"
@@ -211,10 +213,9 @@ def filter_corpus(
         doc.person_id = member.id
         doc.project_id = project.id if project else None
         result.included.append(IncludedDoc(document=doc, person=member, project=project))
-        # "reported" means they filed an actual daily — an internal thread message (or a
-        # Gmail daily). A Jira ticket assigned to them is a cross-check, NOT a report, so
-        # someone with only a ticket stays silent (→ no_report), never a fabricated entry.
-        if doc.raw.get("folder") == "internal" or doc.source == "gmail":
+        # "reported" means they filed an actual daily — an internal thread message.
+        # Jira tickets and cro@ Gmail are cross-checks / beyond_daily, NOT a report.
+        if doc.raw.get("folder") == "internal":
             result.reported_person_ids.add(member.id)
         result.audit.append(
             AuditRecord(

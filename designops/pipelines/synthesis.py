@@ -67,11 +67,14 @@ def build_user_content(filtered: FilterResult) -> str:
         by_project: dict[str, list] = {}
         for bd in filtered.beyond_daily:
             by_project.setdefault(bd.label, []).append(bd.document)
-        chunks.append("## Beyond the dailies (report-day client email / transcripts)")
+        chunks.append("## Beyond the dailies (report-day client email / transcripts / cro@)")
         for label, bdocs in by_project.items():
             chunks.append(f"### {label}")
             for d in bdocs:
-                chunks.append(f"- [{d.source}] {d.title}\n  {d.body}")
+                src = d.raw.get("mailbox") or d.source
+                if d.raw.get("folder") == "cro":
+                    src = f"cro@ ({d.raw.get('from') or d.author_identity})"
+                chunks.append(f"- [{src}] {d.title}\n  {d.body}")
             chunks.append("")
     return "\n".join(chunks).strip()
 

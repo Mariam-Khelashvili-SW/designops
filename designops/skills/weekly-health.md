@@ -25,7 +25,8 @@ signed estimate, and ticket tables are **already computed in code**. Your only j
   `⚙ Agent (hedged):`, cite source, hedge it.
 - Internal vs client: `@scandiweb.com` is internal; Olga is the recipient, never "the client".
 - Working days (not calendar) for the 3-day Client Action threshold.
-- Tickets include `days_in_status` (calendar days since last status change). Flag
+- Tickets include `days_in_status` (calendar days under the current status: last
+  status change, or ticket created if the changelog has no status transitions). Flag
   tickets stuck ≥7 days in In Progress / Client Action when they matter.
 - Per project, LAST_CALL / NEXT_CALL come from the Transcript calendar-meetings
   API (client email domains × design roster + Olga). Use them when relevant;

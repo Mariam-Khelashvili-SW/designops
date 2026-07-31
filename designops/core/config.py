@@ -126,6 +126,10 @@ class Settings(BaseSettings):
     setup_owner_email: str = Field(
         default="liana.staskevica@scandiweb.com", alias="SETUP_OWNER_EMAIL"
     )
+    # CRO shared mailbox — Gmail read only (alias on a connected Google account)
+    cro_mailbox_email: str = Field(
+        default="cro@scandiweb.com", alias="CRO_MAILBOX_EMAIL"
+    )
 
     # Transcript app — calendar meetings for weekly health last/next call dates
     transcript_api_base_url: str = Field(

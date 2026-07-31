@@ -47,6 +47,12 @@
               <button class="btn sm ghost" type="submit" title="Include in the daily report">Enable</button>
             {% endif %}
           </form>
+          {% if a.digest_enabled %}
+          <div class="sub" style="margin-top:6px;line-height:1.4;max-width:220px">
+            {% if a.enabled_at %}{{ a.enabled_at.strftime('%d %b %Y %H:%M') }}{% endif %}{% if a.enabled_by %} · {{ a.enabled_by }}{% endif %}
+            {% if a.notes %}<br>{{ a.notes }}{% endif %}
+          </div>
+          {% endif %}
         </td>
         <td>
           <form method="post" action="/accounts/{{ a.fairwind_account_id }}/export" class="row" style="gap:8px">

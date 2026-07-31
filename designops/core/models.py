@@ -65,7 +65,9 @@ class Person(Base):
     # Dedicated designer: fixed weekly hours count as workload regardless of Jira tasks
     is_dedicated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     dedicated_weekly_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # true once email + jira_account_id verified against the Directory (§9.3, §11.3)
+    # Per-source identity checks (Verify identity button). identity_verified = both.
+    jira_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    fairwind_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     identity_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

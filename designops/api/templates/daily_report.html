@@ -15,30 +15,6 @@
 </div>
 {% endif %}
 
-{% if google_flash == 'connected' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Google connected{% if google_email %} as <b>{{ google_email }}</b>{% endif %}. Reports can now be emailed.</div>
-{% elif google_flash == 'disconnected' %}<div class="banner" style="background:#eef0f3;border:1px solid #dfe2e7;color:#5b6470">Google disconnected.</div>
-{% elif google_flash == 'error' %}<div class="banner warn">Google connection failed: {{ google_msg or 'unknown error' }}</div>
-{% elif google_flash == 'notconfigured' %}<div class="banner warn">Google OAuth isn't set up yet — add <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code> first.</div>
-{% endif %}
-
-<div class="card">
-  <h1 style="font-size:16px;margin-bottom:2px">Delivery</h1>
-  {% if google_connected %}
-    <p class="sub" style="margin-bottom:8px"><span class="pill ok">Gmail connected</span>
-      {% if google_email %}as <b>{{ google_email }}</b>{% endif %} · reports email to {{ owner_email }}.</p>
-    <form method="post" action="/settings/google/disconnect" style="display:inline">
-      <button class="btn ghost sm" type="submit">Disconnect</button>
-    </form>
-  {% elif google_configured %}
-    <p class="sub" style="margin-bottom:8px">Connect your Google account to send reports securely (no password stored).</p>
-    <a class="btn" href="/settings/google/connect">Connect Google</a>
-  {% else %}
-    <p class="sub">To email reports, either connect Google (add <code>GOOGLE_CLIENT_ID</code> /
-      <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code>, then a Connect button appears here)
-      {% if smtp_ready %}— or the SMTP app password is set and ready{% else %}or set a Gmail app password{% endif %}.</p>
-  {% endif %}
-</div>
-
 <div class="card">
   <h1 style="font-size:16px;margin-bottom:2px">Daily schedule</h1>
   <p class="sub">Each working day, generate the previous day's report (2-day export window) and — if delivery is on — email it to the recipients. Runs on the in-app scheduler, so the server must be running.</p>
@@ -65,10 +41,9 @@
   <p class="sub" style="margin-top:8px">
     {% if sched_enabled and sched_next %}⏰ Next run <b>{{ sched_next }}</b>{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
     {% elif sched_enabled %}Enabled.{% else %}Off — nothing runs automatically.{% endif %}
-    {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ Connect Google above to actually send.</span>{% endif %}
+    {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ <a href="/config">Connect Gmail in Config</a> to actually send.</span>{% endif %}
   </p>
 </div>
-
 <div class="card">
   <h1 style="font-size:16px;margin-bottom:2px">Generate a report</h1>
   <p class="sub">One account export per enabled account, then one model call. This runs synchronously —

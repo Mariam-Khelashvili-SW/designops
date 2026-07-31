@@ -1,12 +1,12 @@
-"""Google OAuth for Gmail send — authorization-code flow, raw over httpx (no google SDK).
+"""Google OAuth for Gmail — authorization-code flow, raw over httpx (no google SDK).
 
-Flow: the user clicks Connect → Google's own consent screen → we exchange the returned
-code for a **refresh token**, stored locally in a gitignored file. Sending uses the Gmail
-REST API with a short-lived access token refreshed on demand. The app never sees the
-user's Google password; the grant is revocable at myaccount.google.com.
+Two grants share the same OAuth client but different scopes + token stores:
 
-`client_id`/`client_secret` come from env (the user's Google Cloud OAuth client). The
-refresh token is a per-user runtime credential, not an app secret.
+- **Delivery** (`google_oauth`): `gmail.send` — email digests.
+- **CRO mailbox** (`google_oauth_cro`): `gmail.readonly` — read cro@ only.
+
+Flow: Connect → Google consent → refresh token in Postgres `app_state`. The app never
+sees the user's Google password; the grant is revocable at myaccount.google.com.
 """
 
 from __future__ import annotations
@@ -29,77 +29,95 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "openid",
 ]
+CRO_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid",
+]
 _AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 _USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 
-
 _STATE_KEY = "google_oauth"
+_CRO_STATE_KEY = "google_oauth_cro"
+STATE_DELIVERY = "designops"
+STATE_CRO = "cro"
 
 
 def _path(s: Settings) -> Path:
     return Path(s.google_token_path)
 
 
-def _load(s: Settings) -> dict | None:
-    """DB first (survives redeploys); fall back to the local file for dev/back-compat."""
+def _load(s: Settings, *, key: str = _STATE_KEY) -> dict | None:
+    """DB first (survives redeploys); file fallback only for delivery (dev/back-compat)."""
     from designops.core.db import session_scope
     from designops.core.models import AppState
 
     try:
         with session_scope() as sess:
-            row = sess.get(AppState, _STATE_KEY)
+            row = sess.get(AppState, key)
             if row and row.value:
                 return dict(row.value)
     except Exception:  # noqa: BLE001 — DB may be unavailable at import-time tooling
         pass
-    p = _path(s)
-    if p.exists():
-        try:
-            return json.loads(p.read_text())
-        except (json.JSONDecodeError, OSError):
-            return None
+    if key == _STATE_KEY:
+        p = _path(s)
+        if p.exists():
+            try:
+                return json.loads(p.read_text())
+            except (json.JSONDecodeError, OSError):
+                return None
     return None
 
 
-def _save(s: Settings, data: dict) -> None:
+def _save(s: Settings, data: dict, *, key: str = _STATE_KEY) -> None:
     """Persist the token in Postgres so a container redeploy keeps the Gmail connection."""
     from designops.core.db import session_scope
     from designops.core.models import AppState
 
     with session_scope() as sess:
-        row = sess.get(AppState, _STATE_KEY)
+        row = sess.get(AppState, key)
         if row:
             row.value = data
         else:
-            sess.add(AppState(key=_STATE_KEY, value=data))
+            sess.add(AppState(key=key, value=data))
 
 
-def build_auth_url(state: str, settings: Settings | None = None) -> str:
-    s = settings or get_settings()
+def _build_auth_url(state: str, scopes: list[str], settings: Settings) -> str:
     q = {
-        "client_id": s.google_client_id,
-        "redirect_uri": s.google_redirect_uri,
+        "client_id": settings.google_client_id,
+        "redirect_uri": settings.google_redirect_uri,
         "response_type": "code",
-        "scope": " ".join(SCOPES),
-        "access_type": "offline",   # get a refresh token
-        "prompt": "consent",        # ensure a refresh token even on re-consent
+        "scope": " ".join(scopes),
+        "access_type": "offline",
+        "prompt": "consent",
         "state": state,
     }
     return f"{_AUTH_URL}?{urlencode(q)}"
 
 
-def exchange_code(code: str, settings: Settings | None = None) -> dict:
-    """Swap the auth code for tokens and persist the refresh token + connected email."""
+def build_auth_url(state: str = STATE_DELIVERY, settings: Settings | None = None) -> str:
     s = settings or get_settings()
+    return _build_auth_url(state or STATE_DELIVERY, SCOPES, s)
+
+
+def build_cro_auth_url(settings: Settings | None = None) -> str:
+    s = settings or get_settings()
+    return _build_auth_url(STATE_CRO, CRO_SCOPES, s)
+
+
+def _exchange_code(
+    code: str, *, settings: Settings, state_key: str
+) -> dict:
+    """Swap the auth code for tokens and persist the refresh token + connected email."""
     r = httpx.post(
         _TOKEN_URL,
         data={
             "code": code,
-            "client_id": s.google_client_id,
-            "client_secret": s.google_client_secret,
-            "redirect_uri": s.google_redirect_uri,
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "redirect_uri": settings.google_redirect_uri,
             "grant_type": "authorization_code",
         },
         timeout=30,
@@ -127,8 +145,18 @@ def exchange_code(code: str, settings: Settings | None = None) -> dict:
             "Google did not return a refresh token — revoke the app at "
             "myaccount.google.com/permissions and reconnect."
         )
-    _save(s, data)
+    _save(settings, data, key=state_key)
     return data
+
+
+def exchange_code(code: str, settings: Settings | None = None) -> dict:
+    return _exchange_code(code, settings=settings or get_settings(), state_key=_STATE_KEY)
+
+
+def exchange_cro_code(code: str, settings: Settings | None = None) -> dict:
+    return _exchange_code(
+        code, settings=settings or get_settings(), state_key=_CRO_STATE_KEY
+    )
 
 
 def is_connected(settings: Settings | None = None) -> bool:
@@ -136,8 +164,17 @@ def is_connected(settings: Settings | None = None) -> bool:
     return bool(d and d.get("refresh_token"))
 
 
+def is_cro_connected(settings: Settings | None = None) -> bool:
+    d = _load(settings or get_settings(), key=_CRO_STATE_KEY)
+    return bool(d and d.get("refresh_token"))
+
+
 def connected_email(settings: Settings | None = None) -> str | None:
     return (_load(settings or get_settings()) or {}).get("email")
+
+
+def connected_cro_email(settings: Settings | None = None) -> str | None:
+    return (_load(settings or get_settings(), key=_CRO_STATE_KEY) or {}).get("email")
 
 
 def disconnect(settings: Settings | None = None) -> None:
@@ -153,8 +190,18 @@ def disconnect(settings: Settings | None = None) -> None:
         p.unlink()
 
 
-def _access_token(s: Settings) -> str:
-    d = _load(s)
+def disconnect_cro(settings: Settings | None = None) -> None:
+    from designops.core.db import session_scope
+    from designops.core.models import AppState
+
+    with session_scope() as sess:
+        row = sess.get(AppState, _CRO_STATE_KEY)
+        if row:
+            sess.delete(row)
+
+
+def _access_token(s: Settings, *, key: str = _STATE_KEY) -> str:
+    d = _load(s, key=key)
     if not d or not d.get("refresh_token"):
         raise RuntimeError("Google account not connected")
     if d.get("access_token") and d.get("expires_at", 0) - 60 > time.time():
@@ -173,8 +220,12 @@ def _access_token(s: Settings) -> str:
     tok = r.json()
     d["access_token"] = tok["access_token"]
     d["expires_at"] = time.time() + int(tok.get("expires_in", 3600))
-    _save(s, d)
+    _save(s, d, key=key)
     return d["access_token"]
+
+
+def cro_access_token(settings: Settings | None = None) -> str:
+    return _access_token(settings or get_settings(), key=_CRO_STATE_KEY)
 
 
 def send_gmail(
@@ -197,7 +248,6 @@ def send_gmail(
         timeout=30,
     )
     if r.status_code >= 400:
-        # surface Google's own reason (disabled API / insufficient scope / …)
         detail = ""
         try:
             detail = r.json().get("error", {}).get("message", "")

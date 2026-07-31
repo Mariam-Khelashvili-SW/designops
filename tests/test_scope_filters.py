@@ -173,3 +173,33 @@ def test_coverage_ratio_counts_active_only(roster, registry):
     active = roster.active_count
     assert result.coverage_ratio == 1 / active
     assert len(result.silent_person_ids) == active - 1
+
+
+def test_cro_gmail_goes_to_beyond_daily_not_reported(roster, registry):
+    from designops.adapters.documents import Document
+
+    cro = Document(
+        source="gmail",
+        external_id="gmail-1",
+        event_date=REPORT_DATE,
+        author_identity="client@acer.com",
+        title="Acer: waiting on designs",
+        body="Please share the latest PLP.",
+        raw={"folder": "cro", "mailbox": "cro@scandiweb.com", "from": "Client <client@acer.com>"},
+    )
+    # Wrong day → drop
+    cro_next = Document(
+        source="gmail",
+        external_id="gmail-2",
+        event_date=NEXT_DAY,
+        author_identity="client@acer.com",
+        title="Tomorrow",
+        body="…",
+        raw={"folder": "cro", "mailbox": "cro@scandiweb.com"},
+    )
+    result = filter_corpus([cro, cro_next], roster, registry, REPORT_DATE)
+    assert "gmail-1" not in _included_ids(result)
+    assert any(bd.document.external_id == "gmail-1" for bd in result.beyond_daily)
+    assert _reason(result, "gmail-1") == "beyond_daily"
+    assert _reason(result, "gmail-2") == str(ExclusionReason.NOT_IN_ROSTER)
+    assert result.reported_person_ids == set()

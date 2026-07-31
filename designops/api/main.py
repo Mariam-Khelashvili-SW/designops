@@ -11,9 +11,10 @@ import re
 import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -22,7 +23,7 @@ from designops.adapters.delivery import send_digest
 from designops.adapters.fairwind import FairwindClient, FairwindError
 from designops.core.config import get_settings
 from designops.core.db import get_db
-from designops.core.enums import SendMode
+from designops.core.enums import PersonStatus, SendMode
 from designops.core.models import (
     Account,
     Artifact,
@@ -149,14 +150,6 @@ def daily_report(request: Request, db: Session = Depends(get_db)):
             "sched_next": nrt.strftime("%a %d %b %H:%M %Z") if nrt else None,
             "can_send": google_oauth.is_connected() or s.smtp_configured,
             "flash": request.query_params.get("flash"),
-            # delivery status
-            "google_configured": s.google_oauth_configured,
-            "google_connected": google_oauth.is_connected(s),
-            "google_email": google_oauth.connected_email(s),
-            "smtp_ready": s.smtp_configured,
-            "owner_email": s.setup_owner_email,
-            "google_flash": request.query_params.get("google"),
-            "google_msg": request.query_params.get("msg"),
         },
     )
 
@@ -377,6 +370,25 @@ def weekly_health_page(request: Request, db: Session = Depends(get_db)):
         .order_by(Project.canonical_name)
         .all()
     )
+    projects_by_fw = {
+        p.fairwind_account_id: p
+        for p in db.query(Project).filter(Project.fairwind_account_id.isnot(None)).all()
+        if p.fairwind_account_id
+    }
+    accounts_payload = []
+    for a in db.query(Account).order_by(Account.name).all():
+        proj = projects_by_fw.get(a.fairwind_account_id)
+        accounts_payload.append(
+            {
+                "id": a.fairwind_account_id,
+                "name": a.name,
+                "domains": list(a.domains or []),
+                "jira": list(a.jira_project_keys or [])[:4],
+                "active": bool(a.is_active),
+                "tracked": bool(proj and proj.track_weekly_health),
+                "project_id": str(proj.id) if proj else None,
+            }
+        )
     return templates.TemplateResponse(
         "weekly_health.html",
         {
@@ -385,6 +397,8 @@ def weekly_health_page(request: Request, db: Session = Depends(get_db)):
             "pipeline": pipeline,
             "recent": recent,
             "tracked": tracked,
+            "accounts_json": accounts_payload,
+            "fairwind_ready": s.fairwind_configured,
             "today_label": date.today().strftime("%a %-d %b %Y"),
             "anthropic_ready": s.anthropic_configured,
             "jira_ready": s.jira_configured,
@@ -395,7 +409,377 @@ def weekly_health_page(request: Request, db: Session = Depends(get_db)):
             "sched_next": nrt.strftime("%a %d %b %H:%M %Z") if nrt else None,
             "can_send": google_oauth.is_connected() or s.smtp_configured,
             "flash": request.query_params.get("flash"),
+            "flash_name": request.query_params.get("name"),
         },
+    )
+
+
+def _account_from_fairwind_row(db: Session, row: dict) -> Account:
+    """Upsert a local Account from a Fairwind directory row (directory columns only)."""
+    fid = str(row.get("id") or "").strip()
+    if not fid:
+        raise HTTPException(status_code=400, detail="Fairwind account missing id")
+    acct = db.query(Account).filter_by(fairwind_account_id=fid).one_or_none()
+    if acct is None:
+        acct = Account(
+            fairwind_account_id=fid,
+            name=(row.get("name") or "").strip() or "(unnamed)",
+            is_active=bool(row.get("is_active")),
+            domains=list(row.get("domains") or []),
+            jira_project_keys=[],
+            salesforce_account_ids=[],
+            notion_space_ids=[],
+            data_availability=row.get("data_availability") or {},
+            aliases=[],
+            digest_enabled=False,
+        )
+        db.add(acct)
+    else:
+        acct.name = (row.get("name") or "").strip() or acct.name
+        if "is_active" in row:
+            acct.is_active = bool(row.get("is_active"))
+        if row.get("domains") is not None:
+            acct.domains = list(row.get("domains") or [])
+    # jira keys may arrive as [{key:…}] or strings
+    jp = row.get("jira_projects") or row.get("jira_project_keys")
+    if jp:
+        keys: list[str] = []
+        for it in jp:
+            if isinstance(it, dict) and it.get("key"):
+                keys.append(str(it["key"]))
+            elif isinstance(it, str) and it.strip():
+                keys.append(it.strip())
+        if keys:
+            acct.jira_project_keys = keys
+    db.flush()
+    return acct
+
+
+def _track_project_for_account(db: Session, account: Account) -> Project:
+    from designops.core.projects import ensure_project_for_account, resolve_jira_candidates
+
+    project = ensure_project_for_account(db, account)
+    project.track_weekly_health = True
+    project.active = True
+    # Auto-link Jira when missing: account keys → Fairwind map → Jira Cloud search.
+    if not (project.jira_project_key or "").strip():
+        fw_rows: list[dict] = []
+        jira_rows: list[dict] = []
+        s = get_settings()
+        if s.fairwind_configured:
+            try:
+                fw_rows = FairwindClient(s).list_jira_projects()
+            except Exception:  # noqa: BLE001 — best-effort on add
+                fw_rows = []
+        if s.jira_configured:
+            try:
+                from designops.adapters.jira import JiraClient
+
+                jira_rows = JiraClient(s).search_projects(account.name or project.canonical_name)
+            except Exception:  # noqa: BLE001
+                jira_rows = []
+        matches = resolve_jira_candidates(
+            project_name=project.canonical_name,
+            fairwind_account_id=account.fairwind_account_id,
+            account_keys=list(account.jira_project_keys or []),
+            fairwind_jira_projects=fw_rows,
+            jira_cloud_projects=jira_rows,
+        )
+        # Auto-apply only a clear top match (exact / account-linked).
+        if matches and matches[0]["score"] <= 1:
+            project.jira_project_key = matches[0]["key"]
+    db.add(project)
+    return project
+
+
+def _jira_candidates_for_project(db: Session, project: Project) -> tuple[list[dict], list[str]]:
+    from designops.adapters.jira import JiraClient
+    from designops.core.projects import resolve_jira_candidates
+
+    account = None
+    if project.fairwind_account_id:
+        account = (
+            db.query(Account)
+            .filter_by(fairwind_account_id=project.fairwind_account_id)
+            .one_or_none()
+        )
+    s = get_settings()
+    fw_rows: list[dict] = []
+    jira_rows: list[dict] = []
+    sources: list[str] = []
+    if s.fairwind_configured:
+        try:
+            fw_rows = FairwindClient(s).list_jira_projects()
+            sources.append("fairwind")
+        except Exception as e:  # noqa: BLE001
+            sources.append(f"fairwind_error:{e}")
+    if s.jira_configured:
+        try:
+            jira_rows = JiraClient(s).search_projects(project.canonical_name)
+            sources.append("jira")
+        except Exception as e:  # noqa: BLE001
+            sources.append(f"jira_error:{e}")
+    matches = resolve_jira_candidates(
+        project_name=project.canonical_name,
+        fairwind_account_id=project.fairwind_account_id,
+        account_keys=list((account.jira_project_keys if account else None) or []),
+        fairwind_jira_projects=fw_rows,
+        jira_cloud_projects=jira_rows,
+    )
+    return matches, sources
+
+
+@app.post("/weekly-health/verify-account")
+async def weekly_health_verify_account(request: Request):
+    """Live Fairwind account search when the local directory has no match."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    q = str((body or {}).get("q") or "").strip()
+    if len(q) < 2:
+        raise HTTPException(status_code=400, detail="Type at least 2 characters")
+    s = get_settings()
+    if not s.fairwind_configured:
+        raise HTTPException(status_code=400, detail="Fairwind credentials not configured")
+    try:
+        client = FairwindClient(s)
+        rows = client.list_accounts()
+    except FairwindError as e:
+        raise HTTPException(status_code=502, detail=f"Fairwind error: {e}") from e
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Fairwind error: {e}") from e
+
+    ql = q.lower()
+    scored: list[tuple[int, dict]] = []
+    for r in rows:
+        name = (r.get("name") or "").strip()
+        if not name or not r.get("id"):
+            continue
+        nl = name.lower()
+        if ql == nl:
+            score = 0
+        elif nl.startswith(ql):
+            score = 1
+        elif ql in nl:
+            score = 2
+        else:
+            domains = " ".join(r.get("domains") or []).lower()
+            jira = " ".join(
+                str(it.get("key") if isinstance(it, dict) else it)
+                for it in (r.get("jira_projects") or [])
+            ).lower()
+            if ql not in domains and ql not in jira:
+                continue
+            score = 3
+        jira_keys = []
+        for it in r.get("jira_projects") or []:
+            if isinstance(it, dict) and it.get("key"):
+                jira_keys.append(str(it["key"]))
+            elif isinstance(it, str):
+                jira_keys.append(it)
+        scored.append(
+            (
+                score,
+                {
+                    "id": str(r["id"]),
+                    "name": name,
+                    "domains": list(r.get("domains") or [])[:4],
+                    "jira": jira_keys[:4],
+                    "active": bool(r.get("is_active")),
+                    "jira_projects": r.get("jira_projects") or [],
+                    "is_active": bool(r.get("is_active")),
+                    "data_availability": r.get("data_availability") or {},
+                },
+            )
+        )
+    scored.sort(key=lambda x: (x[0], x[1]["name"].lower()))
+    matches = [m for _, m in scored[:8]]
+    return JSONResponse(
+        {
+            "query": q,
+            "matches": matches,
+            "count": len(matches),
+            "searched": len(rows),
+        }
+    )
+
+
+@app.post("/weekly-health/confirm-account")
+async def weekly_health_confirm_account(request: Request, db: Session = Depends(get_db)):
+    """After Fairwind verify: upsert account, link project, add to weekly health."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not body or not body.get("id"):
+        raise HTTPException(status_code=400, detail="Fairwind account id required")
+    acct = _account_from_fairwind_row(db, body)
+    project = _track_project_for_account(db, acct)
+    return JSONResponse(
+        {
+            "ok": True,
+            "name": project.canonical_name,
+            "project_id": str(project.id),
+            "redirect": f"/weekly-health?flash=tracked&name={quote(project.canonical_name)}",
+        }
+    )
+
+
+@app.post("/weekly-health/track-account")
+def weekly_health_track_account(
+    fairwind_account_id: str = Form(...),
+    name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Track weekly health for a local Fairwind account (create/link project if needed)."""
+    fid = (fairwind_account_id or "").strip()
+    if not fid:
+        raise HTTPException(status_code=400, detail="fairwind_account_id required")
+    acct = db.query(Account).filter_by(fairwind_account_id=fid).one_or_none()
+    if acct is None:
+        display = (name or "").strip() or "(unnamed)"
+        acct = Account(
+            fairwind_account_id=fid,
+            name=display,
+            is_active=True,
+            domains=[],
+            jira_project_keys=[],
+            salesforce_account_ids=[],
+            notion_space_ids=[],
+            data_availability={},
+            aliases=[],
+            digest_enabled=False,
+        )
+        db.add(acct)
+        db.flush()
+    project = _track_project_for_account(db, acct)
+    return RedirectResponse(
+        f"/weekly-health?flash=tracked&name={quote(project.canonical_name)}",
+        status_code=302,
+    )
+
+
+@app.post("/weekly-health/projects/{project_id}/track")
+def weekly_health_track_project(
+    project_id: str,
+    enable: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Add or remove a project from the weekly-health allowlist."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    on = enable == "on"
+    project.track_weekly_health = on
+    db.add(project)
+    flash = "tracked" if on else "untracked"
+    return RedirectResponse(
+        f"/weekly-health?flash={flash}&name={quote(project.canonical_name)}",
+        status_code=302,
+    )
+
+
+@app.post("/weekly-health/projects/{project_id}")
+def weekly_health_update_project(
+    project_id: str,
+    signed_design_estimate_h: str = Form(""),
+    display_subtitle: str = Form(""),
+    jira_project_key: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Edit weekly-health fields on a tracked project (estimate + subtitle + Jira)."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    raw = (signed_design_estimate_h or "").strip()
+    if not raw:
+        project.signed_design_estimate_h = None
+    else:
+        try:
+            project.signed_design_estimate_h = float(raw)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail="signed estimate must be a number") from e
+    project.display_subtitle = (display_subtitle or "").strip() or None
+    key = (jira_project_key or "").strip().upper() or None
+    project.jira_project_key = key
+    db.add(project)
+    return RedirectResponse(
+        f"/weekly-health?flash=project_saved&name={quote(project.canonical_name)}",
+        status_code=302,
+    )
+
+
+@app.post("/weekly-health/projects/{project_id}/verify-jira")
+def weekly_health_verify_jira(project_id: str, db: Session = Depends(get_db)):
+    """Find Jira project key candidates for a tracked project (Fairwind + Jira Cloud)."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    s = get_settings()
+    if not s.fairwind_configured and not s.jira_configured:
+        raise HTTPException(
+            status_code=400,
+            detail="Configure Fairwind or Jira credentials to verify project keys",
+        )
+    matches, sources = _jira_candidates_for_project(db, project)
+    auto = None
+    if matches and matches[0]["score"] <= 1:
+        auto = matches[0]
+        project.jira_project_key = auto["key"]
+        db.add(project)
+        db.commit()
+    return JSONResponse(
+        {
+            "project_id": str(project.id),
+            "name": project.canonical_name,
+            "current_key": project.jira_project_key,
+            "auto_applied": auto,
+            "matches": matches[:8],
+            "sources": sources,
+        }
+    )
+
+
+@app.post("/weekly-health/projects/{project_id}/set-jira")
+async def weekly_health_set_jira(
+    project_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Set / confirm a Jira project key after verify."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    key = str((body or {}).get("key") or "").strip().upper()
+    if not key:
+        raise HTTPException(status_code=400, detail="Jira key required")
+    # Optional live check when Jira is configured
+    s = get_settings()
+    if s.jira_configured:
+        try:
+            from designops.adapters.jira import JiraClient
+
+            found = JiraClient(s).get_project(key)
+            if found is None:
+                raise HTTPException(status_code=404, detail=f"Jira project {key} not found")
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"Jira lookup failed: {e}") from e
+    project.jira_project_key = key
+    db.add(project)
+    return JSONResponse(
+        {
+            "ok": True,
+            "key": key,
+            "name": project.canonical_name,
+            "redirect": f"/weekly-health?flash=jira_linked&name={quote(project.canonical_name)}",
+        }
     )
 
 
@@ -559,38 +943,59 @@ def email_run(
     )
 
 
-# --- Google OAuth (Connect Gmail for sending) --------------------------------
+# --- Google OAuth (Connect Gmail for sending + CRO mailbox read) -------------
 @app.get("/settings/google/connect")
 def google_connect():
     s = get_settings()
     if not s.google_oauth_configured:
-        return RedirectResponse("/daily-report?google=notconfigured", status_code=302)
-    url = google_oauth.build_auth_url(state="designops", settings=s)
+        return RedirectResponse("/config?google=notconfigured", status_code=302)
+    url = google_oauth.build_auth_url(state=google_oauth.STATE_DELIVERY, settings=s)
+    return RedirectResponse(url, status_code=302)
+
+
+@app.get("/settings/google/cro/connect")
+def google_cro_connect():
+    s = get_settings()
+    if not s.google_oauth_configured:
+        return RedirectResponse("/config?google_cro=notconfigured", status_code=302)
+    url = google_oauth.build_cro_auth_url(settings=s)
     return RedirectResponse(url, status_code=302)
 
 
 @app.get("/oauth/google/callback")
-def google_callback(code: str = "", error: str = ""):
+def google_callback(code: str = "", error: str = "", state: str = ""):
     from urllib.parse import quote
 
+    is_cro = (state or "").strip().lower() == google_oauth.STATE_CRO
+    flash_key = "google_cro" if is_cro else "google"
+    dest = "/config"
     if error or not code:
         return RedirectResponse(
-            f"/daily-report?google=error&msg={quote(error or 'no code')}", status_code=302
+            f"{dest}?{flash_key}=error&msg={quote(error or 'no code')}", status_code=302
         )
     try:
-        google_oauth.exchange_code(code, settings=get_settings())
+        if is_cro:
+            google_oauth.exchange_cro_code(code, settings=get_settings())
+        else:
+            google_oauth.exchange_code(code, settings=get_settings())
     except Exception as e:  # noqa: BLE001
         return RedirectResponse(
-            f"/daily-report?google=error&msg={quote(f'{type(e).__name__}: {e}')}",
+            f"{dest}?{flash_key}=error&msg={quote(f'{type(e).__name__}: {e}')}",
             status_code=302,
         )
-    return RedirectResponse("/daily-report?google=connected", status_code=302)
+    return RedirectResponse(f"{dest}?{flash_key}=connected", status_code=302)
 
 
 @app.post("/settings/google/disconnect")
 def google_disconnect():
     google_oauth.disconnect(get_settings())
-    return RedirectResponse("/daily-report?google=disconnected", status_code=302)
+    return RedirectResponse("/config?google=disconnected", status_code=302)
+
+
+@app.post("/settings/google/cro/disconnect")
+def google_cro_disconnect():
+    google_oauth.disconnect_cro(get_settings())
+    return RedirectResponse("/config?google_cro=disconnected", status_code=302)
 
 
 @app.get("/runs/{run_id}/digest", response_class=HTMLResponse)
@@ -668,12 +1073,13 @@ def account_enable(
     a.digest_enabled = on
     a.enabled_by = get_settings().setup_owner_email if on else None
     a.enabled_at = datetime.now() if on else None
-    db.add(a)
     if on:
+        a.notes = "Enabled from Accounts UI."
         # keep the registry in step so this account's work isn't flagged "untracked"
         from designops.core.projects import ensure_project_for_account
 
         ensure_project_for_account(db, a)
+    db.add(a)
     return RedirectResponse("/accounts", status_code=302)
 
 
@@ -707,11 +1113,303 @@ def account_export(
 
 
 # --- Config: roster (§0 screen 5) --------------------------------------------
+def _parse_email_list(raw: str) -> list[str]:
+    parts = re.split(r"[\s,;]+", (raw or "").strip())
+    return [p.lower() for p in parts if p and "@" in p]
+
+
+def _parse_optional_date(raw: str) -> date | None:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    return date.fromisoformat(raw)
+
+
+def _parse_optional_float(raw: str) -> float | None:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    return float(raw)
+
+
+def _apply_person_form(
+    person: Person,
+    *,
+    full_name: str,
+    emails: str,
+    jira_account_id: str,
+    role: str,
+    status: str,
+    leave_until: str,
+    is_dedicated: str,
+    dedicated_weekly_hours: str,
+) -> None:
+    name = (full_name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="full_name is required")
+    email_list = _parse_email_list(emails)
+    if not email_list:
+        raise HTTPException(status_code=400, detail="at least one email is required")
+    st = (status or "active").strip()
+    if st not in {s.value for s in PersonStatus}:
+        st = PersonStatus.ACTIVE.value
+    prev_emails = [e.lower() for e in (person.emails or [])]
+    person.full_name = name
+    person.emails = email_list
+    person.jira_account_id = (jira_account_id or "").strip() or None
+    person.role = (role or "").strip() or None
+    person.status = st
+    person.leave_until = _parse_optional_date(leave_until)
+    person.is_dedicated = is_dedicated == "on"
+    try:
+        person.dedicated_weekly_hours = _parse_optional_float(dedicated_weekly_hours)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="dedicated hours must be a number") from e
+    if person.dedicated_weekly_hours is not None and person.dedicated_weekly_hours > 0:
+        person.is_dedicated = True
+    if not person.is_dedicated:
+        person.dedicated_weekly_hours = None
+    # Email change invalidates a prior verification — re-check via Verify identity.
+    if prev_emails and set(prev_emails) != set(email_list):
+        person.jira_verified = False
+        person.fairwind_verified = False
+        person.identity_verified = False
+
+
 @app.get("/config", response_class=HTMLResponse)
 def config_screen(request: Request, db: Session = Depends(get_db)):
     people = db.query(Person).order_by(Person.status, Person.full_name).all()
     projects = db.query(Project).order_by(Project.canonical_name).all()
+    s = get_settings()
+    cro_msgs: list[dict] = []
+    cro_err: str | None = None
+    if google_oauth.is_cro_connected(s):
+        try:
+            from designops.adapters.gmail import list_cro_messages
+
+            cro_msgs = list_cro_messages(max_results=10, settings=s)
+        except Exception as e:  # noqa: BLE001 — show in UI, don't break Config
+            cro_err = f"{type(e).__name__}: {e}"
+    google_flash = request.query_params.get("google")
+    google_cro_flash = request.query_params.get("google_cro")
+    msg = request.query_params.get("msg")
     return templates.TemplateResponse(
         "config.html",
-        {"request": request, "people": people, "projects": projects, "nav": "config"},
+        {
+            "request": request,
+            "people": people,
+            "projects": projects,
+            "nav": "config",
+            "flash": request.query_params.get("flash"),
+            "google_flash": google_flash,
+            "google_cro_flash": google_cro_flash,
+            "google_msg": msg if google_flash else None,
+            "google_cro_msg": msg if google_cro_flash else None,
+            "verify_msg": msg if not google_flash and not google_cro_flash else None,
+            "verify_person": request.query_params.get("person"),
+            "statuses": [s.value for s in PersonStatus],
+            "google_configured": s.google_oauth_configured,
+            "google_connected": google_oauth.is_connected(s),
+            "google_email": google_oauth.connected_email(s),
+            "smtp_ready": s.smtp_configured,
+            "owner_email": s.setup_owner_email,
+            "cro_mailbox": s.cro_mailbox_email,
+            "cro_connected": google_oauth.is_cro_connected(s),
+            "cro_email": google_oauth.connected_cro_email(s),
+            "cro_messages": cro_msgs,
+            "cro_error": cro_err,
+        },
     )
+
+
+@app.post("/config/verify-identity")
+async def config_verify_identity(request: Request):
+    """Lookup-only identity check (no DB write). Used by Add designer before save."""
+    from designops.adapters.identity_check import check_identity
+
+    emails: list[str] = []
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        raw = body.get("emails")
+        if isinstance(raw, str) and raw.strip():
+            emails = _parse_email_list(raw)
+        elif isinstance(raw, list) and raw:
+            emails = [str(e).strip().lower() for e in raw if e and "@" in str(e)]
+    if not emails:
+        raise HTTPException(status_code=400, detail="email is required")
+
+    result = check_identity(emails)
+    return JSONResponse(
+        {
+            "ok": True,
+            "verified": result.verified,
+            "summary": result.summary,
+            "jira_ok": result.jira_ok,
+            "jira_account_id": result.jira_account_id,
+            "jira_display_name": result.jira_display_name,
+            "jira_error": result.jira_error,
+            "fairwind_ok": result.fairwind_ok,
+            "fairwind_detail": result.fairwind_detail,
+            "email": result.email,
+        }
+    )
+
+
+@app.post("/config/people")
+def config_people_create(
+    full_name: str = Form(""),
+    emails: str = Form(""),
+    jira_account_id: str = Form(""),
+    role: str = Form(""),
+    status: str = Form("active"),
+    leave_until: str = Form(""),
+    is_dedicated: str = Form("off"),
+    dedicated_weekly_hours: str = Form(""),
+    jira_verified: str = Form("off"),
+    fairwind_verified: str = Form("off"),
+    db: Session = Depends(get_db),
+):
+    jira_ok = jira_verified == "on"
+    fw_ok = fairwind_verified == "on"
+    person = Person(
+        display_aliases=[],
+        jira_verified=jira_ok,
+        fairwind_verified=fw_ok,
+        identity_verified=jira_ok and fw_ok,
+    )
+    _apply_person_form(
+        person,
+        full_name=full_name,
+        emails=emails,
+        jira_account_id=jira_account_id,
+        role=role,
+        status=status,
+        leave_until=leave_until,
+        is_dedicated=is_dedicated,
+        dedicated_weekly_hours=dedicated_weekly_hours,
+    )
+    # Re-apply verify flags after _apply_person_form (email change logic shouldn't clear on create)
+    person.jira_verified = jira_ok
+    person.fairwind_verified = fw_ok
+    person.identity_verified = jira_ok and fw_ok
+    db.add(person)
+    db.commit()
+    return RedirectResponse("/config?flash=added", status_code=302)
+
+
+@app.post("/config/people/{person_id}")
+def config_people_update(
+    person_id: str,
+    full_name: str = Form(""),
+    emails: str = Form(""),
+    jira_account_id: str = Form(""),
+    role: str = Form(""),
+    status: str = Form("active"),
+    leave_until: str = Form(""),
+    is_dedicated: str = Form("off"),
+    dedicated_weekly_hours: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    person = db.get(Person, person_id)
+    if person is None:
+        raise HTTPException(status_code=404, detail="person not found")
+    _apply_person_form(
+        person,
+        full_name=full_name,
+        emails=emails,
+        jira_account_id=jira_account_id,
+        role=role,
+        status=status,
+        leave_until=leave_until,
+        is_dedicated=is_dedicated,
+        dedicated_weekly_hours=dedicated_weekly_hours,
+    )
+    db.add(person)
+    db.commit()
+    return RedirectResponse("/config?flash=saved", status_code=302)
+
+
+@app.post("/config/people/{person_id}/verify")
+async def config_people_verify(
+    person_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    from designops.adapters.identity_check import check_identity
+
+    person = db.get(Person, person_id)
+    if person is None:
+        raise HTTPException(status_code=404, detail="person not found")
+
+    emails = list(person.emails or [])
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        raw = body.get("emails")
+        if isinstance(raw, str) and raw.strip():
+            emails = _parse_email_list(raw)
+        elif isinstance(raw, list) and raw:
+            emails = [str(e).strip().lower() for e in raw if e and "@" in str(e)]
+
+    result = check_identity(emails)
+    if result.jira_ok and result.jira_account_id:
+        person.jira_account_id = result.jira_account_id
+    # Keep DB emails in sync when verify used the form's current value
+    if emails and set(emails) != set(e.lower() for e in (person.emails or [])):
+        person.emails = emails
+    person.jira_verified = result.jira_ok
+    person.fairwind_verified = result.fairwind_ok
+    person.identity_verified = result.verified
+    db.add(person)
+    db.commit()
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "verified": result.verified,
+            "summary": result.summary,
+            "jira_ok": result.jira_ok,
+            "jira_account_id": result.jira_account_id,
+            "jira_display_name": result.jira_display_name,
+            "jira_error": result.jira_error,
+            "fairwind_ok": result.fairwind_ok,
+            "fairwind_detail": result.fairwind_detail,
+            "email": result.email,
+        }
+    )
+
+
+@app.post("/config/people/{person_id}/mark-out")
+def config_people_mark_out(person_id: str, db: Session = Depends(get_db)):
+    person = db.get(Person, person_id)
+    if person is None:
+        raise HTTPException(status_code=404, detail="person not found")
+    person.status = PersonStatus.OUT.value
+    db.add(person)
+    db.commit()
+    return RedirectResponse("/config?flash=removed", status_code=302)
+
+
+@app.post("/config/people/{person_id}/delete")
+def config_people_delete(person_id: str, db: Session = Depends(get_db)):
+    """Permanently remove a roster person. Historical run docs keep null person_id."""
+    person = db.get(Person, person_id)
+    if person is None:
+        raise HTTPException(status_code=404, detail="person not found")
+    name = person.full_name
+    db.query(RunDocument).filter(RunDocument.person_id == person.id).update(
+        {RunDocument.person_id: None}, synchronize_session=False
+    )
+    db.query(Flag).filter(Flag.person_id == person.id).update(
+        {Flag.person_id: None}, synchronize_session=False
+    )
+    db.delete(person)
+    db.commit()
+    return JSONResponse({"ok": True, "deleted": True, "name": name})

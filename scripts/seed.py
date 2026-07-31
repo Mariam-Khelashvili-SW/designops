@@ -51,23 +51,15 @@ def seed_people(session) -> tuple[int, int]:
                     is_dedicated=bool(row.get("is_dedicated", False)),
                     dedicated_weekly_hours=row.get("dedicated_weekly_hours"),
                     identity_verified=row.get("identity_verified", False),
+                    jira_verified=bool(row.get("identity_verified", False)),
+                    fairwind_verified=bool(row.get("identity_verified", False)),
                     notes=row.get("notes"),
                 )
             )
             created += 1
         else:
-            existing.full_name = row["full_name"]
-            existing.emails = [e.lower() for e in emails]
-            existing.jira_account_id = row.get("jira_account_id")
-            existing.display_aliases = row.get("display_aliases") or []
-            existing.role = row.get("role")
-            existing.status = row.get("status", "active")
-            existing.squad = row.get("squad")
-            existing.is_dedicated = bool(row.get("is_dedicated", False))
-            existing.dedicated_weekly_hours = row.get("dedicated_weekly_hours")
-            existing.identity_verified = row.get("identity_verified", False)
-            existing.notes = row.get("notes")
-            updated += 1
+            # Config UI is source of truth for existing people — seed only inserts missing rows.
+            pass
     return created, updated
 
 
@@ -98,6 +90,8 @@ def seed_projects(session) -> tuple[int, int]:
             session.add(Project(**fields))
             created += 1
         else:
+            # Keep UI allowlist edits (Weekly health Tracked projects) across re-seed.
+            fields.pop("track_weekly_health", None)
             for k, v in fields.items():
                 setattr(existing, k, v)
             updated += 1

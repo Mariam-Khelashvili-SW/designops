@@ -61,6 +61,12 @@ def _ingest(
 ) -> tuple[list[Document], dict]:
     settings = get_settings()
     fixture = FIXTURES / report_date.isoformat() / "corpus.json"
+    docs: list[Document] = []
+    coverage: dict = {
+        "accounts_requested": 0,
+        "exports_succeeded": 0,
+        "exports_failed": 0,
+    }
     if settings.fairwind_configured:
         # allowlist = accounts enabled on the Accounts screen (§11); content relevance
         # inside each export is the model's call, this only scopes what's fetched.
@@ -76,24 +82,79 @@ def _ingest(
             cached = load_corpus(settings, report_date)
             covered = set(corpus_account_ids(settings, report_date))
             if cached is not None and set(account_ids) <= covered:
-                return cached, {"source": "fairwind-cached",
-                                "accounts_requested": len(covered),
-                                "exports_succeeded": len(covered), "exports_failed": 0}
-        client = FairwindClient(settings)
-        # Export report_date + the next day so a daily written the next morning is caught;
-        # the filter enforces channel-aware temporal scope on the 2-day corpus.
-        docs, coverage = client.prepare_corpus(
-            account_ids, report_date, window_end=report_date + timedelta(days=1)
-        )
-        save_corpus(settings, report_date, docs, account_ids=account_ids)
-        coverage["source"] = "fairwind"
-        return docs, coverage
-    if fixture.exists():
+                docs = list(cached)
+                coverage = {
+                    "source": "fairwind-cached",
+                    "accounts_requested": len(covered),
+                    "exports_succeeded": len(covered),
+                    "exports_failed": 0,
+                }
+            else:
+                reuse = False
+        if not reuse or coverage.get("source") != "fairwind-cached":
+            client = FairwindClient(settings)
+            # Export report_date + the next day so a daily written the next morning is caught;
+            # the filter enforces channel-aware temporal scope on the 2-day corpus.
+            docs, coverage = client.prepare_corpus(
+                account_ids, report_date, window_end=report_date + timedelta(days=1)
+            )
+            save_corpus(settings, report_date, docs, account_ids=account_ids)
+            coverage["source"] = "fairwind"
+    elif fixture.exists():
         docs = load_fixture_corpus(fixture)
-        return docs, {"source": "fixture", "accounts_requested": 0, "exports_succeeded": 0,
-                      "exports_failed": 0}
-    return [], {"source": "empty", "accounts_requested": 0, "exports_succeeded": 0,
-                "exports_failed": 0}
+        coverage = {
+            "source": "fixture",
+            "accounts_requested": 0,
+            "exports_succeeded": 0,
+            "exports_failed": 0,
+        }
+    else:
+        coverage = {
+            "source": "empty",
+            "accounts_requested": 0,
+            "exports_succeeded": 0,
+            "exports_failed": 0,
+        }
+
+    # CRO mailbox — always live (not in Fairwind cache); beyond_daily only.
+    cro_docs, cro_meta = _ingest_cro(report_date, settings)
+    if cro_docs:
+        docs = list(docs) + cro_docs
+    coverage.update(cro_meta)
+    return docs, coverage
+
+
+def _ingest_cro(report_date: date, settings) -> tuple[list[Document], dict]:
+    """Pull report-day cro@ messages when the CRO Google grant is connected."""
+    from designops.adapters import google_oauth
+    from designops.adapters.gmail import list_cro_documents
+
+    meta = {
+        "cro_mailbox": settings.cro_mailbox_email,
+        "cro_connected": False,
+        "cro_messages": 0,
+        "cro_note": None,
+    }
+    if not google_oauth.is_cro_connected(settings):
+        meta["cro_note"] = "CRO mailbox not connected"
+        return [], meta
+    meta["cro_connected"] = True
+    try:
+        # Gmail before: is exclusive → before = report_date + 1 covers the report day.
+        cro_docs = list_cro_documents(
+            after=report_date,
+            before=report_date + timedelta(days=1),
+            max_results=40,
+            settings=settings,
+        )
+        # Keep only report_day events (query is date-bounded; double-check).
+        cro_docs = [d for d in cro_docs if d.event_date == report_date]
+        meta["cro_messages"] = len(cro_docs)
+        return cro_docs, meta
+    except Exception as e:  # noqa: BLE001 — gap, not a failed digest
+        meta["cro_note"] = f"{type(e).__name__}: {e}"
+        meta["cro_messages"] = 0
+        return [], meta
 
 
 # --- synthesize ---------------------------------------------------------------

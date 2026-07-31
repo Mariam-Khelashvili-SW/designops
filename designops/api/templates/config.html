@@ -1,38 +1,504 @@
 {% extends "base.html" %}
 {% block title %}Config — Design Ops{% endblock %}
 {% block body %}
-<h1>Config · roster &amp; registry</h1>
-<p class="sub">The roster stays curated — Fairwind has no concept of "Olga's design team" (§0). Identity is email-first (§11.3).</p>
+<style>
+  .wrap{max-width:1180px}
+  .page-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:6px}
+  .page-head h1{margin:0}
+  .stat-row{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:88px}
+  .stat .n{font-size:18px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+  .stat .l{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .toolbar input[type=search]{flex:1;min-width:220px}
+  .toolbar .chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--mut);margin:0;cursor:pointer}
+  .toolbar .chk input{margin:0}
+  .team-list{display:flex;flex-direction:column;gap:8px}
+  .person{
+    border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .person.is-out{opacity:.72}
+  .person[open]{border-color:#c5cae8;box-shadow:0 2px 10px rgba(63,74,175,.1)}
+  .person-sum{
+    display:grid;grid-template-columns:40px 1fr auto;gap:12px;align-items:center;
+    padding:12px 14px;cursor:pointer;list-style:none;user-select:none;
+  }
+  .person-sum::-webkit-details-marker{display:none}
+  .person-sum:hover{background:#fafbfc}
+  .avatar{
+    width:40px;height:40px;border-radius:10px;display:grid;place-items:center;
+    font-weight:800;font-size:13px;color:#3F4AAF;background:#eef0fb;letter-spacing:-.02em;
+  }
+  .avatar.out{color:#8a5a12;background:#fff5e8}
+  .avatar.leave{color:#1d5fb0;background:#e8f0fb}
+  .person-main{min-width:0}
+  .person-name{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .person-meta{color:var(--mut);font-size:12px;margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .person-meta .dot{opacity:.45}
+  .person-side{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
+  .chev{color:var(--mut);font-size:12px;margin-left:4px;transition:transform .15s}
+  .person[open] .chev{transform:rotate(180deg)}
 
+  /* —— Edit panel —— */
+  .person-edit{border-top:1px solid #eceef3;background:linear-gradient(180deg,#f7f8fb 0%,#f3f4f8 100%)}
+  .edit-form{padding:14px}
+  .edit-panels{display:grid;grid-template-columns:1.2fr .8fr;gap:12px}
+  .panel{
+    background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;
+  }
+  .panel h3{
+    margin:0 0 12px;font-size:12px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.05em;color:var(--mut);
+  }
+  .panel.full{grid-column:1 / -1}
+  .fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .fields .span2{grid-column:1 / -1}
+  .field label{font-size:12px;color:var(--mut);display:block;margin-bottom:4px;font-weight:600}
+  .field input,.field select,.field textarea{
+    width:100%;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;
+    background:#fff;transition:border-color .12s, box-shadow .12s;
+  }
+  .field input:focus,.field select:focus,.field textarea:focus{
+    outline:none;border-color:#9aa3d9;box-shadow:0 0 0 3px rgba(63,74,175,.12);
+  }
+  .field .hint{font-size:11px;color:var(--mut);margin:5px 0 0;line-height:1.4}
+
+  .seg{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--line);
+    border-radius:10px;overflow:hidden;background:#f4f5f7;
+  }
+  .seg label{
+    margin:0;display:block;text-align:center;padding:9px 6px;font-size:13px;font-weight:600;
+    color:#5b6470;cursor:pointer;border-right:1px solid var(--line);user-select:none;
+  }
+  .seg label:last-child{border-right:none}
+  .seg input{position:absolute;opacity:0;pointer-events:none}
+  .seg input:checked + span{
+    display:block;margin:-9px -6px;padding:9px 6px;background:#fff;color:var(--ink);
+    box-shadow:0 1px 2px rgba(16,24,40,.06);
+  }
+  .seg label:has(input:checked){background:#fff;color:var(--ink)}
+  .leave-row{margin-top:12px;display:none}
+  .leave-row.show{display:block}
+
+  .toggle-list{display:flex;flex-direction:column;gap:8px}
+  .toggle{
+    display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--line);
+    border-radius:10px;background:#fafbfc;cursor:pointer;margin:0;
+  }
+  .toggle:hover{border-color:#cfd3ea;background:#fff}
+  .toggle input{margin:3px 0 0;width:16px;height:16px;accent-color:#3F4AAF;flex-shrink:0}
+  .toggle .t-body{flex:1;min-width:0}
+  .toggle .t-title{font-size:13px;font-weight:700;color:var(--ink)}
+  .toggle .t-sub{font-size:11px;color:var(--mut);margin-top:2px;line-height:1.35}
+  .hours-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .hours-row input{width:88px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;font:inherit}
+  .hours-row span{font-size:12px;color:var(--mut)}
+  .verify-box{
+    margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fafbfc;
+    display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;
+  }
+  .verify-box .verify-status{display:flex;flex-direction:column;gap:8px;min-width:0;flex:1}
+  .verify-rows{display:flex;flex-direction:column;gap:6px}
+  .verify-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .verify-row .src{font-size:12px;font-weight:700;color:var(--ink);min-width:72px}
+  .verify-row .detail{font-size:11px;color:var(--mut)}
+  .person-side .src-pill{font-size:10px}
+
+  .edit-actions{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+    margin-top:12px;padding:12px 14px;background:#fff;border:1px solid var(--line);border-radius:12px;
+  }
+  .edit-actions .left,.edit-actions .right{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn.danger{background:#fff;color:var(--red);border:1px solid #f0c4c0}
+  .btn.danger:hover{background:#fdecea}
+  .empty{padding:28px 12px;text-align:center;color:var(--mut)}
+  .hint{font-size:12px;color:var(--mut);margin:4px 0 0}
+  .add-card-inner{padding-top:4px}
+
+  @media (max-width:900px){
+    .edit-panels{grid-template-columns:1fr}
+    .fields{grid-template-columns:1fr}
+    .fields .span2{grid-column:auto}
+    .person-sum{grid-template-columns:36px 1fr}
+    .person-side{grid-column:2;justify-content:flex-start}
+  }
+</style>
+
+{% set active_n = people | selectattr('status', 'equalto', 'active') | list | length %}
+{% set leave_n = people | selectattr('status', 'equalto', 'on_leave') | list | length %}
+{% set out_n = people | selectattr('status', 'equalto', 'out') | list | length %}
+{% set unverified_n = people | rejectattr('identity_verified') | rejectattr('status', 'equalto', 'out') | list | length %}
+
+{% if google_flash == 'connected' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Google connected{% if google_email %} as <b>{{ google_email }}</b>{% endif %}. Reports can now be emailed.</div>
+{% elif google_flash == 'disconnected' %}<div class="banner" style="background:#eef0f3;border:1px solid #dfe2e7;color:#5b6470">Google disconnected.</div>
+{% elif google_flash == 'error' %}<div class="banner warn">Google connection failed: {{ google_msg or 'unknown error' }}</div>
+{% elif google_flash == 'notconfigured' %}<div class="banner warn">Google OAuth isn't set up yet — add <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code> first.</div>
+{% endif %}
+
+{% if google_cro_flash == 'connected' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ CRO mailbox connected{% if cro_email %} as <b>{{ cro_email }}</b>{% endif %}. Reading only <b>{{ cro_mailbox }}</b>.</div>
+{% elif google_cro_flash == 'disconnected' %}<div class="banner" style="background:#eef0f3;border:1px solid #dfe2e7;color:#5b6470">CRO mailbox disconnected.</div>
+{% elif google_cro_flash == 'error' %}<div class="banner warn">CRO mailbox connection failed: {{ google_cro_msg or 'unknown error' }}</div>
+{% elif google_cro_flash == 'notconfigured' %}<div class="banner warn">Google OAuth isn't set up yet — add <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code> first.</div>
+{% endif %}
+{% if flash == 'saved' %}
+<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5c54">Saved.</div>
+{% elif flash == 'added' %}
+<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5c54">Designer added to the team.</div>
+{% elif flash == 'removed' %}
+<div class="banner" style="background:#fff5e8;border:1px solid #f5c66b;color:#8a5a12">Marked <b>out</b> — excluded from digests, kept for history.</div>
+{% elif flash == 'verified' %}
+<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5c54">
+  <b>{{ verify_person or 'Designer' }}</b> verified. {{ verify_msg }}
+</div>
+{% elif flash == 'verify_fail' %}
 <div class="banner warn">
-  <b>Before go-live (§9.3):</b> emails marked <i>unverified</i> are DERIVED from the
-  firstname.lastname@ pattern. Verify each against the Fairwind Directory — transliterated
-  names (Čākure, Umiastowska, Gavrilovikj) especially. Only Mariam &amp; Tamari are corpus-confirmed.
+  <b>{{ verify_person or 'Designer' }}</b> not fully verified. {{ verify_msg }}
+  <div class="hint" style="margin-top:6px">Verified requires both Jira user match and the email appearing in Fairwind export corpus. Save email changes first, then re-check.</div>
+</div>
+{% endif %}
+
+<div class="card">
+  <b>Delivery</b>
+  <p class="hint" style="margin:4px 0 10px">Gmail used to email daily, weekly backlog, and weekly health reports.</p>
+  {% if google_connected %}
+    <p class="sub" style="margin-bottom:8px"><span class="pill ok">Gmail connected</span>
+      {% if google_email %}as <b>{{ google_email }}</b>{% endif %}{% if owner_email %} · setup owner {{ owner_email }}{% endif %}.</p>
+    <form method="post" action="/settings/google/disconnect" style="display:inline">
+      <button class="btn ghost sm" type="submit">Disconnect</button>
+    </form>
+  {% elif google_configured %}
+    <p class="sub" style="margin-bottom:8px">Connect your Google account to send reports securely (no password stored).</p>
+    <a class="btn" href="/settings/google/connect">Connect Google</a>
+  {% else %}
+    <p class="sub">To email reports, either connect Google (add <code>GOOGLE_CLIENT_ID</code> /
+      <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code>, then a Connect button appears here)
+      {% if smtp_ready %}— or the SMTP app password is set and ready{% else %}or set a Gmail app password{% endif %}.</p>
+  {% endif %}
 </div>
 
 <div class="card">
-  <b>Roster ({{ people | length }})</b>
-  <table style="margin-top:8px">
-    <thead><tr><th>Name</th><th>Email (identity)</th><th>Jira accountId</th><th>Role</th><th>Dedicated</th><th>Status</th><th>Verified</th></tr></thead>
-    <tbody>
-    {% for p in people %}
-      <tr>
-        <td><b>{{ p.full_name }}</b></td>
-        <td class="mono">{{ p.emails | join(', ') or '⚠ none' }}</td>
-        <td class="mono">{{ p.jira_account_id or '—' }}</td>
-        <td class="sub">{{ p.role }}</td>
-        <td>{% if p.is_dedicated and p.dedicated_weekly_hours %}<span class="pill ok">{{ p.dedicated_weekly_hours|int if p.dedicated_weekly_hours == p.dedicated_weekly_hours|int else p.dedicated_weekly_hours }}h/wk</span>{% elif p.is_dedicated %}<span class="pill ok">yes</span>{% else %}<span class="pill mut">—</span>{% endif %}</td>
-        <td>{% if p.status=='active' %}<span class="pill ok">active</span>{% elif p.status=='out' %}<span class="pill red">out</span>{% else %}<span class="pill mut">{{ p.status }}</span>{% endif %}</td>
-        <td>{% if p.identity_verified %}<span class="pill ok">✓</span>{% else %}<span class="pill flagged">unverified</span>{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  <b>CRO mailbox</b>
+  <p class="hint" style="margin:4px 0 10px">
+    Separate Google connect (read-only). Only reads mail to/for
+    <code>{{ cro_mailbox }}</code> (alias on the connected account).
+    Report-day messages feed the daily digest as lean <b>beyond the dailies</b> signal
+    (blockers / escalations / heads-ups) — not as designer Done/Next rows.
+  </p>
+  {% if cro_connected %}
+    <p class="sub" style="margin-bottom:8px">
+      <span class="pill ok">CRO mailbox connected</span>
+      {% if cro_email %}as <b>{{ cro_email }}</b>{% endif %}
+      · filter <code>{{ cro_mailbox }}</code>
+    </p>
+    <form method="post" action="/settings/google/cro/disconnect" style="display:inline;margin-bottom:12px">
+      <button class="btn ghost sm" type="submit">Disconnect</button>
+    </form>
+    {% if cro_error %}
+    <div class="banner warn" style="margin-top:12px">Could not load messages: {{ cro_error }}</div>
+    {% elif cro_messages %}
+    <table style="margin-top:12px">
+      <thead><tr><th>When</th><th>From</th><th>Subject</th></tr></thead>
+      <tbody>
+      {% for m in cro_messages %}
+        <tr>
+          <td class="sub" style="white-space:nowrap">
+            {% if m.date %}{{ m.date.strftime('%d %b %Y %H:%M') }}{% else %}—{% endif %}
+          </td>
+          <td class="sub">{{ m.from or '—' }}</td>
+          <td>
+            <b>{{ m.subject or '(no subject)' }}</b>
+            {% if m.snippet %}<div class="hint" style="margin:2px 0 0">{{ m.snippet[:140] }}{% if m.snippet|length > 140 %}…{% endif %}</div>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="sub" style="margin-top:12px">Connected — no recent messages matching <code>{{ cro_mailbox }}</code>.</p>
+    {% endif %}
+  {% elif google_configured %}
+    <p class="sub" style="margin-bottom:8px">
+      Connect the Google account that receives <code>{{ cro_mailbox }}</code> (alias).
+      We never list the full inbox — only that address.
+    </p>
+    <a class="btn" href="/settings/google/cro/connect">Connect CRO mailbox</a>
+  {% else %}
+    <p class="sub">Add <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code> to enable CRO mailbox connect.</p>
+  {% endif %}
+</div>
+
+<div class="page-head">
+  <div>
+    <h1>Design team</h1>
+    <p class="sub" style="margin:4px 0 0">Who counts in digests. Matching is by email / Jira id — edits apply on the next run.</p>
+  </div>
+  <button class="btn" type="button" id="toggle-add">+ Add designer</button>
+</div>
+<div class="stat-row">
+  <div class="stat"><div class="n">{{ people | length }}</div><div class="l">Total</div></div>
+  <div class="stat"><div class="n" style="color:#0f8a7e">{{ active_n }}</div><div class="l">Active</div></div>
+  <div class="stat"><div class="n" style="color:#1d5fb0">{{ leave_n }}</div><div class="l">On leave</div></div>
+  <div class="stat"><div class="n" style="color:#c0392b">{{ out_n }}</div><div class="l">Out</div></div>
+  {% if unverified_n %}
+  <div class="stat"><div class="n" style="color:#b45309">{{ unverified_n }}</div><div class="l">Unverified</div></div>
+  {% endif %}
+</div>
+
+<div class="card" id="add-card" style="display:none">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:8px">
+    <div>
+      <b>Add designer</b>
+      <p class="hint">Needs at least one work email — that’s how dailies and Jira tickets get matched.</p>
+    </div>
+    <button class="btn ghost sm" type="button" id="cancel-add">Cancel</button>
+  </div>
+  <form method="post" action="/config/people" class="add-card-inner person-form" id="add-person-form">
+    <input type="hidden" name="jira_verified" id="add-jira-verified" value="off">
+    <input type="hidden" name="fairwind_verified" id="add-fw-verified" value="off">
+    <div class="edit-panels">
+      <div class="panel">
+        <h3>Profile</h3>
+        <div class="fields">
+          <div class="field">
+            <label>Full name</label>
+            <input name="full_name" required placeholder="First Last" autocomplete="name">
+          </div>
+          <div class="field">
+            <label>Role</label>
+            <input name="role" placeholder="Designer" value="Designer">
+          </div>
+          <div class="field span2">
+            <label>Work email(s)</label>
+            <input name="emails" required class="mono" id="add-emails" placeholder="name@scandiweb.com">
+            <p class="hint">Comma-separated if they have more than one.</p>
+          </div>
+          <div class="field span2">
+            <label>Jira account ID</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input name="jira_account_id" class="mono" id="add-jira-id" placeholder="Filled by Verify" style="flex:1">
+              <button class="btn ghost sm" type="button" id="add-verify-btn">Verify</button>
+            </div>
+          </div>
+        </div>
+        <div class="verify-box" id="add-verify-box" style="margin-top:12px">
+          <div class="verify-status">
+            <div class="verify-rows">
+              <div class="verify-row">
+                <span class="src">Jira</span>
+                <span class="pill flagged" id="add-jira-pill">Not checked</span>
+                <span class="detail" id="add-jira-detail">Run Verify to look up this email</span>
+              </div>
+              <div class="verify-row">
+                <span class="src">Fairwind</span>
+                <span class="pill flagged" id="add-fw-pill">Not checked</span>
+                <span class="detail" id="add-fw-detail">Run Verify to check Fairwind corpus</span>
+              </div>
+            </div>
+            <span class="hint" id="add-verify-hint" style="margin:0">Verify fills the Jira ID. You’ll be asked to confirm if Jira doesn’t match before saving.</span>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Status</h3>
+        <div class="seg status-seg">
+          <label><input type="radio" name="status" value="active" checked><span>Active</span></label>
+          <label><input type="radio" name="status" value="on_leave"><span>On leave</span></label>
+          <label><input type="radio" name="status" value="out"><span>Out</span></label>
+        </div>
+        <div class="leave-row field">
+          <label>Back on</label>
+          <input type="date" name="leave_until">
+          <p class="hint">Shown in availability until this date.</p>
+        </div>
+        <div class="toggle-list" style="margin-top:12px">
+          <label class="toggle">
+            <input type="checkbox" name="is_dedicated" class="ded-check">
+            <span class="t-body">
+              <span class="t-title">Dedicated designer</span>
+              <span class="t-sub">Fixed weekly hours count as workload even without Jira tasks.</span>
+              <span class="hours-row">
+                <input name="dedicated_weekly_hours" class="ded-hours" inputmode="decimal" placeholder="20">
+                <span>hours / week</span>
+              </span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="edit-actions">
+      <span class="hint">Appears in reports after the next generate.</span>
+      <div class="right">
+        <button class="btn ghost sm" type="button" id="cancel-add-2">Cancel</button>
+        <button class="btn" type="submit" id="add-submit-btn">Add to team</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <input id="q" type="search" placeholder="Search by name, email, role…" oninput="filterTeam()">
+    <span class="sub" id="count" style="margin:0">{{ people | length }} shown</span>
+  </div>
+
+  <div class="team-list" id="team-list">
+  {% for p in people %}
+    {% set initials = (p.full_name.split() | map('first') | join('') )[:2] | upper %}
+    {% set email0 = (p.emails[0] if p.emails else '') %}
+    <details class="person{% if p.status=='out' %} is-out{% endif %}"
+             data-search="{{ (p.full_name ~ ' ' ~ (p.emails | join(' ')) ~ ' ' ~ (p.role or '') ~ ' ' ~ p.status) | lower }}"
+             data-status="{{ p.status }}">
+      <summary class="person-sum">
+        <div class="avatar{% if p.status=='out' %} out{% elif p.status=='on_leave' %} leave{% endif %}">{{ initials }}</div>
+        <div class="person-main">
+          <div class="person-name">
+            {{ p.full_name }}
+            {% if p.role %}<span class="sub" style="font-weight:500">{{ p.role }}</span>{% endif %}
+          </div>
+          <div class="person-meta">
+            <span class="mono">{{ email0 or 'no email' }}</span>
+            {% if p.emails | length > 1 %}<span class="dot">·</span><span>+{{ p.emails | length - 1 }} more</span>{% endif %}
+            {% if p.leave_until and p.status == 'on_leave' %}
+              <span class="dot">·</span><span>back {{ p.leave_until.strftime('%d %b %Y') }}</span>
+            {% endif %}
+            {% if p.is_dedicated %}
+              <span class="dot">·</span>
+              <span>dedicated{% if p.dedicated_weekly_hours %} {{ p.dedicated_weekly_hours|int if p.dedicated_weekly_hours == p.dedicated_weekly_hours|int else p.dedicated_weekly_hours }}h/wk{% endif %}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="person-side">
+          {% if p.status=='active' %}<span class="pill ok">Active</span>
+          {% elif p.status=='out' %}<span class="pill red">Out</span>
+          {% else %}<span class="pill blue">On leave</span>{% endif %}
+          {% if p.status != 'out' %}
+          <span class="pill src-pill person-jira-pill {% if p.jira_verified %}ok{% else %}flagged{% endif %}">Jira {% if p.jira_verified %}✓{% else %}✗{% endif %}</span>
+          <span class="pill src-pill person-fw-pill {% if p.fairwind_verified %}ok{% else %}flagged{% endif %}">Fairwind {% if p.fairwind_verified %}✓{% else %}✗{% endif %}</span>
+          {% endif %}
+          <span class="chev">▾</span>
+        </div>
+      </summary>
+
+      <div class="person-edit">
+        <form method="post" action="/config/people/{{ p.id }}" class="edit-form person-form">
+          <div class="edit-panels">
+            <div class="panel">
+              <h3>Profile</h3>
+              <div class="fields">
+                <div class="field">
+                  <label>Full name</label>
+                  <input name="full_name" required value="{{ p.full_name }}">
+                </div>
+                <div class="field">
+                  <label>Role</label>
+                  <input name="role" value="{{ p.role or '' }}" placeholder="Designer">
+                </div>
+                <div class="field span2">
+                  <label>Work email(s)</label>
+                  <input name="emails" required class="mono" value="{{ p.emails | join(', ') }}">
+                  <p class="hint">Used for matching dailies — keep the primary work address first.</p>
+                </div>
+                <div class="field span2">
+                  <label>Jira account ID</label>
+                  <input name="jira_account_id" class="mono" value="{{ p.jira_account_id or '' }}" placeholder="Optional">
+                </div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>Status</h3>
+              <div class="seg status-seg">
+                <label><input type="radio" name="status" value="active"{% if p.status=='active' %} checked{% endif %}><span>Active</span></label>
+                <label><input type="radio" name="status" value="on_leave"{% if p.status=='on_leave' %} checked{% endif %}><span>On leave</span></label>
+                <label><input type="radio" name="status" value="out"{% if p.status=='out' %} checked{% endif %}><span>Out</span></label>
+              </div>
+              <div class="leave-row field{% if p.status=='on_leave' %} show{% endif %}">
+                <label>Back on</label>
+                <input type="date" name="leave_until" value="{{ p.leave_until.isoformat() if p.leave_until else '' }}">
+                <p class="hint">Shown in availability until this date.</p>
+              </div>
+              <div class="toggle-list" style="margin-top:12px">
+                <label class="toggle">
+                  <input type="checkbox" name="is_dedicated" class="ded-check"{% if p.is_dedicated or (p.dedicated_weekly_hours and p.dedicated_weekly_hours > 0) %} checked{% endif %}>
+                  <span class="t-body">
+                    <span class="t-title">Dedicated designer</span>
+                    <span class="t-sub">Fixed weekly hours count as workload even without Jira tasks.</span>
+                    <span class="hours-row">
+                      <input name="dedicated_weekly_hours" class="ded-hours" inputmode="decimal"
+                             value="{{ p.dedicated_weekly_hours if p.dedicated_weekly_hours is not none else '' }}"
+                             placeholder="20" onclick="event.stopPropagation()">
+                      <span>hours / week</span>
+                    </span>
+                  </span>
+                </label>
+              </div>
+              <div class="verify-box" data-person-id="{{ p.id }}">
+                <div class="verify-status">
+                  <div class="verify-rows">
+                    <div class="verify-row">
+                      <span class="src">Jira</span>
+                      <span class="pill verify-jira-pill {% if p.jira_verified %}ok{% else %}flagged{% endif %}">
+                        {% if p.jira_verified %}Verified{% else %}Not found{% endif %}
+                      </span>
+                      <span class="detail verify-jira-detail">
+                        {% if p.jira_verified and p.jira_account_id %}{{ p.jira_account_id }}{% elif not p.jira_verified %}No Jira user for this email{% endif %}
+                      </span>
+                    </div>
+                    <div class="verify-row">
+                      <span class="src">Fairwind</span>
+                      <span class="pill verify-fw-pill {% if p.fairwind_verified %}ok{% else %}flagged{% endif %}">
+                        {% if p.fairwind_verified %}Verified{% else %}Not found{% endif %}
+                      </span>
+                      <span class="detail verify-fw-detail">
+                        {% if p.fairwind_verified %}Seen in Fairwind export corpus{% else %}Not in Fairwind export corpus{% endif %}
+                      </span>
+                    </div>
+                  </div>
+                  <span class="hint verify-hint" style="margin:0">Checks the email in this form. Page stays open — results update here.</span>
+                </div>
+                <button class="btn ghost sm verify-btn" type="button">Verify identity</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="edit-actions">
+            <div class="left">
+              {% if p.status != 'out' %}
+              <button class="btn sm ghost" type="submit" form="out-{{ p.id }}"
+                      onclick="return confirm('Mark {{ p.full_name | e }} as out? They stay in the list but are excluded from digests.');">
+                Mark out
+              </button>
+              {% else %}
+              <span class="hint">Currently out of digests</span>
+              {% endif %}
+              <button class="btn sm danger delete-btn" type="button" data-person-id="{{ p.id }}" data-person-name="{{ p.full_name }}">
+                Delete
+              </button>
+            </div>
+            <div class="right">
+              <button class="btn ghost sm" type="button" onclick="this.closest('details').open=false">Cancel</button>
+              <button class="btn sm" type="submit">Save changes</button>
+            </div>
+          </div>
+        </form>
+        {% if p.status != 'out' %}
+        <form id="out-{{ p.id }}" method="post" action="/config/people/{{ p.id }}/mark-out" hidden></form>
+        {% endif %}
+      </div>
+    </details>
+  {% else %}
+    <div class="empty">No designers yet. Add someone above, or run <code>python -m scripts.seed</code>.</div>
+  {% endfor %}
+  </div>
+  <p class="empty" id="no-match" style="display:none;padding:18px">No designers match your filter.</p>
 </div>
 
 <div class="card">
   <b>Project registry ({{ projects | length }})</b>
-  <table style="margin-top:8px">
+  <p class="hint" style="margin-bottom:8px">Canonical names and aliases used when mapping dailies to projects.</p>
+  <table>
     <thead><tr><th>Canonical</th><th>Aliases</th><th>Jira key</th><th>Fairwind account</th><th>Track daily</th></tr></thead>
     <tbody>
     {% for p in projects %}
@@ -47,4 +513,329 @@
     </tbody>
   </table>
 </div>
+
+<script>
+(function () {
+  var addCard = document.getElementById('add-card');
+  var toggleAdd = document.getElementById('toggle-add');
+  function showAdd(on) {
+    addCard.style.display = on ? 'block' : 'none';
+    if (on) {
+      addCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      var first = addCard.querySelector('input[name=full_name]');
+      if (first) first.focus();
+    }
+  }
+  toggleAdd.addEventListener('click', function () { showAdd(addCard.style.display === 'none'); });
+  document.getElementById('cancel-add').addEventListener('click', function () { showAdd(false); });
+  document.getElementById('cancel-add-2').addEventListener('click', function () { showAdd(false); });
+
+  var addForm = document.getElementById('add-person-form');
+  var addEmails = document.getElementById('add-emails');
+  var addJiraId = document.getElementById('add-jira-id');
+  var addJiraVerified = document.getElementById('add-jira-verified');
+  var addFwVerified = document.getElementById('add-fw-verified');
+  var addJiraPill = document.getElementById('add-jira-pill');
+  var addFwPill = document.getElementById('add-fw-pill');
+  var addJiraDetail = document.getElementById('add-jira-detail');
+  var addFwDetail = document.getElementById('add-fw-detail');
+  var addVerifyHint = document.getElementById('add-verify-hint');
+  var addVerifyBtn = document.getElementById('add-verify-btn');
+  var addCheckedForEmail = '';
+
+  function resetAddVerify() {
+    addCheckedForEmail = '';
+    addJiraVerified.value = 'off';
+    addFwVerified.value = 'off';
+    if (addJiraPill) { addJiraPill.className = 'pill flagged'; addJiraPill.textContent = 'Not checked'; }
+    if (addFwPill) { addFwPill.className = 'pill flagged'; addFwPill.textContent = 'Not checked'; }
+    if (addJiraDetail) addJiraDetail.textContent = 'Run Verify to look up this email';
+    if (addFwDetail) addFwDetail.textContent = 'Run Verify to check Fairwind corpus';
+    if (addVerifyHint) addVerifyHint.textContent = 'Verify fills the Jira ID. You’ll be asked to confirm if Jira doesn’t match before saving.';
+  }
+
+  function applyAddVerifyResult(data) {
+    addCheckedForEmail = (addEmails.value || '').trim().toLowerCase();
+    addJiraVerified.value = data.jira_ok ? 'on' : 'off';
+    addFwVerified.value = data.fairwind_ok ? 'on' : 'off';
+    if (data.jira_account_id) addJiraId.value = data.jira_account_id;
+    if (addJiraPill) {
+      addJiraPill.className = 'pill ' + (data.jira_ok ? 'ok' : 'flagged');
+      addJiraPill.textContent = data.jira_ok ? 'Verified' : 'Not found';
+    }
+    if (addFwPill) {
+      addFwPill.className = 'pill ' + (data.fairwind_ok ? 'ok' : 'flagged');
+      addFwPill.textContent = data.fairwind_ok ? 'Verified' : 'Not found';
+    }
+    if (addJiraDetail) {
+      addJiraDetail.textContent = data.jira_ok
+        ? (data.jira_display_name || data.jira_account_id || 'Found')
+        : (data.jira_error || 'No Jira user for this email');
+    }
+    if (addFwDetail) {
+      addFwDetail.textContent = data.fairwind_detail || (data.fairwind_ok ? 'Found' : 'Not found');
+    }
+    if (addVerifyHint) {
+      addVerifyHint.textContent = data.jira_ok
+        ? 'Jira matched — ready to save.'
+        : 'Jira didn’t match. Check the email, or save anyway when prompted.';
+    }
+    return data;
+  }
+
+  function runAddVerify() {
+    var emails = (addEmails.value || '').trim();
+    if (!emails) {
+      if (addVerifyHint) addVerifyHint.textContent = 'Enter an email first.';
+      addEmails.focus();
+      return Promise.reject(new Error('email required'));
+    }
+    var prev = addVerifyBtn.textContent;
+    addVerifyBtn.disabled = true;
+    addVerifyBtn.textContent = 'Checking…';
+    if (addVerifyHint) addVerifyHint.textContent = 'Looking up Jira and Fairwind…';
+    return fetch('/config/verify-identity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ emails: emails }),
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error((data && data.detail) || 'Verify failed');
+          return data;
+        });
+      })
+      .then(applyAddVerifyResult)
+      .catch(function (err) {
+        resetAddVerify();
+        if (addVerifyHint) addVerifyHint.textContent = 'Verify failed: ' + (err && err.message ? err.message : err);
+        throw err;
+      })
+      .finally(function () {
+        addVerifyBtn.disabled = false;
+        addVerifyBtn.textContent = prev;
+      });
+  }
+
+  addVerifyBtn.addEventListener('click', function () { runAddVerify().catch(function () {}); });
+  addEmails.addEventListener('input', function () {
+    if (addCheckedForEmail && addCheckedForEmail !== (addEmails.value || '').trim().toLowerCase()) {
+      resetAddVerify();
+    }
+  });
+
+  var addForceSubmit = false;
+
+  addForm.addEventListener('submit', function (ev) {
+    if (addForceSubmit) {
+      addForceSubmit = false;
+      return;
+    }
+    var currentEmail = (addEmails.value || '').trim().toLowerCase();
+    if (!currentEmail) return;
+    var alreadyOk = addJiraVerified.value === 'on' && addCheckedForEmail === currentEmail;
+    if (alreadyOk) return; // allow normal submit
+
+    ev.preventDefault();
+    var submitBtn = document.getElementById('add-submit-btn');
+    var prev = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Verifying…';
+
+    function doSubmit() {
+      addForceSubmit = true;
+      addForm.submit();
+    }
+
+    runAddVerify()
+      .then(function (data) {
+        if (data.jira_ok) {
+          doSubmit();
+          return;
+        }
+        var msg =
+          'No Jira user found for "' + currentEmail + '".\n\n' +
+          '• Click Cancel to check the email spelling\n' +
+          '• Click OK to save anyway (Jira will stay unverified)';
+        if (confirm(msg)) {
+          doSubmit();
+        }
+      })
+      .catch(function () {})
+      .finally(function () {
+        submitBtn.disabled = false;
+        submitBtn.textContent = prev;
+      });
+  });
+
+  document.querySelectorAll('#team-list details.person').forEach(function (d) {
+    d.addEventListener('toggle', function () {
+      if (!d.open) return;
+      document.querySelectorAll('#team-list details.person').forEach(function (other) {
+        if (other !== d) other.open = false;
+      });
+    });
+  });
+
+  function syncDedicated(hoursInput) {
+    var form = hoursInput.closest('form');
+    if (!form) return;
+    var check = form.querySelector('.ded-check');
+    if (!check) return;
+    var n = parseFloat(String(hoursInput.value || '').replace(',', '.'));
+    if (!isNaN(n) && n > 0) check.checked = true;
+    else if (hoursInput.value.trim() === '' || (!isNaN(n) && n <= 0)) check.checked = false;
+  }
+  document.querySelectorAll('.ded-hours').forEach(function (inp) {
+    inp.addEventListener('input', function () { syncDedicated(inp); });
+    inp.addEventListener('change', function () { syncDedicated(inp); });
+    syncDedicated(inp);
+  });
+
+  function syncLeaveRow(form) {
+    var leave = form.querySelector('.leave-row');
+    if (!leave) return;
+    var checked = form.querySelector('input[name=status]:checked');
+    leave.classList.toggle('show', !!(checked && checked.value === 'on_leave'));
+  }
+  document.querySelectorAll('.person-form').forEach(function (form) {
+    form.querySelectorAll('input[name=status]').forEach(function (r) {
+      r.addEventListener('change', function () { syncLeaveRow(form); });
+    });
+    syncLeaveRow(form);
+  });
+
+  document.querySelectorAll('.verify-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var box = btn.closest('.verify-box');
+      var details = btn.closest('details.person');
+      var form = details ? details.querySelector('form.person-form') : null;
+      var personId = box && box.getAttribute('data-person-id');
+      if (!personId) return;
+      var emailsInput = form && form.querySelector('input[name=emails]');
+      var jiraInput = form && form.querySelector('input[name=jira_account_id]');
+      var jiraPill = box.querySelector('.verify-jira-pill');
+      var fwPill = box.querySelector('.verify-fw-pill');
+      var jiraDetail = box.querySelector('.verify-jira-detail');
+      var fwDetail = box.querySelector('.verify-fw-detail');
+      var hint = box.querySelector('.verify-hint');
+      var listJira = details && details.querySelector('.person-jira-pill');
+      var listFw = details && details.querySelector('.person-fw-pill');
+      var prevLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      if (hint) hint.textContent = 'Looking up Jira and Fairwind…';
+
+      fetch('/config/people/' + encodeURIComponent(personId) + '/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ emails: emailsInput ? emailsInput.value : '' }),
+      })
+        .then(function (res) {
+          return res.json().then(function (data) {
+            if (!res.ok) throw new Error((data && data.detail) || 'Verify failed');
+            return data;
+          });
+        })
+        .then(function (data) {
+          if (jiraInput && data.jira_account_id) jiraInput.value = data.jira_account_id;
+          if (jiraPill) {
+            jiraPill.className = 'pill verify-jira-pill ' + (data.jira_ok ? 'ok' : 'flagged');
+            jiraPill.textContent = data.jira_ok ? 'Verified' : 'Not found';
+          }
+          if (fwPill) {
+            fwPill.className = 'pill verify-fw-pill ' + (data.fairwind_ok ? 'ok' : 'flagged');
+            fwPill.textContent = data.fairwind_ok ? 'Verified' : 'Not found';
+          }
+          if (jiraDetail) {
+            jiraDetail.textContent = data.jira_ok
+              ? (data.jira_display_name || data.jira_account_id || 'Found')
+              : (data.jira_error || 'No Jira user for this email');
+          }
+          if (fwDetail) {
+            fwDetail.textContent = data.fairwind_detail || (data.fairwind_ok ? 'Found' : 'Not found');
+          }
+          if (listJira) {
+            listJira.className = 'pill src-pill person-jira-pill ' + (data.jira_ok ? 'ok' : 'flagged');
+            listJira.textContent = 'Jira ' + (data.jira_ok ? '✓' : '✗');
+          }
+          if (listFw) {
+            listFw.className = 'pill src-pill person-fw-pill ' + (data.fairwind_ok ? 'ok' : 'flagged');
+            listFw.textContent = 'Fairwind ' + (data.fairwind_ok ? '✓' : '✗');
+          }
+          if (hint) {
+            hint.textContent = data.verified
+              ? 'Both sources matched.'
+              : 'Partial — fix the missing source, then verify again.';
+          }
+        })
+        .catch(function (err) {
+          if (hint) hint.textContent = 'Verify failed: ' + (err && err.message ? err.message : err);
+        })
+        .finally(function () {
+          btn.disabled = false;
+          btn.textContent = prevLabel;
+        });
+    });
+  });
+
+  document.querySelectorAll('.delete-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var name = btn.getAttribute('data-person-name') || 'this designer';
+      var personId = btn.getAttribute('data-person-id');
+      if (!personId) return;
+      if (!confirm('Permanently delete ' + name + ' from the design team?\n\nThis cannot be undone. Past run history stays, but their name link is cleared.')) {
+        return;
+      }
+      var details = btn.closest('details.person');
+      var prev = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      fetch('/config/people/' + encodeURIComponent(personId) + '/delete', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+      })
+        .then(function (res) {
+          return res.json().then(function (data) {
+            if (!res.ok) throw new Error((data && data.detail) || 'Delete failed');
+            return data;
+          });
+        })
+        .then(function () {
+          if (details) {
+            details.style.transition = 'opacity .2s, transform .2s';
+            details.style.opacity = '0';
+            details.style.transform = 'translateY(-4px)';
+            setTimeout(function () {
+              details.remove();
+              filterTeam();
+            }, 200);
+          }
+        })
+        .catch(function (err) {
+          alert('Delete failed: ' + (err && err.message ? err.message : err));
+          btn.disabled = false;
+          btn.textContent = prev;
+        });
+    });
+  });
+})();
+
+function filterTeam() {
+  var q = (document.getElementById('q').value || '').trim().toLowerCase();
+  var rows = document.querySelectorAll('#team-list details.person');
+  var shown = 0;
+  rows.forEach(function (r) {
+    var hay = r.getAttribute('data-search') || '';
+    var hit = !q || hay.indexOf(q) !== -1;
+    r.hidden = !hit;
+    if (hit) shown++;
+  });
+  document.getElementById('count').textContent = shown + ' shown';
+  document.getElementById('no-match').style.display = shown ? 'none' : 'block';
+}
+</script>
 {% endblock %}

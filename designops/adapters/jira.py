@@ -26,13 +26,14 @@ _ISSUE_FIELDS = [
     "timespent",
     "aggregatetimespent",
     "duedate",
+    "created",
+    "updated",
     "project",
     "issuetype",
     "description",
     "components",
     "parent",
     "comment",
-    "updated",
 ]
 
 # Health pulls need changelog for status-entry dates (client-action ageing).
@@ -257,6 +258,7 @@ def issue_to_document(issue: dict, *, event_date: date | None = None) -> Documen
             "remaining_seconds": rem_s,
             "remaining_hours": hours_or_none(rem_s) if rem_s is not None else 0.0,
             "duedate": fields.get("duedate"),
+            "created": fields.get("created"),
             "updated": fields.get("updated"),
             "project_key": project_key,
             "project_name": project_name,
@@ -296,6 +298,11 @@ class JiraClient:
 
     def resolve_account_id(self, email: str) -> str | None:
         """Look up Atlassian accountId by email. None if not found / no permission."""
+        user = self.lookup_user(email)
+        return (user or {}).get("accountId")
+
+    def lookup_user(self, email: str) -> dict | None:
+        """Return Jira user dict for an exact email match, else None."""
         if not email:
             return None
         with self._client() as c:
@@ -305,10 +312,55 @@ class JiraClient:
         email_l = email.lower()
         for u in users:
             if (u.get("emailAddress") or "").lower() == email_l:
-                return u.get("accountId")
-        if len(users) == 1:
-            return users[0].get("accountId")
+                return u
+        if len(users) == 1 and (users[0].get("emailAddress") or "").lower() in ("", email_l):
+            return users[0]
         return None
+
+    def search_projects(self, query: str, *, max_results: int = 20) -> list[dict]:
+        """Search Jira Cloud projects by name/key. Returns [{key, name, id}, ...]."""
+        q = (query or "").strip()
+        if not q:
+            return []
+        with self._client() as c:
+            r = c.get(
+                "/rest/api/3/project/search",
+                params={"query": q, "maxResults": max_results, "orderBy": "name"},
+            )
+            r.raise_for_status()
+            data = r.json() or {}
+        rows = data.get("values") or data.get("projects") or []
+        out: list[dict] = []
+        for p in rows:
+            if not isinstance(p, dict) or not p.get("key"):
+                continue
+            out.append(
+                {
+                    "key": str(p["key"]).upper(),
+                    "name": (p.get("name") or "").strip() or str(p["key"]),
+                    "id": str(p.get("id") or ""),
+                }
+            )
+        return out
+
+    def get_project(self, key: str) -> dict | None:
+        """Fetch one Jira project by key; None if missing."""
+        k = (key or "").strip().upper()
+        if not k:
+            return None
+        with self._client() as c:
+            r = c.get(f"/rest/api/3/project/{k}")
+            if r.status_code == 404:
+                return None
+            r.raise_for_status()
+            p = r.json() or {}
+        if not p.get("key"):
+            return None
+        return {
+            "key": str(p["key"]).upper(),
+            "name": (p.get("name") or "").strip() or str(p["key"]),
+            "id": str(p.get("id") or ""),
+        }
 
     def search_jql(
         self,

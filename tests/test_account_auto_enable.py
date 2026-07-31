@@ -124,6 +124,9 @@ def test_enable_accounts_for_jira_keys():
     assert acer.digest_enabled is True
     assert sgd.digest_enabled is True
     assert other.digest_enabled is False
+    assert "ACERP1" in (acer.notes or "")
+    assert "SGDCP" in (sgd.notes or "")
+    assert "weekly backlog" in (acer.notes or "").lower()
 
     again = enable_accounts_for_jira_keys(session, {"ACERP1", "SGDCP"})
     assert again == []

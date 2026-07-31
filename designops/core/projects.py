@@ -71,9 +71,26 @@ def enable_accounts_for_jira_keys(
     for acct in to_enable.values():
         if acct.digest_enabled:
             continue
+        acct_keys = {str(k).strip().upper() for k in (acct.jira_project_keys or []) if k}
+        matched = sorted(acct_keys & wanted)
+        if not matched:
+            # matched via Project.jira_project_key → fairwind_account_id
+            matched = sorted(
+                {
+                    (p.jira_project_key or "").strip().upper()
+                    for p in session.query(Project)
+                    .filter_by(fairwind_account_id=acct.fairwind_account_id)
+                    .all()
+                    if (p.jira_project_key or "").strip().upper() in wanted
+                }
+            )
         acct.digest_enabled = True
         acct.enabled_by = enabled_by
         acct.enabled_at = now
+        keys_txt = ", ".join(matched) if matched else "matching Jira project"
+        acct.notes = (
+            f"Auto-enabled from weekly backlog — design team had Jira work on {keys_txt}."
+        )
         session.add(acct)
         ensure_project_for_account(session, acct)
         newly.append(acct)
@@ -91,6 +108,8 @@ def ensure_project_for_account(session: Session, account: Account) -> Project:
         .first()
     )
     if existing:
+        _apply_account_jira_keys(existing, account)
+        session.add(existing)
         return existing
     # a project with the same name exists but isn't linked yet — link it
     by_name = (
@@ -98,6 +117,7 @@ def ensure_project_for_account(session: Session, account: Account) -> Project:
     )
     if by_name:
         by_name.fairwind_account_id = by_name.fairwind_account_id or account.fairwind_account_id
+        _apply_account_jira_keys(by_name, account)
         session.add(by_name)
         return by_name
     # otherwise create a fresh project for the account
@@ -109,5 +129,93 @@ def ensure_project_for_account(session: Session, account: Account) -> Project:
         track_daily=True,
         notes=f"Auto-created when '{account.name}' was enabled for the daily report.",
     )
+    _apply_account_jira_keys(proj, account)
     session.add(proj)
     return proj
+
+
+def _apply_account_jira_keys(project: Project, account: Account) -> bool:
+    """Copy Account.jira_project_keys onto Project.jira_project_key when missing.
+
+    Returns True if the project key was set/updated from the account.
+    """
+    keys = [
+        str(k).strip().upper()
+        for k in (account.jira_project_keys or [])
+        if k and str(k).strip()
+    ]
+    if not keys:
+        return False
+    current = (project.jira_project_key or "").strip().upper()
+    if current:
+        return False
+    project.jira_project_key = keys[0]
+    return True
+
+
+def resolve_jira_candidates(
+    *,
+    project_name: str,
+    fairwind_account_id: str | None,
+    account_keys: list[str] | None = None,
+    fairwind_jira_projects: list[dict] | None = None,
+    jira_cloud_projects: list[dict] | None = None,
+) -> list[dict]:
+    """Rank possible Jira project keys for a health-tracked project.
+
+    Each candidate: {key, name, source, score} where lower score = better.
+    """
+    name = (project_name or "").strip()
+    nl = name.lower()
+    fid = (fairwind_account_id or "").strip()
+    by_key: dict[str, dict] = {}
+
+    def _add(key: str, pname: str | None, source: str, score: int) -> None:
+        k = (key or "").strip().upper()
+        if not k:
+            return
+        row = by_key.get(k)
+        if row is None or score < row["score"]:
+            by_key[k] = {
+                "key": k,
+                "name": (pname or "").strip() or k,
+                "source": source,
+                "score": score,
+            }
+
+    for k in account_keys or []:
+        kk = str(k).strip().upper()
+        if not kk:
+            continue
+        score = 1
+        if nl and (kk.lower() in nl or nl.startswith(kk.lower())):
+            score = 0
+        _add(kk, name, "fairwind_account", score)
+
+    for r in fairwind_jira_projects or []:
+        key = str(r.get("key") or "").strip().upper()
+        if not key:
+            continue
+        pname = (r.get("name") or "").strip()
+        acct = str(r.get("account") or r.get("account_id") or "").strip()
+        if fid and acct and acct == fid:
+            _add(key, pname or name, "fairwind_map", 0)
+            continue
+        pl = pname.lower()
+        if nl and pl and (nl == pl or nl in pl or pl in nl):
+            _add(key, pname, "fairwind_map", 2 if nl != pl else 0)
+
+    for r in jira_cloud_projects or []:
+        key = str(r.get("key") or "").strip().upper()
+        if not key:
+            continue
+        pname = (r.get("name") or "").strip()
+        pl = pname.lower()
+        if nl and pl == nl:
+            _add(key, pname, "jira", 0)
+        elif nl and pl and (nl in pl or pl in nl or key.lower() in nl):
+            _add(key, pname, "jira", 2)
+        else:
+            _add(key, pname, "jira", 3)
+
+    return sorted(by_key.values(), key=lambda m: (m["score"], m["key"]))

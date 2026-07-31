@@ -556,6 +556,38 @@ def test_enrich_ticket_status_since_and_stale():
     assert mid["status_stale"] == "amber"
     assert mid["client_action_since"] == date(2026, 7, 16)
 
+    # No status changelog → age from created (not updated).
+    never = enrich_ticket(
+        {
+            "key": "Y-1",
+            "status": "To Do",
+            "original_hours": 3,
+            "spent_hours": 0,
+            "status_entries": [],
+            "created": "2026-07-01T09:00:00.000+0300",
+            "updated": "2026-07-20T18:00:00.000+0300",
+        },
+        as_of=date(2026, 7, 24),
+    )
+    assert never["status_since"] == date(2026, 7, 1)
+    assert never["days_in_status"] == 23
+    assert never["status_stale"] == "red"
+
+    # Client Action with no transition history → created date.
+    ca_born = enrich_ticket(
+        {
+            "key": "Z-1",
+            "status": "Client Action",
+            "original_hours": 2,
+            "spent_hours": 0,
+            "status_entries": [],
+            "created": "2026-07-18T10:00:00.000+0300",
+        },
+        as_of=date(2026, 7, 24),
+    )
+    assert ca_born["client_action_since"] == date(2026, 7, 18)
+    assert ca_born["days_in_status"] == 6
+
 
 def test_derive_call_dates_from_calendar_meetings():
     from designops.pipelines.weekly_health_meetings import (

@@ -1,11 +1,132 @@
 {% extends "base.html" %}
 {% block title %}Weekly health — Design Ops{% endblock %}
 {% block body %}
-<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:4px">
+<style>
+  .wh-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:4px}
+  .wh-flash{border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:14px}
+  .wh-flash.ok{background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56}
+  .wh-flash.warn{background:#fff5e8;border:1px solid #f5c66b;color:#8a5a12}
+
+  .track-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .track-head h2{font-size:16px;margin:0 0 2px}
+  .track-count{font-size:12px;font-weight:700;color:#3F4AAF;background:#eef0fb;border:1px solid #ccd0ec;padding:3px 10px;border-radius:999px}
+
+  .add-box{background:#f7f8fb;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:16px}
+  .add-box label{font-weight:600;color:var(--ink);margin-bottom:6px}
+  .add-row{display:flex;gap:8px;align-items:stretch}
+  .add-row input[type=search]{flex:1;min-width:0;padding:10px 12px;border-radius:9px;border:1px solid #d5d8e0;font-size:14px}
+  .add-row input[type=search]:focus{outline:none;border-color:#9aa3d9;box-shadow:0 0 0 3px rgba(63,74,175,.12)}
+  .add-hint{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.4}
+
+  .suggest{margin-top:8px;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 8px 24px rgba(16,24,40,.08);display:none}
+  .suggest.open{display:block}
+  .suggest button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid #f1f2f4;background:#fff;padding:10px 12px;cursor:pointer;font:inherit}
+  .suggest button:last-child{border-bottom:0}
+  .suggest button:hover,.suggest button.active{background:#f4f5fb}
+  .suggest .n{font-weight:650;color:var(--ink)}
+  .suggest .m{font-size:12px;color:var(--mut);margin-top:2px}
+  .suggest .tag{display:inline-block;font-size:10px;font-weight:700;padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:1px}
+  .suggest .tag.on{background:#e5f6f2;color:#0f8a7e}
+  .suggest .tag.off{background:#eef0f3;color:#5b6470}
+  .suggest .empty{padding:12px;color:var(--mut);font-size:13px}
+
+  .verify-panel{display:none;margin-top:12px;padding:12px;border-radius:10px;border:1px dashed #c5cae8;background:#fff}
+  .verify-panel.open{display:block}
+  .verify-panel h3{margin:0 0 6px;font-size:13px}
+  .verify-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+  .verify-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fafbfd}
+  .verify-item .n{font-weight:650}
+  .verify-item .m{font-size:12px;color:var(--mut);margin-top:2px}
+
+  .proj-toolbar{display:flex;gap:10px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
+  .proj-toolbar input[type=search]{flex:1;min-width:200px;padding:8px 12px;border-radius:9px;border:1px solid var(--line)}
+  .proj-toolbar input[type=search]:focus{outline:none;border-color:#9aa3d9;box-shadow:0 0 0 3px rgba(63,74,175,.12)}
+  .proj-toolbar .sub{margin:0;white-space:nowrap}
+
+  .proj-list{display:flex;flex-direction:column;gap:8px}
+  .proj{
+    border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .proj[open]{border-color:#c5cae8;box-shadow:0 2px 10px rgba(63,74,175,.1)}
+  .proj.needs-est{border-left:3px solid #f5c66b}
+  .proj-sum{
+    display:grid;grid-template-columns:40px 1fr auto;gap:12px;align-items:center;
+    padding:12px 14px;cursor:pointer;list-style:none;user-select:none;
+  }
+  .proj-sum::-webkit-details-marker{display:none}
+  .proj-sum:hover{background:#fafbfc}
+  .proj-av{
+    width:40px;height:40px;border-radius:10px;display:grid;place-items:center;
+    font-weight:800;font-size:13px;color:#0f8a7e;background:#e5f6f2;letter-spacing:-.02em;
+  }
+  .proj-av.warn{color:#8a5a12;background:#fff5e8}
+  .proj-av.miss{color:#8a5a12;background:#fff5e8}
+  .proj-main{min-width:0}
+  .proj-name{font-weight:700;font-size:14px;margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .proj-sub{color:var(--mut);font-size:12px;margin-top:3px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .proj-side{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
+  .proj-side .stat{
+    text-align:right;min-width:64px;padding:4px 8px;border-radius:8px;background:#f7f8fb;border:1px solid #eef0f3;
+  }
+  .proj-side .stat .v{font-size:13px;font-weight:800;letter-spacing:-.02em;line-height:1.1;color:var(--ink)}
+  .proj-side .stat .v.na{color:var(--warn);font-size:12px;font-weight:700}
+  .proj-side .stat .l{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-top:1px}
+  .proj-side .jira{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:700;
+    color:#1d5fb0;background:#e8f0fb;padding:4px 8px;border-radius:7px;
+  }
+  .proj-side .jira.miss{color:#8a5a12;background:#fff5e8;font-family:inherit;font-weight:600}
+  .chev{color:var(--mut);font-size:12px;margin-left:2px;transition:transform .15s}
+  .proj[open] .chev{transform:rotate(180deg)}
+
+  .proj-edit{border-top:1px solid #eceef3;background:linear-gradient(180deg,#f7f8fb 0%,#f3f4f8 100%);padding:14px}
+  .proj-edit-grid{display:grid;grid-template-columns:140px 1fr;gap:12px}
+  .proj-edit-grid .jira-row{grid-column:1 / -1}
+  .jira-verify{
+    display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;
+  }
+  .jira-verify input{flex:1;min-width:120px}
+  .jira-matches{display:none;margin-top:10px;padding:10px;border:1px dashed #c5cae8;border-radius:10px;background:#fff}
+  .jira-matches.open{display:block}
+  .jira-matches h4{margin:0 0 6px;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+  .jira-match{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fafbfd;margin-top:6px;
+  }
+  .jira-match .n{font-weight:650;font-size:13px}
+  .jira-match .m{font-size:11px;color:var(--mut);margin-top:2px}
+  .jira-status{font-size:12px;color:var(--mut);margin-top:6px;line-height:1.4}
+  @media (max-width:720px){
+    .proj-sum{grid-template-columns:36px 1fr}
+    .proj-side{grid-column:2;justify-content:flex-start}
+    .proj-edit-grid{grid-template-columns:1fr}
+  }
+  .proj-edit .field label{font-size:12px;font-weight:600;color:var(--mut);display:block;margin-bottom:4px}
+  .proj-edit .field input{
+    width:100%;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;
+    transition:border-color .12s, box-shadow .12s;
+  }
+  .proj-edit .field input:focus{outline:none;border-color:#9aa3d9;box-shadow:0 0 0 3px rgba(63,74,175,.12)}
+  .proj-edit .field .hint{font-size:11px;color:var(--mut);margin:5px 0 0;line-height:1.4}
+  .proj-edit-actions{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+    margin-top:12px;padding-top:12px;border-top:1px solid #e4e6ec;
+  }
+  .proj-edit-actions .right{display:flex;gap:8px;flex-wrap:wrap}
+  .btn.danger{background:#fff;color:var(--red);border:1px solid #f0c4c0}
+  .btn.danger:hover{background:#fdecea}
+  .proj-empty{padding:28px 16px;text-align:center;color:var(--mut);border:1px dashed var(--line);border-radius:12px;background:#fafbfd}
+  .proj-empty b{display:block;color:var(--ink);margin-bottom:4px;font-size:14px}
+  .link-warn{font-size:11px;font-weight:700;color:#8a5a12;background:#fff5e8;padding:2px 7px;border-radius:999px}
+  .link-ok{font-size:11px;font-weight:700;color:#0f8a7e;background:#e5f6f2;padding:2px 7px;border-radius:999px}
+</style>
+
+<div class="wh-hero">
   <div>
     <h1 style="margin:0">Weekly Project Health &amp; Budget</h1>
     <p class="sub" style="margin:4px 0 0;max-width:54ch">
-      Monday brief for Olga — design-only burn vs signed estimate, hygiene, and client-action ageing. Report only.
+      Monday brief for Olga — design-only burn vs signed estimate, hygiene, and client-action ageing.
     </p>
   </div>
 </div>
@@ -23,31 +144,150 @@
 {% endif %}
 
 <div class="card">
-  <h1 style="font-size:16px;margin-bottom:2px">Tracked projects</h1>
-  <p class="sub">Allowlisted via <code>track_weekly_health</code> on the project registry.</p>
+  <div class="track-head">
+    <div>
+      <h2>Tracked projects</h2>
+      <p class="sub" style="margin:0">Included in the Monday brief. Changes apply on the next generate.</p>
+    </div>
+    <span class="track-count">{{ tracked | length }} tracked</span>
+  </div>
+
+  {% if flash == 'tracked' %}
+  <div class="wh-flash ok">✓ Added <b>{{ flash_name }}</b> to weekly health.</div>
+  {% elif flash == 'untracked' %}
+  <div class="wh-flash warn">Removed <b>{{ flash_name }}</b> from weekly health.</div>
+  {% elif flash == 'project_saved' %}
+  <div class="wh-flash ok">✓ Saved <b>{{ flash_name }}</b>.</div>
+  {% elif flash == 'jira_linked' %}
+  <div class="wh-flash ok">✓ Linked Jira project for <b>{{ flash_name }}</b>.</div>
+  {% endif %}
+
+  <div class="add-box">
+    <label for="acct-q">Add from Fairwind accounts</label>
+    <div class="add-row">
+      <input id="acct-q" type="search" autocomplete="off" placeholder="Start typing an account name, domain, or Jira key…">
+      <button class="btn ghost" type="button" id="verify-btn" disabled title="Search Fairwind when there’s no local match">Verify on Fairwind</button>
+    </div>
+    <div class="suggest" id="suggest" role="listbox"></div>
+    <p class="add-hint" id="add-hint">Matches the local Accounts directory. If nothing fits, verify on Fairwind.</p>
+    <div class="verify-panel" id="verify-panel">
+      <h3>Did you mean one of these Fairwind accounts?</h3>
+      <p class="sub" style="margin:0" id="verify-status">Confirm to create the project link and add it to weekly health.</p>
+      <div class="verify-list" id="verify-list"></div>
+    </div>
+  </div>
+
   {% if tracked %}
-  <table>
-    <thead><tr><th>Project</th><th>Jira</th><th>Signed est.</th><th>Subtitle</th></tr></thead>
-    <tbody>
+  <div class="proj-toolbar">
+    <input id="proj-q" type="search" placeholder="Filter tracked projects…" oninput="filterTracked()">
+    <span class="sub" id="proj-count">{{ tracked | length }} shown</span>
+  </div>
+  <div class="proj-list" id="proj-list">
     {% for t in tracked %}
-      <tr>
-        <td>{{ t.canonical_name }}</td>
-        <td><code>{{ t.jira_project_key or '—' }}</code></td>
-        <td>{% if t.signed_design_estimate_h is not none %}{{ t.signed_design_estimate_h|int }}h{% else %}n/a{% endif %}</td>
-        <td class="sub">{{ t.display_subtitle or '—' }}</td>
-      </tr>
+    {% set initials = (t.canonical_name.split() | map('first') | join(''))[:2] | upper %}
+    {% set needs_est = t.signed_design_estimate_h is none %}
+    {% set needs_jira = not t.jira_project_key %}
+    <details class="proj{% if needs_est or needs_jira %} needs-est{% endif %}"
+             id="proj-{{ t.id }}"
+             data-search="{{ (t.canonical_name ~ ' ' ~ (t.jira_project_key or '') ~ ' ' ~ (t.display_subtitle or '')) | lower }}">
+      <summary class="proj-sum">
+        <div class="proj-av{% if needs_est or needs_jira %} warn{% endif %}">{{ initials }}</div>
+        <div class="proj-main">
+          <p class="proj-name">
+            {{ t.canonical_name }}
+            {% if t.fairwind_account_id %}<span class="link-ok">Fairwind</span>{% else %}<span class="link-warn">Unlinked</span>{% endif %}
+            {% if needs_jira %}<span class="link-warn">Needs Jira</span>{% endif %}
+          </p>
+          <div class="proj-sub">{{ t.display_subtitle or 'No subtitle yet — opens on the health brief as the project name only.' }}</div>
+        </div>
+        <div class="proj-side">
+          {% if t.jira_project_key %}
+          <span class="jira">{{ t.jira_project_key }}</span>
+          {% else %}
+          <span class="jira miss">No Jira</span>
+          {% endif %}
+          <div class="stat">
+            {% if t.signed_design_estimate_h is not none %}
+            <div class="v">{{ t.signed_design_estimate_h }}h</div>
+            {% else %}
+            <div class="v na">n/a</div>
+            {% endif %}
+            <div class="l">Signed</div>
+          </div>
+          <span class="chev">▾</span>
+        </div>
+      </summary>
+      <div class="proj-edit">
+        <form method="post" action="/weekly-health/projects/{{ t.id }}" id="edit-{{ t.id }}">
+          <div class="proj-edit-grid">
+            <div class="field">
+              <label>Signed estimate (hours)</label>
+              <input type="text" name="signed_design_estimate_h" inputmode="decimal"
+                     value="{% if t.signed_design_estimate_h is not none %}{{ t.signed_design_estimate_h }}{% endif %}"
+                     placeholder="e.g. 187">
+              <p class="hint">Used for burn vs budget on the Monday brief. Leave blank for n/a.</p>
+            </div>
+            <div class="field">
+              <label>Subtitle</label>
+              <input type="text" name="display_subtitle" value="{{ t.display_subtitle or '' }}"
+                     placeholder="Short line under the project name">
+              <p class="hint">Optional context for Olga (phase, focus, owner).</p>
+            </div>
+            <div class="field jira-row">
+              <label>Jira project key</label>
+              <div class="jira-verify">
+                <input type="text" name="jira_project_key" id="jira-key-{{ t.id }}" class="mono"
+                       value="{{ t.jira_project_key or '' }}" placeholder="e.g. ACERP1" style="text-transform:uppercase">
+                <button class="btn sm ghost jira-verify-btn" type="button"
+                        data-project-id="{{ t.id }}" data-project-name="{{ t.canonical_name | e }}"
+                        {% if not jira_ready and not fairwind_ready %}disabled title="Configure Jira or Fairwind"{% endif %}>
+                  Verify Jira
+                </button>
+              </div>
+              <p class="jira-status" id="jira-status-{{ t.id }}">
+                {% if t.jira_project_key %}
+                Linked — weekly health pulls burn from this key.
+                {% else %}
+                Missing — burn tables stay empty until a key is linked. Verify looks up Fairwind + Jira.
+                {% endif %}
+              </p>
+              <div class="jira-matches" id="jira-matches-{{ t.id }}">
+                <h4>Did you mean one of these?</h4>
+                <div class="jira-match-list"></div>
+              </div>
+            </div>
+          </div>
+          <div class="proj-edit-actions">
+            <button class="btn sm danger" type="submit" form="out-{{ t.id }}"
+                    onclick="return confirm('Remove {{ t.canonical_name | e }} from weekly health?');">
+              Remove from list
+            </button>
+            <div class="right">
+              <button class="btn sm ghost" type="button" onclick="this.closest('details').open=false">Cancel</button>
+              <button class="btn sm" type="submit">Save changes</button>
+            </div>
+          </div>
+        </form>
+        <form id="out-{{ t.id }}" method="post" action="/weekly-health/projects/{{ t.id }}/track" hidden>
+          <input type="hidden" name="enable" value="off">
+        </form>
+      </div>
+    </details>
     {% endfor %}
-    </tbody>
-  </table>
+  </div>
+  <p class="proj-empty" id="proj-no-match" style="display:none;margin-top:8px">No tracked projects match that filter.</p>
   {% else %}
-  <p class="sub">No projects flagged yet — run <code>python -m scripts.seed</code> after migrating.</p>
+  <div class="proj-empty">
+    <b>No projects tracked yet</b>
+    Search an account above to add the first one to the Monday brief.
+  </div>
   {% endif %}
 </div>
 
 <div class="card">
   <h1 style="font-size:16px;margin-bottom:2px">Monday schedule</h1>
   <p class="sub">Fires Mondays (Europe/Riga). Reports the week that just ended (Mon–Fri).</p>
-  {% if flash == 'schedule_saved' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Schedule saved{% if sched_next %} · next run {{ sched_next }}{% endif %}.</div>{% endif %}
+  {% if flash == 'schedule_saved' %}<div class="wh-flash ok">✓ Schedule saved{% if sched_next %} · next run {{ sched_next }}{% endif %}.</div>{% endif %}
   <form method="post" action="/weekly-health/schedule" class="row" style="align-items:flex-end;gap:14px">
     <div><label>Time (Riga, Mondays)</label><input type="time" name="sched_time" value="{{ sched_time }}"></div>
     <div><label>Delivery</label>
@@ -62,9 +302,9 @@
     <button class="btn" type="submit">Save</button>
   </form>
   <p class="sub" style="margin-top:8px">
-    {% if sched_enabled and sched_next %}⏰ Next run <b>{{ sched_next }}</b>{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
+    {% if sched_enabled and sched_next %}Next run <b>{{ sched_next }}</b>{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
     {% elif sched_enabled %}Enabled.{% else %}Off — nothing runs automatically.{% endif %}
-    {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ Connect Google on Daily report to actually send.</span>{% endif %}
+    {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ <a href="/config">Connect Gmail in Config</a> to actually send.</span>{% endif %}
   </p>
 </div>
 
@@ -102,4 +342,392 @@
   <p class="sub">No health runs yet.</p>
   {% endif %}
 </div>
+
+<script>
+(function () {
+  var ACCOUNTS = {{ accounts_json | tojson }};
+  var FAIRWIND_READY = {{ 'true' if fairwind_ready else 'false' }};
+  var qEl = document.getElementById('acct-q');
+  var suggest = document.getElementById('suggest');
+  var hint = document.getElementById('add-hint');
+  var verifyBtn = document.getElementById('verify-btn');
+  var verifyPanel = document.getElementById('verify-panel');
+  var verifyList = document.getElementById('verify-list');
+  var verifyStatus = document.getElementById('verify-status');
+  var activeIdx = -1;
+  var currentHits = [];
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function hay(a) {
+    return (a.name + ' ' + (a.domains || []).join(' ') + ' ' + (a.jira || []).join(' ')).toLowerCase();
+  }
+
+  function metaLine(a) {
+    var bits = [];
+    if (a.jira && a.jira.length) bits.push(a.jira.join(', '));
+    if (a.domains && a.domains.length) bits.push(a.domains.slice(0, 2).join(', '));
+    if (!a.active) bits.push('inactive');
+    return bits.join(' · ') || 'No Jira keys / domains on file';
+  }
+
+  function setHint(text, showVerify) {
+    hint.textContent = text;
+    verifyBtn.disabled = !(showVerify && FAIRWIND_READY && (qEl.value || '').trim().length >= 2);
+    if (!FAIRWIND_READY && showVerify) {
+      hint.textContent = text + ' Fairwind credentials are not configured.';
+    }
+  }
+
+  function closeSuggest() {
+    suggest.classList.remove('open');
+    suggest.innerHTML = '';
+    activeIdx = -1;
+    currentHits = [];
+  }
+
+  function renderSuggest(hits, q) {
+    currentHits = hits;
+    activeIdx = hits.length ? 0 : -1;
+    if (!q) {
+      closeSuggest();
+      setHint('Matches the local Accounts directory. If nothing fits, verify on Fairwind.', false);
+      verifyPanel.classList.remove('open');
+      return;
+    }
+    if (!hits.length) {
+      suggest.classList.add('open');
+      suggest.innerHTML = '<div class="empty">No local account matches for “' + esc(q) + '”.</div>';
+      setHint('No local match — verify on Fairwind to search the live directory and confirm.', true);
+      return;
+    }
+    suggest.classList.add('open');
+    suggest.innerHTML = hits.map(function (a, i) {
+      var tag = a.tracked
+        ? '<span class="tag on">Already tracked</span>'
+        : '<span class="tag off">Add</span>';
+      return '<button type="button" role="option" data-i="' + i + '" class="' + (i === 0 ? 'active' : '') + '">' +
+        '<div class="n">' + esc(a.name) + tag + '</div>' +
+        '<div class="m">' + esc(metaLine(a)) + '</div></button>';
+    }).join('');
+    setHint('Pick a match to add it, or refine your search.', false);
+    verifyPanel.classList.remove('open');
+  }
+
+  function filterAccounts(q) {
+    q = (q || '').trim().toLowerCase();
+    if (!q) return [];
+    var scored = [];
+    ACCOUNTS.forEach(function (a) {
+      var h = hay(a);
+      var nl = (a.name || '').toLowerCase();
+      var score;
+      if (nl === q) score = 0;
+      else if (nl.indexOf(q) === 0) score = 1;
+      else if (h.indexOf(q) !== -1) score = 2;
+      else return;
+      scored.push({ score: score, a: a });
+    });
+    scored.sort(function (x, y) {
+      if (x.score !== y.score) return x.score - y.score;
+      return x.a.name.localeCompare(y.a.name);
+    });
+    return scored.slice(0, 8).map(function (x) { return x.a; });
+  }
+
+  function trackLocal(a) {
+    if (a.tracked) {
+      setHint(a.name + ' is already on the weekly health list.', false);
+      closeSuggest();
+      return;
+    }
+    var form = document.createElement('form');
+    form.method = 'post';
+    form.action = '/weekly-health/track-account';
+    form.style.display = 'none';
+    var id = document.createElement('input');
+    id.name = 'fairwind_account_id';
+    id.value = a.id;
+    var nm = document.createElement('input');
+    nm.name = 'name';
+    nm.value = a.name;
+    form.appendChild(id);
+    form.appendChild(nm);
+    document.body.appendChild(form);
+    form.submit();
+  }
+
+  function highlight(i) {
+    activeIdx = i;
+    var buttons = suggest.querySelectorAll('button[data-i]');
+    buttons.forEach(function (b) {
+      b.classList.toggle('active', Number(b.getAttribute('data-i')) === i);
+    });
+  }
+
+  qEl.addEventListener('input', function () {
+    renderSuggest(filterAccounts(qEl.value), (qEl.value || '').trim());
+  });
+
+  qEl.addEventListener('keydown', function (e) {
+    if (!suggest.classList.contains('open') || !currentHits.length) {
+      if (e.key === 'Enter') e.preventDefault();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      highlight(Math.min(activeIdx + 1, currentHits.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      highlight(Math.max(activeIdx - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIdx >= 0 && currentHits[activeIdx]) trackLocal(currentHits[activeIdx]);
+    } else if (e.key === 'Escape') {
+      closeSuggest();
+    }
+  });
+
+  suggest.addEventListener('mousedown', function (e) {
+    var btn = e.target.closest('button[data-i]');
+    if (!btn) return;
+    e.preventDefault();
+    var a = currentHits[Number(btn.getAttribute('data-i'))];
+    if (a) trackLocal(a);
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.add-box')) closeSuggest();
+  });
+
+  function renderVerifyMatches(matches, q) {
+    verifyPanel.classList.add('open');
+    if (!matches.length) {
+      verifyStatus.textContent = 'Fairwind returned no accounts matching “' + q + '”. Try another spelling.';
+      verifyList.innerHTML = '';
+      return;
+    }
+    verifyStatus.textContent = 'Found ' + matches.length + ' Fairwind account' + (matches.length === 1 ? '' : 's') +
+      '. Confirm the one you meant to add it to weekly health.';
+    verifyList.innerHTML = matches.map(function (m, i) {
+      return '<div class="verify-item" data-i="' + i + '">' +
+        '<div><div class="n">' + esc(m.name) + '</div>' +
+        '<div class="m">' + esc((m.jira || []).join(', ') || '—') +
+        ((m.domains && m.domains.length) ? ' · ' + esc(m.domains.slice(0, 2).join(', ')) : '') +
+        '</div></div>' +
+        '<button type="button" class="btn sm" data-confirm="' + i + '">Yes, track this</button></div>';
+    }).join('');
+    verifyList._matches = matches;
+  }
+
+  verifyBtn.addEventListener('click', function () {
+    var q = (qEl.value || '').trim();
+    if (q.length < 2 || !FAIRWIND_READY) return;
+    closeSuggest();
+    verifyPanel.classList.add('open');
+    verifyStatus.innerHTML = '<span class="spin"></span> Searching Fairwind directory…';
+    verifyList.innerHTML = '';
+    verifyBtn.disabled = true;
+    var prev = verifyBtn.textContent;
+    verifyBtn.textContent = 'Searching…';
+    fetch('/weekly-health/verify-account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ q: q })
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error((data && data.detail) || 'Verify failed');
+          return data;
+        });
+      })
+      .then(function (data) {
+        renderVerifyMatches(data.matches || [], q);
+        setHint('Confirm a Fairwind match below, or refine the search.', true);
+      })
+      .catch(function (err) {
+        verifyStatus.textContent = 'Verify failed: ' + (err && err.message ? err.message : err);
+        verifyList.innerHTML = '';
+        setHint('Fairwind verify failed. Check credentials or try again.', true);
+      })
+      .finally(function () {
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = prev;
+      });
+  });
+
+  verifyList.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-confirm]');
+    if (!btn) return;
+    var matches = verifyList._matches || [];
+    var m = matches[Number(btn.getAttribute('data-confirm'))];
+    if (!m) return;
+    var ok = window.confirm('Add “' + m.name + '” to weekly health tracked projects?');
+    if (!ok) return;
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+    fetch('/weekly-health/confirm-account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(m)
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error((data && data.detail) || 'Could not add account');
+          return data;
+        });
+      })
+      .then(function (data) {
+        window.location.href = data.redirect || '/weekly-health?flash=tracked';
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = 'Yes, track this';
+        verifyStatus.textContent = 'Could not add: ' + (err && err.message ? err.message : err);
+      });
+  });
+})();
+
+function filterTracked() {
+  var el = document.getElementById('proj-q');
+  if (!el) return;
+  var q = (el.value || '').trim().toLowerCase();
+  var rows = document.querySelectorAll('#proj-list details.proj');
+  var shown = 0;
+  rows.forEach(function (r) {
+    var hay = r.getAttribute('data-search') || '';
+    var hit = !q || hay.indexOf(q) !== -1;
+    r.hidden = !hit;
+    if (hit) shown++;
+  });
+  var count = document.getElementById('proj-count');
+  if (count) count.textContent = shown + ' shown';
+  var empty = document.getElementById('proj-no-match');
+  if (empty) empty.style.display = shown ? 'none' : 'block';
+}
+
+(function () {
+  var list = document.getElementById('proj-list');
+  if (!list) return;
+  list.addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (!d.open || !d.classList.contains('proj')) return;
+    list.querySelectorAll('details.proj[open]').forEach(function (other) {
+      if (other !== d) other.open = false;
+    });
+  });
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  list.addEventListener('click', function (e) {
+    var btn = e.target.closest('.jira-verify-btn');
+    if (!btn) return;
+    e.preventDefault();
+    var pid = btn.getAttribute('data-project-id');
+    var status = document.getElementById('jira-status-' + pid);
+    var panel = document.getElementById('jira-matches-' + pid);
+    var keyInput = document.getElementById('jira-key-' + pid);
+    var prev = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+    if (status) status.innerHTML = '<span class="spin"></span> Looking up Fairwind map + Jira Cloud…';
+    if (panel) { panel.classList.remove('open'); panel.querySelector('.jira-match-list').innerHTML = ''; }
+    fetch('/weekly-health/projects/' + encodeURIComponent(pid) + '/verify-jira', {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' }
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error((data && data.detail) || 'Verify failed');
+          return data;
+        });
+      })
+      .then(function (data) {
+        if (data.auto_applied) {
+          if (keyInput) keyInput.value = data.auto_applied.key;
+          if (status) {
+            status.textContent = 'Linked ' + data.auto_applied.key +
+              (data.auto_applied.name ? ' — ' + data.auto_applied.name : '') +
+              ' automatically. Save if you also changed estimate/subtitle.';
+          }
+          // Refresh chip without full reload when only key changed
+          var chip = btn.closest('details') && btn.closest('details').querySelector('.proj-side .jira');
+          if (chip) {
+            chip.textContent = data.auto_applied.key;
+            chip.classList.remove('miss');
+          }
+          var warn = btn.closest('details') && btn.closest('details').querySelector('.link-warn');
+          if (warn && warn.textContent.indexOf('Needs Jira') !== -1) warn.remove();
+          return;
+        }
+        var matches = data.matches || [];
+        if (!matches.length) {
+          if (status) status.textContent = 'No Jira project found. Type a key manually (e.g. ACERP1) and Save.';
+          return;
+        }
+        if (status) {
+          status.textContent = 'Found ' + matches.length + ' candidate' + (matches.length === 1 ? '' : 's') +
+            ' — confirm the one you meant.';
+        }
+        if (!panel) return;
+        var box = panel.querySelector('.jira-match-list');
+        box.innerHTML = matches.map(function (m) {
+          return '<div class="jira-match">' +
+            '<div><div class="n"><code>' + esc(m.key) + '</code> · ' + esc(m.name) + '</div>' +
+            '<div class="m">via ' + esc(m.source) + '</div></div>' +
+            '<button type="button" class="btn sm jira-pick" data-key="' + esc(m.key) + '" data-project-id="' + esc(pid) + '">Use this</button>' +
+            '</div>';
+        }).join('');
+        panel.classList.add('open');
+      })
+      .catch(function (err) {
+        if (status) status.textContent = 'Verify failed: ' + (err && err.message ? err.message : err);
+      })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = prev;
+      });
+  });
+
+  list.addEventListener('click', function (e) {
+    var pick = e.target.closest('.jira-pick');
+    if (!pick) return;
+    e.preventDefault();
+    var pid = pick.getAttribute('data-project-id');
+    var key = pick.getAttribute('data-key');
+    var status = document.getElementById('jira-status-' + pid);
+    var keyInput = document.getElementById('jira-key-' + pid);
+    pick.disabled = true;
+    pick.textContent = 'Linking…';
+    fetch('/weekly-health/projects/' + encodeURIComponent(pid) + '/set-jira', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ key: key })
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error((data && data.detail) || 'Could not set Jira key');
+          return data;
+        });
+      })
+      .then(function (data) {
+        window.location.href = data.redirect || '/weekly-health?flash=jira_linked';
+      })
+      .catch(function (err) {
+        pick.disabled = false;
+        pick.textContent = 'Use this';
+        if (status) status.textContent = 'Could not link: ' + (err && err.message ? err.message : err);
+        if (keyInput) keyInput.value = key;
+      });
+  });
+})();
+</script>
 {% endblock %}

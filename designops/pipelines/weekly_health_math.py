@@ -338,11 +338,22 @@ def enrich_ticket(raw: dict, *, as_of: date | None = None) -> dict:
             except (TypeError, ValueError):
                 ca_since = None
             break
+    # Created already in Client Action → no status transition in history.
+    if (
+        ca_since is None
+        and (t.get("status") or "").strip().lower() in CLIENT_ACTION_STATUSES
+        and t.get("created")
+    ):
+        try:
+            ca_since = date.fromisoformat(str(t["created"])[:10])
+        except (TypeError, ValueError):
+            ca_since = None
     t["client_action_since"] = ca_since
     if as_of and ca_since:
         t["working_days_in_status"] = working_days_between(ca_since, as_of)
 
-    # Last status change date (any transition); fall back to Jira updated.
+    # Days under current status: last status transition, else created (never changed).
+    # Do not use `updated` — description/time-log edits would reset the clock.
     status_since = None
     entries = t.get("status_entries") or []
     if entries:
@@ -350,9 +361,9 @@ def enrich_ticket(raw: dict, *, as_of: date | None = None) -> dict:
             status_since = date.fromisoformat(str(entries[-1].get("at"))[:10])
         except (TypeError, ValueError):
             status_since = None
-    if status_since is None and t.get("updated"):
+    if status_since is None and t.get("created"):
         try:
-            status_since = date.fromisoformat(str(t["updated"])[:10])
+            status_since = date.fromisoformat(str(t["created"])[:10])
         except (TypeError, ValueError):
             status_since = None
     t["status_since"] = status_since
@@ -565,6 +576,7 @@ def doc_to_ticket(doc) -> dict:
         "parent_key": raw.get("parent_key"),
         "status_entries": raw.get("status_entries") or [],
         "comments": raw.get("comments") or [],
+        "created": raw.get("created"),
         "updated": raw.get("updated"),
         "url": getattr(doc, "url", None),
     }

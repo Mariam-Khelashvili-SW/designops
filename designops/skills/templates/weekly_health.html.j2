@@ -247,7 +247,7 @@
   {% endif %}
 
   <footer>
-    <b>Scope:</b> tickets with Jira component DESIGN/UX/CRO-UX <i>or</i> a design-roster assignee. Epics and time-log bucket tickets excluded; dev/QA/BA/SEO/growth excluded. <b>Logged</b> = all-time Jira aggregate rollup. <b>Days</b> = calendar days since last status change (amber ≥7, red ≥14). <b>Last/Next call</b> from Transcript calendar (client email domains × design roster + Olga). Ageing in <b>working days</b> as of {{ as_of_label }}. ⚙ = agent inference, hedged.
+    <b>Scope:</b> tickets with Jira component DESIGN/UX/CRO-UX <i>or</i> a design-roster assignee. Epics and time-log bucket tickets excluded; dev/QA/BA/SEO/growth excluded. <b>Logged</b> = all-time Jira aggregate rollup. <b>Days</b> = calendar days under the current status (last status change, or ticket created if never changed; amber ≥7, red ≥14). <b>Last/Next call</b> from Transcript calendar (client email domains × design roster + Olga). Ageing in <b>working days</b> as of {{ as_of_label }}. ⚙ = agent inference, hedged.
     {% if sample %} <b>Sample / dry-run — not sent.</b>{% endif %}
     {% if coverage.get('jira_incomplete') %} <b>⚠ Jira incomplete</b> — treat burn as partial.{% endif %}
     {% if coverage.get('invoice_incomplete') %} <b>⚠ Fairwind invoices incomplete</b> — some invoiced UX/UI tiles may be missing.{% endif %}
