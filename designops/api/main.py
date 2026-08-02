@@ -276,7 +276,7 @@ def weekly_backlog_page(request: Request, db: Session = Depends(get_db)):
         else []
     )
     s = get_settings()
-    sched_time, _ = _cron_to_fields(pipeline.schedule_cron if pipeline else "0 11 * * 1")
+    sched_time, _ = _cron_to_fields(pipeline.schedule_cron if pipeline else "0 11 * * mon")
     from designops.api.scheduler import next_run_time
 
     nrt = next_run_time(WEEKLY_KEY)
@@ -335,7 +335,7 @@ def weekly_backlog_schedule(
         h, m = (int(x) for x in sched_time.split(":")[:2])
     except (ValueError, TypeError):
         h, m = 11, 0
-    p.schedule_cron = f"{m} {h} * * 1"  # Mondays only
+    p.schedule_cron = f"{m} {h} * * mon"  # Mondays (APScheduler; bare "1" would be Tuesday)
     p.recipients = [
         r.strip() for r in recipients.replace("\n", ",").split(",") if r.strip()
     ]
@@ -360,7 +360,7 @@ def weekly_health_page(request: Request, db: Session = Depends(get_db)):
         else []
     )
     s = get_settings()
-    sched_time, _ = _cron_to_fields(pipeline.schedule_cron if pipeline else "0 11 * * 1")
+    sched_time, _ = _cron_to_fields(pipeline.schedule_cron if pipeline else "0 12 * * tue")
     from designops.api.scheduler import next_run_time
 
     nrt = next_run_time(WEEKLY_HEALTH_KEY)
@@ -800,7 +800,7 @@ def weekly_health_run(
 
 @app.post("/weekly-health/schedule")
 def weekly_health_schedule(
-    sched_time: str = Form("11:00"),
+    sched_time: str = Form("12:00"),
     recipients: str = Form(""),
     send_mode: str = Form("none"),
     enabled: str = Form("off"),
@@ -812,8 +812,8 @@ def weekly_health_schedule(
     try:
         h, m = (int(x) for x in sched_time.split(":")[:2])
     except (ValueError, TypeError):
-        h, m = 11, 0
-    p.schedule_cron = f"{m} {h} * * 1"
+        h, m = 12, 0
+    p.schedule_cron = f"{m} {h} * * tue"  # Tuesdays 12:00 default
     p.recipients = [
         r.strip() for r in recipients.replace("\n", ",").split(",") if r.strip()
     ]

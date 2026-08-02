@@ -126,7 +126,7 @@
   <div>
     <h1 style="margin:0">Weekly Project Health &amp; Budget</h1>
     <p class="sub" style="margin:4px 0 0;max-width:54ch">
-      Monday brief for Olga — design-only burn vs signed estimate, hygiene, and client-action ageing.
+      Tuesday brief for Olga — design-only burn vs signed estimate, hygiene, and client-action ageing.
     </p>
   </div>
 </div>
@@ -147,7 +147,7 @@
   <div class="track-head">
     <div>
       <h2>Tracked projects</h2>
-      <p class="sub" style="margin:0">Included in the Monday brief. Changes apply on the next generate.</p>
+      <p class="sub" style="margin:0">Included in the Tuesday brief. Changes apply on the next generate.</p>
     </div>
     <span class="track-count">{{ tracked | length }} tracked</span>
   </div>
@@ -225,7 +225,7 @@
               <input type="text" name="signed_design_estimate_h" inputmode="decimal"
                      value="{% if t.signed_design_estimate_h is not none %}{{ t.signed_design_estimate_h }}{% endif %}"
                      placeholder="e.g. 187">
-              <p class="hint">Used for burn vs budget on the Monday brief. Leave blank for n/a.</p>
+              <p class="hint">Used for burn vs budget on the Tuesday brief. Leave blank for n/a.</p>
             </div>
             <div class="field">
               <label>Subtitle</label>
@@ -279,17 +279,17 @@
   {% else %}
   <div class="proj-empty">
     <b>No projects tracked yet</b>
-    Search an account above to add the first one to the Monday brief.
+    Search an account above to add the first one to the Tuesday brief.
   </div>
   {% endif %}
 </div>
 
 <div class="card">
-  <h1 style="font-size:16px;margin-bottom:2px">Monday schedule</h1>
-  <p class="sub">Fires Mondays (Europe/Riga). Reports the week that just ended (Mon–Fri).</p>
+  <h1 style="font-size:16px;margin-bottom:2px">Tuesday schedule</h1>
+  <p class="sub">Fires Tuesdays at 12:00 by default (Europe/Riga). Reports the week that just ended (Mon–Fri).</p>
   {% if flash == 'schedule_saved' %}<div class="wh-flash ok">✓ Schedule saved{% if sched_next %} · next run {{ sched_next }}{% endif %}.</div>{% endif %}
   <form method="post" action="/weekly-health/schedule" class="row" style="align-items:flex-end;gap:14px">
-    <div><label>Time (Riga, Mondays)</label><input type="time" name="sched_time" value="{{ sched_time }}"></div>
+    <div><label>Time (Riga, Tuesdays)</label><input type="time" name="sched_time" value="{{ sched_time }}"></div>
     <div><label>Delivery</label>
       <select name="send_mode">
         <option value="none" {{ 'selected' if sched_send=='none' }}>Generate only</option>

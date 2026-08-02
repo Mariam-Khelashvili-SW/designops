@@ -48,12 +48,12 @@ def ensure_pipelines(session: Session) -> list[str]:
                     "Friday dailies + open assigned Jira (remaining hours)."
                 ),
                 skill_path="designops/skills/weekly-backlog.md",
-                schedule_cron="0 11 * * 1",
+                schedule_cron="0 11 * * mon",
                 timezone="Europe/Riga",
                 recipients=[],
                 send_mode="none",
                 enabled=False,
-                go_live=False,
+                go_live=True,
                 config={
                     "source_mode": "fairwind+jira",
                     "normal_week_hours": 40,
@@ -61,6 +61,21 @@ def ensure_pipelines(session: Session) -> list[str]:
             )
         )
         created.append("weekly-backlog")
+    else:
+        # Promote delivery gate so schedule "Email recipients" can actually send.
+        wb = session.query(Pipeline).filter_by(key="weekly-backlog").one()
+        changed = False
+        if not wb.go_live:
+            wb.go_live = True
+            changed = True
+        # Keep Monday 11:00 Riga (APScheduler: mon=Monday; bare "1" is Tuesday).
+        cron = (wb.schedule_cron or "").strip()
+        if cron in ("", "0 11 * * 1") or cron.endswith(" * * 1"):
+            wb.schedule_cron = "0 11 * * mon"
+            changed = True
+        if changed:
+            session.add(wb)
+            created.append("weekly-backlog:schedule")
 
     if session.query(Pipeline).filter_by(key="weekly-health").one_or_none() is None:
         session.add(
@@ -68,11 +83,11 @@ def ensure_pipelines(session: Session) -> list[str]:
                 key="weekly-health",
                 name="A2 — Weekly Project Health & Budget",
                 description=(
-                    "Monday design-only project health & budget burn for Olga — "
+                    "Tuesday design-only project health & budget burn for Olga — "
                     "full-history Jira by project key + Fairwind client comms."
                 ),
                 skill_path="designops/skills/weekly-health.md",
-                schedule_cron="0 11 * * 1",
+                schedule_cron="0 12 * * tue",
                 timezone="Europe/Riga",
                 recipients=[],
                 send_mode="self",
@@ -84,5 +99,21 @@ def ensure_pipelines(session: Session) -> list[str]:
             )
         )
         created.append("weekly-health")
+    else:
+        wh = session.query(Pipeline).filter_by(key="weekly-health").one()
+        changed = False
+        if not wh.go_live:
+            wh.go_live = True
+            changed = True
+        # Weekly project report: Tuesday 12:00 Riga
+        cron = (wh.schedule_cron or "").strip()
+        if cron in ("", "0 11 * * 1", "0 12 * * 1", "0 11 * * mon") or cron.endswith(
+            " * * 1"
+        ):
+            wh.schedule_cron = "0 12 * * tue"
+            changed = True
+        if changed:
+            session.add(wh)
+            created.append("weekly-health:schedule")
 
     return created
