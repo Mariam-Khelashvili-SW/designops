@@ -49,7 +49,10 @@ from designops.pipelines.weekly_availability import (
     filter_work_tickets,
     previous_friday,
     resolve_week_monday,
+    week_friday,
 )
+from designops.pipelines.leave_from_vacsick import sync_leave_from_vacsick
+
 
 _SKILL = Path(__file__).resolve().parent.parent / "skills" / "weekly-backlog.md"
 PIPELINE_KEY = "weekly-backlog"
@@ -270,7 +273,12 @@ def _build_person_rows(
 ) -> list[dict]:
     rows = []
     for p in roster_rows:
-        avail = availability_marker(p.status, p.leave_until, week_monday)
+        avail = availability_marker(
+            p.status,
+            p.leave_until,
+            week_monday,
+            leave_from=getattr(p, "leave_from", None),
+        )
         jdocs = jira_docs_by_person.get(p.id, [])
         fdocs = friday_docs_by_person.get(p.id, [])
         friday_text = _friday_plan_text(fdocs)
@@ -296,6 +304,9 @@ def _build_person_rows(
             no_plan=no_plan and avail != "OUT",
             is_dedicated=is_dedicated,
             dedicated_weekly_hours=dedicated_h,
+            week_monday=week_monday,
+            leave_from=getattr(p, "leave_from", None),
+            leave_until=getattr(p, "leave_until", None),
         )
 
         row["friday_excerpt"] = friday_text[:4000] if friday_text else ""
@@ -360,6 +371,16 @@ def _rich_flagline(person: dict, *, capacity: float, peers: list[dict]) -> dict:
     if person.get("availability") == "OUT":
         return {"kind": "", "lab": "", "text": ""}
 
+    leave_label = person.get("leave_label")
+    if person.get("availability") == "PARTIAL" and leave_label:
+        hours = person.get("leave_hours")
+        text = f"Off {leave_label} this week"
+        if hours is not None:
+            text += f" ({_fmt_plan_hours(float(hours))}h unavailable)."
+        else:
+            text += "."
+        return {"kind": "idle", "lab": "Partial leave", "text": text}
+
     planned = float(person.get("planned_hours") or 0)
     blocked = float(person.get("blocked_hours") or 0)
     band = person.get("band") or ""
@@ -405,6 +426,8 @@ def _rich_flagline(person: dict, *, capacity: float, peers: list[dict]) -> dict:
             f"Spare ~{_fmt_plan_hours(spare)}h "
             f"({_fmt_plan_hours(planned)}h of {_fmt_plan_hours(capacity)}h planned)."
         )
+        if leave_label:
+            text = f"Off {leave_label}. " + text
         if heaviest:
             text += f" Current focus: {heaviest}."
         text += " Clear place to route overflow."
@@ -808,6 +831,18 @@ def execute_run(
         coverage["friday_keys"] = len(friday_keys_all)
         coverage["account_ids_resolved"] = account_ids_resolved
         coverage["jira_incomplete"] = jira_incomplete
+
+        # VACSICK Tempo leave: ≥8h/day → Person.on_leave before board math
+        leave_cov = sync_leave_from_vacsick(
+            roster_rows,
+            week_monday=week_monday,
+            week_friday=week_friday(week_monday),
+            settings=settings,
+        )
+        coverage["vacsick_leave"] = leave_cov
+        if leave_cov.get("updated_names"):
+            session.flush()
+
         coverage["incomplete"] = bool(
             coverage.get("friday_exports_failed", 0) > 0 or jira_incomplete
         )

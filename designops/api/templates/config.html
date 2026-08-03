@@ -308,9 +308,11 @@
           <label><input type="radio" name="status" value="out"><span>Out</span></label>
         </div>
         <div class="leave-row field">
-          <label>Back on</label>
+          <label>Leave from</label>
+          <input type="date" name="leave_from">
+          <label style="margin-top:8px">Back on</label>
           <input type="date" name="leave_until">
-          <p class="hint">Shown in availability until this date.</p>
+          <p class="hint">Mid-week leave start → Partial (not Out for the whole week).</p>
         </div>
         <div class="toggle-list" style="margin-top:12px">
           <label class="toggle">
@@ -361,7 +363,7 @@
             <span class="mono">{{ email0 or 'no email' }}</span>
             {% if p.emails | length > 1 %}<span class="dot">·</span><span>+{{ p.emails | length - 1 }} more</span>{% endif %}
             {% if p.leave_until and p.status == 'on_leave' %}
-              <span class="dot">·</span><span>back {{ p.leave_until.strftime('%d %b %Y') }}</span>
+              <span class="dot">·</span><span>{% if p.leave_from %}{{ p.leave_from.strftime('%d %b') }}–{% endif %}back {{ p.leave_until.strftime('%d %b %Y') }}</span>
             {% endif %}
             {% if p.is_dedicated %}
               <span class="dot">·</span>
@@ -415,9 +417,11 @@
                 <label><input type="radio" name="status" value="out"{% if p.status=='out' %} checked{% endif %}><span>Out</span></label>
               </div>
               <div class="leave-row field{% if p.status=='on_leave' %} show{% endif %}">
-                <label>Back on</label>
+                <label>Leave from</label>
+                <input type="date" name="leave_from" value="{{ p.leave_from.isoformat() if p.leave_from else '' }}">
+                <label style="margin-top:8px">Back on</label>
                 <input type="date" name="leave_until" value="{{ p.leave_until.isoformat() if p.leave_until else '' }}">
-                <p class="hint">Shown in availability until this date.</p>
+                <p class="hint">Mid-week leave start → Partial (not Out for the whole week).</p>
               </div>
               <div class="toggle-list" style="margin-top:12px">
                 <label class="toggle">

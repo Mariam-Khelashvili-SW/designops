@@ -78,6 +78,7 @@ _STATUS_CANON: dict[str, str] = {
 
 HARDWARE_PROJECT_PREFIX = "IMR"
 HARDWARE_ISSUE_TYPES: frozenset[str] = frozenset({"in use"})
+EPIC_ISSUE_TYPES: frozenset[str] = frozenset({"epic"})
 
 _TICKET_KEY_RE = re.compile(r"\b([A-Z]{2,}\d?-\d+)\b")
 _RANGE_RE = re.compile(
@@ -90,6 +91,55 @@ SPARE_THRESHOLD = 30.0  # planned_hours < 30 → SPARE (§8)
 
 def week_friday(week_monday: date) -> date:
     return week_monday + timedelta(days=4)
+
+
+LEAVE_HOURS_PER_DAY = 8.0
+
+
+def leave_overlap_in_week(
+    *,
+    week_monday: date,
+    leave_from: date | None,
+    leave_until: date | None,
+    hours_per_day: float = LEAVE_HOURS_PER_DAY,
+) -> dict | None:
+    """Working days (Mon–Fri) of leave inside the planned week.
+
+    Returns leave_days, leave_hours (8h/day), leave_range label (e.g. Wed–Fri),
+    or None when there is no overlap.
+    """
+    fri = week_friday(week_monday)
+    if leave_from is None and leave_until is None:
+        return None
+    start = leave_from or week_monday
+    end = leave_until or fri
+    start = max(start, week_monday)
+    end = min(end, fri)
+    if end < start:
+        return None
+    days: list[date] = []
+    d = start
+    while d <= end:
+        if d.weekday() < 5:
+            days.append(d)
+        d += timedelta(days=1)
+    if not days:
+        return None
+    n = len(days)
+    hours = round(n * hours_per_day, 1)
+    if n == 1:
+        leave_range = days[0].strftime("%a %d %b").replace(" 0", " ")
+    else:
+        leave_range = f"{days[0].strftime('%a')}–{days[-1].strftime('%a')}"
+    hrs_label = f"{int(hours)}h" if hours == int(hours) else f"{hours:g}h"
+    return {
+        "leave_from": days[0],
+        "leave_until": days[-1],
+        "leave_days": n,
+        "leave_hours": hours,
+        "leave_range": leave_range,
+        "leave_label": f"{leave_range} · {hrs_label} off",
+    }
 
 
 def previous_friday(week_monday: date) -> date:
@@ -117,16 +167,26 @@ def availability_marker(
     status: str,
     leave_until: date | None,
     week_monday: date,
+    leave_from: date | None = None,
 ) -> str:
-    """AVAILABLE | PARTIAL | OUT for the week starting `week_monday`."""
+    """AVAILABLE | PARTIAL | OUT for the week starting `week_monday`.
+
+    Whole-week OUT only when leave covers Mon–Fri. Mid-week start and/or
+    mid-week return → PARTIAL. ``leave_from`` None means leave started on or
+    before the week (Config UI without a start date).
+    """
     fri = week_friday(week_monday)
     eff = effective_status(status, leave_until, week_monday)
     if status == PersonStatus.OUT or eff == PersonStatus.OUT:
         return "OUT"
     if eff == PersonStatus.ON_LEAVE:
-        if leave_until and week_monday <= leave_until < fri:
-            return "PARTIAL"
-        return "OUT"
+        if leave_from and leave_from > fri:
+            return "AVAILABLE"
+        covers_from_start = leave_from is None or leave_from <= week_monday
+        covers_through_end = leave_until is None or leave_until >= fri
+        if covers_from_start and covers_through_end:
+            return "OUT"
+        return "PARTIAL"
     return "AVAILABLE"
 
 
@@ -174,13 +234,19 @@ def is_hardware_ticket(ticket: dict) -> bool:
     return itype in HARDWARE_ISSUE_TYPES
 
 
+def is_epic_ticket(ticket: dict) -> bool:
+    """Epics are containers — never weekly load / board rows."""
+    itype = (ticket.get("issue_type") or "").strip().lower()
+    return itype in EPIC_ISSUE_TYPES
+
+
 def is_timelog_ticket(ticket: dict) -> bool:
     itype = (ticket.get("issue_type") or "").strip()
     return itype in TIME_LOG_BUCKET_TYPES
 
 
 def is_excluded_ticket(ticket: dict) -> bool:
-    return is_hardware_ticket(ticket) or is_timelog_ticket(ticket)
+    return is_hardware_ticket(ticket) or is_timelog_ticket(ticket) or is_epic_ticket(ticket)
 
 
 def normalize_status(status: str | None) -> str:
@@ -420,19 +486,44 @@ def partition_person_tickets(tickets: list[dict]) -> tuple[list[dict], list[dict
     return detail, other
 
 
-def summarize_other_tickets(tickets: list[dict]) -> dict | None:
-    """One-line rollup for non-detail assigned tickets (est + log summed)."""
+def summarize_other_tickets(
+    tickets: list[dict],
+    *,
+    jira_base_url: str | None = None,
+) -> dict | None:
+    """One-line rollup for non-detail assigned tickets (est + log summed).
+
+    Includes a Jira navigator link (`key in (...)`) so Olga can open/close them.
+    """
     if not tickets:
         return None
+    from urllib.parse import quote
+
+    from designops.core.config import get_settings
+
     sum_est = sum(float(t.get("original_hours") or 0) for t in tickets)
     sum_log = sum(float(t.get("spent_hours") or 0) for t in tickets)
     sum_left = sum(ticket_left_hours(t) for t in tickets)
+    keys = sorted(
+        {
+            str(t.get("key") or "").strip().upper()
+            for t in tickets
+            if t.get("key")
+        }
+    )
+    base = (jira_base_url or get_settings().jira_base_url or "").rstrip("/")
+    jira_url = None
+    if base and keys:
+        jql = f"key in ({', '.join(keys)}) ORDER BY updated DESC"
+        jira_url = f"{base}/issues/?jql={quote(jql)}"
     return {
         "label": "Other assigned",
         "count": len(tickets),
         "est_hours": round(sum_est, 2),
         "log_hours": round(sum_log, 2),
         "left_hours": round(sum_left, 2),
+        "keys": keys,
+        "jira_url": jira_url,
     }
 
 
@@ -536,6 +627,9 @@ def build_person_board_row(
     no_plan: bool = False,
     is_dedicated: bool = False,
     dedicated_weekly_hours: float | None = None,
+    week_monday: date | None = None,
+    leave_from: date | None = None,
+    leave_until: date | None = None,
 ) -> dict:
     """Assemble one person card + board row for the planning board."""
     work = filter_work_tickets(tickets)
@@ -559,14 +653,42 @@ def build_person_board_row(
     if availability == "OUT":
         flagline = {"kind": "", "lab": "", "text": ""}
 
+    leave_info = None
+    if week_monday is not None and availability in ("PARTIAL", "OUT"):
+        leave_info = leave_overlap_in_week(
+            week_monday=week_monday,
+            leave_from=leave_from,
+            leave_until=leave_until,
+        )
+
     avail_chip = "ok"
     avail_label = "Avail"
     if availability == "PARTIAL":
         avail_chip = "ok"
-        avail_label = "Partial"
+        if leave_info:
+            avail_label = f"Partial · {leave_info['leave_days']}d off"
+            band_info = {
+                **band_info,
+                "flag": f"Off {leave_info['leave_label']}",
+            }
+            flagline = {
+                "kind": "idle",
+                "lab": "Partial leave",
+                "text": (
+                    f"Off {leave_info['leave_label']} this week "
+                    f"({leave_info['leave_hours']:g}h unavailable)."
+                ),
+            }
+        else:
+            avail_label = "Partial"
     elif availability == "OUT":
         avail_chip = "out"
         avail_label = "Out"
+        if leave_info:
+            band_info = {
+                **band_info,
+                "flag": f"Out · {leave_info['leave_days']}d ({leave_info['leave_hours']:g}h)",
+            }
 
     return {
         "name": name,
@@ -578,6 +700,16 @@ def build_person_board_row(
         "normal_hours": capacity,
         "is_dedicated": bool(is_dedicated and dedicated_h > 0),
         "dedicated_weekly_hours": dedicated_h if dedicated_h > 0 else None,
+        "leave_from": leave_info["leave_from"].isoformat() if leave_info else (
+            leave_from.isoformat() if leave_from else None
+        ),
+        "leave_until": leave_info["leave_until"].isoformat() if leave_info else (
+            leave_until.isoformat() if leave_until else None
+        ),
+        "leave_days": leave_info["leave_days"] if leave_info else None,
+        "leave_hours": leave_info["leave_hours"] if leave_info else None,
+        "leave_range": leave_info["leave_range"] if leave_info else None,
+        "leave_label": leave_info["leave_label"] if leave_info else None,
         "unverified": False,
         "no_plan": no_plan,
         "friday_keys": friday_keys or [],

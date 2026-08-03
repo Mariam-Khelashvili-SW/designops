@@ -1140,6 +1140,7 @@ def _apply_person_form(
     jira_account_id: str,
     role: str,
     status: str,
+    leave_from: str,
     leave_until: str,
     is_dedicated: str,
     dedicated_weekly_hours: str,
@@ -1159,6 +1160,7 @@ def _apply_person_form(
     person.jira_account_id = (jira_account_id or "").strip() or None
     person.role = (role or "").strip() or None
     person.status = st
+    person.leave_from = _parse_optional_date(leave_from)
     person.leave_until = _parse_optional_date(leave_until)
     person.is_dedicated = is_dedicated == "on"
     try:
@@ -1266,6 +1268,7 @@ def config_people_create(
     jira_account_id: str = Form(""),
     role: str = Form(""),
     status: str = Form("active"),
+    leave_from: str = Form(""),
     leave_until: str = Form(""),
     is_dedicated: str = Form("off"),
     dedicated_weekly_hours: str = Form(""),
@@ -1288,6 +1291,7 @@ def config_people_create(
         jira_account_id=jira_account_id,
         role=role,
         status=status,
+        leave_from=leave_from,
         leave_until=leave_until,
         is_dedicated=is_dedicated,
         dedicated_weekly_hours=dedicated_weekly_hours,
@@ -1309,6 +1313,7 @@ def config_people_update(
     jira_account_id: str = Form(""),
     role: str = Form(""),
     status: str = Form("active"),
+    leave_from: str = Form(""),
     leave_until: str = Form(""),
     is_dedicated: str = Form("off"),
     dedicated_weekly_hours: str = Form(""),
@@ -1324,6 +1329,7 @@ def config_people_update(
         jira_account_id=jira_account_id,
         role=role,
         status=status,
+        leave_from=leave_from,
         leave_until=leave_until,
         is_dedicated=is_dedicated,
         dedicated_weekly_hours=dedicated_weekly_hours,

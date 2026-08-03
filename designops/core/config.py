@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     jira_api_token: str = Field(default="", alias="JIRA_API_TOKEN")
     normal_week_hours: float = Field(default=40.0, alias="NORMAL_WEEK_HOURS")
 
+    # Tempo Cloud (VACSICK leave detection — Bearer token)
+    tempo_api_token: str = Field(default="", alias="TEMPO_API_TOKEN")
+    tempo_api_base: str = Field(default="https://api.tempo.io/4", alias="TEMPO_API_BASE")
+
     # Pipeline behaviour
     timezone: str = Field(default="Europe/Riga", alias="TIMEZONE")
     min_coverage: float = Field(default=0.6, alias="MIN_COVERAGE")
@@ -148,6 +152,10 @@ class Settings(BaseSettings):
     @property
     def jira_configured(self) -> bool:
         return bool(self.jira_base_url and self.jira_email and self.jira_api_token)
+
+    @property
+    def tempo_configured(self) -> bool:
+        return bool(self.tempo_api_token)
 
     @property
     def smtp_configured(self) -> bool:

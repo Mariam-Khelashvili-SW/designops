@@ -42,6 +42,37 @@ def test_week_date_helpers():
     assert resolve_week_monday(date(2026, 7, 22)) == date(2026, 7, 20)  # Wed → that week
 
 
+def test_leave_overlap_partial_days():
+    from designops.pipelines.weekly_availability import leave_overlap_in_week
+
+    mon = date(2026, 8, 3)
+    info = leave_overlap_in_week(
+        week_monday=mon,
+        leave_from=date(2026, 8, 5),
+        leave_until=date(2026, 8, 7),
+    )
+    assert info is not None
+    assert info["leave_days"] == 3
+    assert info["leave_hours"] == 24.0
+    assert "Wed" in info["leave_range"] and "Fri" in info["leave_range"]
+
+    row = build_person_board_row(
+        name="Dorota Umiastowska",
+        availability="PARTIAL",
+        tickets=[],
+        capacity=40,
+        has_friday_plan=False,
+        week_monday=mon,
+        leave_from=date(2026, 8, 5),
+        leave_until=date(2026, 8, 7),
+    )
+    assert row["leave_days"] == 3
+    assert row["leave_hours"] == 24.0
+    assert "3d off" in row["avail_label"]
+    assert "24h" in row["flag"]
+    assert row["flagline"]["lab"] == "Partial leave"
+
+
 def test_availability_out_and_leave():
     mon = date(2026, 7, 27)
     assert availability_marker("out", None, mon) == "OUT"
@@ -50,6 +81,26 @@ def test_availability_out_and_leave():
     assert availability_marker("on_leave", date(2026, 8, 7), mon) == "OUT"
     assert availability_marker("active", None, mon) == "AVAILABLE"
     assert availability_marker("on_leave", date(2026, 7, 20), mon) == "AVAILABLE"
+    # Mid-week start (Wed–Fri) must be PARTIAL, not full-week OUT
+    assert (
+        availability_marker(
+            "on_leave",
+            date(2026, 7, 31),
+            mon,
+            leave_from=date(2026, 7, 29),
+        )
+        == "PARTIAL"
+    )
+    # Whole week Mon–Fri → OUT
+    assert (
+        availability_marker(
+            "on_leave",
+            date(2026, 7, 31),
+            mon,
+            leave_from=date(2026, 7, 27),
+        )
+        == "OUT"
+    )
 
 
 def test_load_flags():
@@ -145,14 +196,17 @@ def test_planned_excludes_blocked_and_hardware():
         {"key": "A-2", "status": "ON HOLD", "remaining_hours": 36, "project_key": "DES", "issue_type": "Task"},
         {"key": "A-3", "status": "Client Action", "remaining_hours": 8, "project_key": "DES", "issue_type": "Task"},
         {"key": "A-4", "status": "Backlog", "remaining_hours": 20, "project_key": "DES", "issue_type": "Task"},
+        {"key": "SEEUX-25", "status": "To Do", "remaining_hours": 40, "project_key": "SEEUX", "issue_type": "Epic"},
         {"key": "IMR-9", "status": "In Progress", "remaining_hours": 99, "project_key": "IMR", "issue_type": "In Use"},
     ]
-    assert is_hardware_ticket(tickets[4])
-    from designops.pipelines.weekly_availability import filter_work_tickets
+    assert is_hardware_ticket(tickets[5])
+    from designops.pipelines.weekly_availability import filter_work_tickets, is_epic_ticket
 
+    assert is_epic_ticket(tickets[4])
     work = filter_work_tickets(tickets)
+    assert all(t["key"] != "SEEUX-25" for t in work)
     planned, blocked = planned_and_blocked(work)
-    # Only In Progress / To Do count; Client Action + Backlog do not
+    # Only In Progress / To Do count; Client Action + Backlog do not; Epic dropped
     assert planned == 10
     assert blocked == 36
     planned_ded, _ = planned_and_blocked(work, dedicated_weekly_hours=20)
@@ -168,7 +222,7 @@ def test_group_tickets_blocked_last():
     groups = group_tickets_by_status(tickets)
     labels = [g["status"] for g in groups]
     assert labels[0] == "In Progress"
-    assert labels[-1] == "On Hold"
+    assert labels[-1] == "Blocked"
     assert groups[-1]["blocked"] is True
 
 
@@ -237,6 +291,10 @@ def test_build_person_and_kpis():
     assert row["other_summary"]["count"] == 2  # ON HOLD + Backlog
     assert row["other_summary"]["est_hours"] == 22
     assert row["other_summary"]["log_hours"] == 2
+    assert set(row["other_summary"]["keys"]) == {"X-2", "X-4"}
+    assert row["other_summary"]["jira_url"]
+    assert "key%20in" in row["other_summary"]["jira_url"] or "key in" in row["other_summary"]["jira_url"]
+    assert "X-2" in row["other_summary"]["jira_url"]
 
     no_friday = build_person_board_row(
         name="Tamari Giunashvili",
@@ -597,6 +655,7 @@ def test_render_planning_board_html():
     assert "SID-292" in html
     assert "SID-300" in html  # Client Action listed in detail
     assert "Other assigned" in html
+    assert "Open in Jira" in html
     assert "Dedicated" in html
     assert "Where to rebalance" in html
     assert "Overloaded" in html

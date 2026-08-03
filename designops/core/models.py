@@ -59,6 +59,8 @@ class Person(Base):
     role: Mapped[str | None] = mapped_column(String, nullable=True)
     # status ∈ {active, on_leave, out} — single source for §2.7 (Agnese) too
     status: Mapped[str] = mapped_column(String, default="active", nullable=False)
+    # inclusive first/last day of leave; mid-week start → PARTIAL on weekly board
+    leave_from: Mapped[date | None] = mapped_column(Date, nullable=True)
     # inclusive last day of leave; on report_dates after it the person is active again
     leave_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     squad: Mapped[str | None] = mapped_column(String, nullable=True)

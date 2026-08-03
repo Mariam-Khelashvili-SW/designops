@@ -437,7 +437,9 @@ class JiraClient:
         if not ids:
             return []
         id_list = ", ".join(f'"{i}"' for i in ids)
-        type_exclusions = ", ".join(f'"{t}"' for t in sorted(TIME_LOG_BUCKET_TYPES))
+        type_exclusions = ", ".join(
+            f'"{t}"' for t in sorted(TIME_LOG_BUCKET_TYPES | {"Epic"})
+        )
         jql = (
             f"assignee in ({id_list}) "
             f"AND statusCategory != Done "
