@@ -86,4 +86,7 @@
   <p class="sub">No weekly runs yet.</p>
   {% endif %}
 </div>
+{% if recent and (recent | selectattr('status', 'equalto', 'running') | list) %}
+<script>setTimeout(function () { location.reload(); }, 4000);</script>
+{% endif %}
 {% endblock %}

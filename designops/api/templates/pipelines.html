@@ -48,4 +48,7 @@
   {% endif %}
 </div>
 {% endfor %}
+{% if pipelines | selectattr('last') | map(attribute='last') | selectattr('status', 'equalto', 'running') | list %}
+<script>setTimeout(function () { location.reload(); }, 4000);</script>
+{% endif %}
 {% endblock %}

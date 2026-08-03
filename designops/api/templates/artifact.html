@@ -13,8 +13,9 @@
 
 {% if run.status == 'running' %}
 <div class="banner" style="background:#e8f0fb;border:1px solid #ccd0ec;color:#1d5fb0">
-  <span class="spin"></span><b>Generating…</b> pulling the day's exports and composing the digest.
-  This page refreshes itself — you can leave and come back.
+  <span class="spin"></span><b>Generating / sending…</b>
+  {% if run.note and run.note.startswith('scheduled') %}Scheduled run in progress.{% else %}Manual run in progress.{% endif %}
+  This page refreshes itself — you can leave and come back to Runs.
 </div>
 <script>setTimeout(function(){ location.reload(); }, 3000);</script>
 {% endif %}

@@ -343,6 +343,10 @@
   {% endif %}
 </div>
 
+{% if recent and (recent | selectattr('status', 'equalto', 'running') | list) %}
+<script>setTimeout(function () { location.reload(); }, 4000);</script>
+{% endif %}
+
 <script>
 (function () {
   var ACCOUNTS = {{ accounts_json | tojson }};

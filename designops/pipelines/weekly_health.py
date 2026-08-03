@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
 
@@ -63,6 +65,32 @@ from designops.pipelines.weekly_health_meetings import (
 
 _SKILL = Path(__file__).resolve().parent.parent / "skills" / "weekly-health.md"
 PIPELINE_KEY = "weekly-health"
+_FAIRWIND_PREFETCH_CONCURRENCY = 3
+
+_EMPTY_COMMERCIAL_META = {
+    "subtitle": "",
+    "agreement": {},
+    "signed_design_estimate_h": None,
+    "source": None,
+}
+_UNAVAILABLE_INVOICE = {
+    "invoiced_label": "n/a",
+    "invoiced_muted": True,
+    "invoiced_sub": "Fairwind unavailable",
+    "invoice_notes": None,
+    "ux_invoice_lines": [],
+    "ux_invoiced_total": 0.0,
+    "_invoice_gap": True,
+}
+_NO_ACCOUNT_INVOICE = {
+    "invoiced_label": "n/a",
+    "invoiced_muted": True,
+    "invoiced_sub": "no Fairwind account linked",
+    "invoice_notes": None,
+    "ux_invoice_lines": [],
+    "ux_invoiced_total": 0.0,
+    "_invoice_gap": False,
+}
 
 
 def _now() -> datetime:
@@ -276,44 +304,28 @@ def _synthesize(
     }
 
 
-def _commercial_for_project(
-    proj: Project,
+def _project_fairwind_snapshot(proj: Project | SimpleNamespace) -> SimpleNamespace:
+    return SimpleNamespace(
+        canonical_name=proj.canonical_name,
+        fairwind_account_id=(proj.fairwind_account_id or "").strip(),
+        jira_project_key=proj.jira_project_key,
+    )
+
+
+def _fetch_commercial_bundle(
+    proj: SimpleNamespace,
     *,
     fw_client: FairwindClient | None,
     as_of: date,
-    coverage: dict,
-    reuse: bool = True,
-) -> tuple[dict, dict]:
-    """Fairwind invoices + agreement/opportunity meta (live or cached)."""
-    empty_meta = {
-        "subtitle": "",
-        "agreement": {},
-        "signed_design_estimate_h": None,
-        "source": None,
-    }
-    unavailable_invoice = {
-        "invoiced_label": "n/a",
-        "invoiced_muted": True,
-        "invoiced_sub": "Fairwind unavailable",
-        "invoice_notes": None,
-        "ux_invoice_lines": [],
-        "ux_invoiced_total": 0.0,
-        "_invoice_gap": True,
-    }
-    no_account_invoice = {
-        "invoiced_label": "n/a",
-        "invoiced_muted": True,
-        "invoiced_sub": "no Fairwind account linked",
-        "invoice_notes": None,
-        "ux_invoice_lines": [],
-        "ux_invoiced_total": 0.0,
-        "_invoice_gap": False,
-    }
+    reuse: bool,
+) -> tuple[dict, dict, dict]:
+    """Return (invoice_fields, live_meta, coverage_snippet). Thread-safe (no shared mutables)."""
+    empty_meta = dict(_EMPTY_COMMERCIAL_META)
     account_id = (proj.fairwind_account_id or "").strip()
     if not account_id:
-        return no_account_invoice, empty_meta
+        return dict(_NO_ACCOUNT_INVOICE), empty_meta, {}
     if not fw_client:
-        return unavailable_invoice, empty_meta
+        return dict(_UNAVAILABLE_INVOICE), empty_meta, {}
     t0 = time.perf_counter()
     try:
         commercial, source = fetch_salesforce_commercial(
@@ -326,37 +338,250 @@ def _commercial_for_project(
             commercial.get("opportunities") or [],
             jira_key=proj.jira_project_key,
         )
-        coverage.setdefault("invoices_by_project", {})[proj.canonical_name] = {
-            "account_id": account_id,
-            "invoice_count": len(invoices),
-            "ux_invoice_lines": len(summary.get("ux_invoice_lines") or []),
-            "ux_invoiced_total": summary.get("ux_invoiced_total"),
-            "agreements": len(commercial.get("agreements") or []),
-            "opportunities": len(commercial.get("opportunities") or []),
-            "subtitle": meta.get("subtitle"),
-            "signed_design_estimate_h": meta.get("signed_design_estimate_h"),
-            "source": source,
-            "seconds": round(time.perf_counter() - t0, 2),
+        snippet = {
+            "invoices_by_project": {
+                proj.canonical_name: {
+                    "account_id": account_id,
+                    "invoice_count": len(invoices),
+                    "ux_invoice_lines": len(summary.get("ux_invoice_lines") or []),
+                    "ux_invoiced_total": summary.get("ux_invoiced_total"),
+                    "agreements": len(commercial.get("agreements") or []),
+                    "opportunities": len(commercial.get("opportunities") or []),
+                    "subtitle": meta.get("subtitle"),
+                    "signed_design_estimate_h": meta.get("signed_design_estimate_h"),
+                    "source": source,
+                    "seconds": round(time.perf_counter() - t0, 2),
+                }
+            }
         }
         summary["_invoice_gap"] = False
-        return summary, meta
+        return summary, meta, snippet
     except Exception as e:  # noqa: BLE001 — one account gap, not a failed run
-        coverage.setdefault("invoice_failures", []).append(
+        return (
             {
-                "project": proj.canonical_name,
-                "error": str(e),
-                "seconds": round(time.perf_counter() - t0, 2),
-            }
+                "invoiced_label": "n/a",
+                "invoiced_muted": True,
+                "invoiced_sub": "Fairwind invoice pull failed",
+                "invoice_notes": None,
+                "ux_invoice_lines": [],
+                "ux_invoiced_total": 0.0,
+                "_invoice_gap": True,
+            },
+            empty_meta,
+            {
+                "invoice_failures": [
+                    {
+                        "project": proj.canonical_name,
+                        "error": str(e),
+                        "seconds": round(time.perf_counter() - t0, 2),
+                    }
+                ]
+            },
         )
-        return {
-            "invoiced_label": "n/a",
-            "invoiced_muted": True,
-            "invoiced_sub": "Fairwind invoice pull failed",
-            "invoice_notes": None,
-            "ux_invoice_lines": [],
-            "ux_invoiced_total": 0.0,
-            "_invoice_gap": True,
-        }, empty_meta
+
+
+def _fetch_comms_bundle(
+    proj: SimpleNamespace,
+    *,
+    fw_client: FairwindClient | None,
+    date_from: date,
+    date_to: date,
+    reuse: bool,
+) -> tuple[str, dict]:
+    """Return (comms_excerpt, coverage_snippet). Thread-safe."""
+    account_id = (proj.fairwind_account_id or "").strip()
+    if not account_id:
+        return "(none — no Fairwind account linked)", {}
+    if not fw_client:
+        return "(none — Fairwind unavailable)", {}
+    t0 = time.perf_counter()
+    try:
+        docs, source = fetch_week_client_comms(
+            fw_client,
+            account_id,
+            week_monday=date_from,
+            report_friday=date_to,
+            reuse=reuse,
+        )
+        return format_comms_excerpt(docs), {
+            "comms_by_project": {
+                proj.canonical_name: {
+                    "account_id": account_id,
+                    "docs": len(docs),
+                    "source": source,
+                    "seconds": round(time.perf_counter() - t0, 2),
+                }
+            }
+        }
+    except Exception as e:  # noqa: BLE001
+        return f"(none — Fairwind comms pull failed: {e})", {
+            "comms_failures": [
+                {
+                    "project": proj.canonical_name,
+                    "error": str(e),
+                    "seconds": round(time.perf_counter() - t0, 2),
+                }
+            ]
+        }
+
+
+def _merge_coverage(coverage: dict, snippet: dict) -> None:
+    for key, value in snippet.items():
+        if isinstance(value, dict):
+            coverage.setdefault(key, {}).update(value)
+        elif isinstance(value, list):
+            coverage.setdefault(key, []).extend(value)
+        else:
+            coverage[key] = value
+
+
+def _prefetch_fairwind_for_projects(
+    projects: list,
+    *,
+    fw_client: FairwindClient | None,
+    as_of: date,
+    comms_from: date,
+    coverage: dict,
+    reuse: bool,
+    concurrency: int = _FAIRWIND_PREFETCH_CONCURRENCY,
+) -> dict[str, dict]:
+    """Fan out commercial + week-comms per account (bounded concurrency).
+
+    Mirrors FairwindClient.prepare_corpus concurrency. Returns
+    {canonical_name: {invoice_fields, live_meta, comms}}.
+    """
+    snapshots = [_project_fairwind_snapshot(p) for p in projects]
+    results: dict[str, dict] = {}
+    if not snapshots:
+        return results
+
+    def _one(proj: SimpleNamespace) -> tuple[str, dict, list[dict]]:
+        invoice_fields, live_meta, inv_snip = _fetch_commercial_bundle(
+            proj, fw_client=fw_client, as_of=as_of, reuse=reuse
+        )
+        comms, comms_snip = _fetch_comms_bundle(
+            proj,
+            fw_client=fw_client,
+            date_from=comms_from,
+            date_to=as_of,
+            reuse=reuse,
+        )
+        return (
+            proj.canonical_name,
+            {
+                "invoice_fields": invoice_fields,
+                "live_meta": live_meta,
+                "comms": comms,
+            },
+            [inv_snip, comms_snip],
+        )
+
+    workers = max(1, min(concurrency, len(snapshots)))
+    t0 = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [pool.submit(_one, snap) for snap in snapshots]
+        for fut in as_completed(futs):
+            name, payload, snippets = fut.result()
+            results[name] = payload
+            for snip in snippets:
+                _merge_coverage(coverage, snip)
+    coverage["fairwind_prefetch_seconds"] = round(time.perf_counter() - t0, 2)
+    coverage["fairwind_prefetch_concurrency"] = workers
+    coverage["fairwind_prefetch_projects"] = len(snapshots)
+    return results
+
+
+def prewarm_fairwind_caches(
+    *,
+    reuse: bool = True,
+    concurrency: int = _FAIRWIND_PREFETCH_CONCURRENCY,
+) -> dict:
+    """Warm same-day commercial + week-comms disk caches (no run, no email).
+
+    Intended for the scheduler ~30 minutes before the weekly-health send so the
+    scheduled generate hits fairwind-cached instead of cold-polling Fairwind.
+    """
+    from designops.core.db import session_scope
+
+    as_of = date.today()
+    comms_from = as_of - timedelta(days=6)
+    settings = get_settings()
+    coverage: dict = {
+        "as_of": as_of.isoformat(),
+        "comms_from": comms_from.isoformat(),
+        "prewarm": True,
+        "reuse_ingest": reuse,
+    }
+    print(
+        f"  ▶ weekly-health Fairwind pre-warm as_of={as_of} "
+        f"comms_from={comms_from} reuse={reuse}",
+        flush=True,
+    )
+    if not settings.fairwind_configured:
+        coverage["ok"] = False
+        coverage["fairwind_note"] = "FW_* not configured"
+        print("  ⚠ weekly-health pre-warm skipped — Fairwind not configured", flush=True)
+        return coverage
+
+    try:
+        fw_client = FairwindClient(settings)
+    except FairwindError as e:
+        coverage["ok"] = False
+        coverage["fairwind_note"] = str(e)
+        print(f"  ⚠ weekly-health pre-warm skipped — {e}", flush=True)
+        return coverage
+
+    with session_scope() as s:
+        projects = (
+            s.query(Project)
+            .filter_by(track_weekly_health=True, active=True)
+            .order_by(Project.canonical_name)
+            .all()
+        )
+        snapshots = [_project_fairwind_snapshot(p) for p in projects]
+
+    _prefetch_fairwind_for_projects(
+        snapshots,
+        fw_client=fw_client,
+        as_of=as_of,
+        comms_from=comms_from,
+        coverage=coverage,
+        reuse=reuse,
+        concurrency=concurrency,
+    )
+    sources = [
+        (coverage.get("invoices_by_project") or {}).get(name, {}).get("source")
+        for name in (p.canonical_name for p in snapshots)
+    ]
+    coverage["ok"] = True
+    coverage["commercial_cached"] = sum(1 for s in sources if s == "fairwind-cached")
+    coverage["commercial_live"] = sum(1 for s in sources if s == "fairwind")
+    print(
+        f"  ✓ weekly-health pre-warm done projects={len(snapshots)} "
+        f"live={coverage['commercial_live']} cached={coverage['commercial_cached']} "
+        f"seconds={coverage.get('fairwind_prefetch_seconds')}",
+        flush=True,
+    )
+    return coverage
+
+
+def _commercial_for_project(
+    proj: Project,
+    *,
+    fw_client: FairwindClient | None,
+    as_of: date,
+    coverage: dict,
+    reuse: bool = True,
+) -> tuple[dict, dict]:
+    """Fairwind invoices + agreement/opportunity meta (live or cached)."""
+    invoice_fields, meta, snippet = _fetch_commercial_bundle(
+        _project_fairwind_snapshot(proj),
+        fw_client=fw_client,
+        as_of=as_of,
+        reuse=reuse,
+    )
+    _merge_coverage(coverage, snippet)
+    return invoice_fields, meta
 
 
 def _comms_for_project(
@@ -369,36 +594,15 @@ def _comms_for_project(
     reuse: bool = True,
 ) -> str:
     """Fairwind external emails + transcripts for the trailing week (live or cached)."""
-    account_id = (proj.fairwind_account_id or "").strip()
-    if not account_id:
-        return "(none — no Fairwind account linked)"
-    if not fw_client:
-        return "(none — Fairwind unavailable)"
-    t0 = time.perf_counter()
-    try:
-        docs, source = fetch_week_client_comms(
-            fw_client,
-            account_id,
-            week_monday=date_from,
-            report_friday=date_to,
-            reuse=reuse,
-        )
-        coverage.setdefault("comms_by_project", {})[proj.canonical_name] = {
-            "account_id": account_id,
-            "docs": len(docs),
-            "source": source,
-            "seconds": round(time.perf_counter() - t0, 2),
-        }
-        return format_comms_excerpt(docs)
-    except Exception as e:  # noqa: BLE001
-        coverage.setdefault("comms_failures", []).append(
-            {
-                "project": proj.canonical_name,
-                "error": str(e),
-                "seconds": round(time.perf_counter() - t0, 2),
-            }
-        )
-        return f"(none — Fairwind comms pull failed: {e})"
+    text, snippet = _fetch_comms_bundle(
+        _project_fairwind_snapshot(proj),
+        fw_client=fw_client,
+        date_from=date_from,
+        date_to=date_to,
+        reuse=reuse,
+    )
+    _merge_coverage(coverage, snippet)
+    return text
 
 
 def _call_dates_for_project(
@@ -535,15 +739,24 @@ def execute_run(
         else:
             coverage["fairwind_note"] = "FW_* not configured"
 
+        prefetched = _prefetch_fairwind_for_projects(
+            health_projects,
+            fw_client=fw_client,
+            as_of=as_of,
+            comms_from=comms_from,
+            coverage=coverage,
+            reuse=reuse_ingest,
+        )
+
         for proj in health_projects:
             key = (proj.jira_project_key or "").strip().upper()
-            invoice_fields, live_meta = _commercial_for_project(
-                proj,
-                fw_client=fw_client,
-                as_of=as_of,
-                coverage=coverage,
-                reuse=reuse_ingest,
-            )
+            fw = prefetched.get(proj.canonical_name) or {
+                "invoice_fields": dict(_UNAVAILABLE_INVOICE),
+                "live_meta": dict(_EMPTY_COMMERCIAL_META),
+                "comms": "(none — Fairwind unavailable)",
+            }
+            invoice_fields = dict(fw["invoice_fields"])
+            live_meta = fw["live_meta"]
             # Subtitle/agreement facts come live from Fairwind. Signed hours: DB is
             # the source of truth (confirmed SOW hours); Fairwind only as fallback.
             agreement = dict(live_meta.get("agreement") or {})
@@ -555,14 +768,7 @@ def execute_run(
             )
             if invoice_fields.pop("_invoice_gap", False):
                 invoice_incomplete = True
-            comms_by_project[proj.canonical_name] = _comms_for_project(
-                proj,
-                fw_client=fw_client,
-                date_from=comms_from,
-                date_to=as_of,
-                coverage=coverage,
-                reuse=reuse_ingest,
-            )
+            comms_by_project[proj.canonical_name] = fw["comms"]
             call_fields = _call_dates_for_project(
                 proj,
                 session=session,
