@@ -1,8 +1,9 @@
 """FastAPI read UI (§0, §12.3). Server-rendered Jinja, no SPA, no build step.
 
 Screens: Pipelines · Run log · Artifact viewer (3 panes) · Accounts · Config.
-On-demand run: POST /pipelines/daily-digest/run (§12.1). Delivery stays gated by
-go_live in the delivery adapter regardless of anything toggled here (§12.4).
+On-demand run: POST /pipelines/daily-digest/run (§12.1). Manual Generate never
+emails (send_mode forced to none); schedule Delivery + go_live gate still apply
+to cron runs (§12.4).
 """
 
 from __future__ import annotations
@@ -109,6 +110,32 @@ def _cron_to_fields(cron: str | None) -> tuple[str, str]:
         return "12:00", "weekdays"
 
 
+# APScheduler day-of-week names (0=Mon … 6=Sun when numeric).
+_CRON_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri")
+_CRON_DOW_ALIASES = {
+    "0": "mon",
+    "1": "tue",
+    "2": "wed",
+    "3": "thu",
+    "4": "fri",
+    "monday": "mon",
+    "tuesday": "tue",
+    "wednesday": "wed",
+    "thursday": "thu",
+    "friday": "fri",
+    **{d: d for d in _CRON_WEEKDAYS},
+}
+
+
+def _cron_weekday(cron: str | None, *, default: str = "mon") -> str:
+    """Extract a single weekday token from cron (defaults to Monday)."""
+    try:
+        raw = (cron or "").split()[4].strip().lower()
+    except (IndexError, AttributeError):
+        return default
+    return _CRON_DOW_ALIASES.get(raw, default)
+
+
 @app.get("/daily-report", response_class=HTMLResponse)
 def daily_report(request: Request, db: Session = Depends(get_db)):
     enabled = (
@@ -155,8 +182,12 @@ def daily_report(request: Request, db: Session = Depends(get_db)):
 
 
 def _bg_execute_run(run_id: str, reuse_ingest: bool) -> None:
-    """Background worker: run the heavy stages in a fresh session, updating the run row.
-    execute_run sets a terminal status even on failure, so the UI never sticks on running."""
+    """Background worker for *manual* Generate buttons.
+
+    Always forces send_mode=none — Delivery on the schedule card applies only to
+    the cron job. Email a finished run from the run page if needed.
+    execute_run sets a terminal status even on failure, so the UI never sticks on running.
+    """
     from designops.core.db import session_scope
     from designops.pipelines.daily_digest import execute_run as execute_daily
     from designops.pipelines.weekly_backlog import execute_run as execute_weekly
@@ -167,12 +198,14 @@ def _bg_execute_run(run_id: str, reuse_ingest: bool) -> None:
         if run is None:
             return
         pipe = s.get(Pipeline, run.pipeline_id)
+        # Manual generate: never auto-email (scheduled runs call execute_* directly).
+        kw = {"reuse_ingest": reuse_ingest, "send_mode_override": SendMode.NONE.value}
         if pipe and pipe.key == WEEKLY_KEY:
-            execute_weekly(s, run, reuse_ingest=reuse_ingest)
+            execute_weekly(s, run, **kw)
         elif pipe and pipe.key == WEEKLY_HEALTH_KEY:
-            execute_weekly_health(s, run, reuse_ingest=reuse_ingest)
+            execute_weekly_health(s, run, **kw)
         else:
-            execute_daily(s, run, reuse_ingest=reuse_ingest)
+            execute_daily(s, run, **kw)
 
 
 @app.post("/daily-report/run")
@@ -277,6 +310,7 @@ def weekly_backlog_page(request: Request, db: Session = Depends(get_db)):
     )
     s = get_settings()
     sched_time, _ = _cron_to_fields(pipeline.schedule_cron if pipeline else "0 11 * * mon")
+    sched_weekday = _cron_weekday(pipeline.schedule_cron if pipeline else "0 11 * * mon")
     from designops.api.scheduler import next_run_time
 
     nrt = next_run_time(WEEKLY_KEY)
@@ -294,6 +328,7 @@ def weekly_backlog_page(request: Request, db: Session = Depends(get_db)):
             "jira_ready": s.jira_configured,
             "sched_enabled": bool(pipeline and pipeline.enabled),
             "sched_time": sched_time,
+            "sched_weekday": sched_weekday,
             "sched_recipients": ", ".join(pipeline.recipients) if pipeline else "",
             "sched_send": (pipeline.send_mode if pipeline else "none"),
             "sched_next": nrt.strftime("%a %d %b %H:%M %Z") if nrt else None,
@@ -323,6 +358,7 @@ def weekly_backlog_run(
 @app.post("/weekly-backlog/schedule")
 def weekly_backlog_schedule(
     sched_time: str = Form("11:00"),
+    weekday: str = Form("mon"),
     recipients: str = Form(""),
     send_mode: str = Form("none"),
     enabled: str = Form("off"),
@@ -335,7 +371,10 @@ def weekly_backlog_schedule(
         h, m = (int(x) for x in sched_time.split(":")[:2])
     except (ValueError, TypeError):
         h, m = 11, 0
-    p.schedule_cron = f"{m} {h} * * mon"  # Mondays (APScheduler; bare "1" would be Tuesday)
+    dow = _CRON_DOW_ALIASES.get((weekday or "").strip().lower(), "mon")
+    if dow not in _CRON_WEEKDAYS:
+        dow = "mon"
+    p.schedule_cron = f"{m} {h} * * {dow}"
     p.recipients = [
         r.strip() for r in recipients.replace("\n", ",").split(",") if r.strip()
     ]
@@ -494,7 +533,12 @@ def _track_project_for_account(db: Session, account: Account) -> Project:
 
 def _jira_candidates_for_project(db: Session, project: Project) -> tuple[list[dict], list[str]]:
     from designops.adapters.jira import JiraClient
+    from designops.core.models import Person
     from designops.core.projects import resolve_jira_candidates
+    from designops.pipelines.weekly_health_math import (
+        design_roster_emails,
+        enrich_jira_candidates_with_design_fit,
+    )
 
     account = None
     if project.fairwind_account_id:
@@ -507,6 +551,7 @@ def _jira_candidates_for_project(db: Session, project: Project) -> tuple[list[di
     fw_rows: list[dict] = []
     jira_rows: list[dict] = []
     sources: list[str] = []
+    jira_client = None
     if s.fairwind_configured:
         try:
             fw_rows = FairwindClient(s).list_jira_projects()
@@ -515,7 +560,8 @@ def _jira_candidates_for_project(db: Session, project: Project) -> tuple[list[di
             sources.append(f"fairwind_error:{e}")
     if s.jira_configured:
         try:
-            jira_rows = JiraClient(s).search_projects(project.canonical_name)
+            jira_client = JiraClient(s)
+            jira_rows = jira_client.search_projects(project.canonical_name)
             sources.append("jira")
         except Exception as e:  # noqa: BLE001
             sources.append(f"jira_error:{e}")
@@ -526,6 +572,14 @@ def _jira_candidates_for_project(db: Session, project: Project) -> tuple[list[di
         fairwind_jira_projects=fw_rows,
         jira_cloud_projects=jira_rows,
     )
+    if jira_client is not None and matches:
+        roster = list(db.query(Person).filter(Person.status != "out").all())
+        matches = enrich_jira_candidates_with_design_fit(
+            matches,
+            client=jira_client,
+            roster_emails=design_roster_emails(roster),
+        )
+        sources.append("design_fit")
     return matches, sources
 
 
@@ -712,7 +766,11 @@ def weekly_health_update_project(
 
 @app.post("/weekly-health/projects/{project_id}/verify-jira")
 def weekly_health_verify_jira(project_id: str, db: Session = Depends(get_db)):
-    """Find Jira project key candidates for a tracked project (Fairwind + Jira Cloud)."""
+    """Find Jira project key candidates for a tracked project (Fairwind + Jira Cloud).
+
+    Multiple keys are returned ranked by design-ticket fit (design roster /
+    Design·UX component). Auto-link only when a single clear name match remains.
+    """
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
@@ -724,7 +782,7 @@ def weekly_health_verify_jira(project_id: str, db: Session = Depends(get_db)):
         )
     matches, sources = _jira_candidates_for_project(db, project)
     auto = None
-    if matches and matches[0]["score"] <= 1:
+    if len(matches) == 1 and matches[0].get("score", 99) <= 1:
         auto = matches[0]
         project.jira_project_key = auto["key"]
         db.add(project)
@@ -735,7 +793,7 @@ def weekly_health_verify_jira(project_id: str, db: Session = Depends(get_db)):
             "name": project.canonical_name,
             "current_key": project.jira_project_key,
             "auto_applied": auto,
-            "matches": matches[:8],
+            "matches": matches[:12],
             "sources": sources,
         }
     )

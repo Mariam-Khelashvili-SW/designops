@@ -1,8 +1,7 @@
 """Pure helpers for A3 Weekly Planning Board.
 
-Scope is code: availability, planned/blocked hours (In Progress + To Do +
-dedicated), capacity bands, detail vs other ticket partition, and KPIs —
-never by the LLM.
+Scope is code: availability, planned hours (In Progress + To Do + dedicated),
+capacity bands, detail vs other ticket partition, and KPIs — never by the LLM.
 """
 
 from __future__ import annotations
@@ -328,15 +327,16 @@ def ticket_left_hours(ticket: dict) -> float:
 def classify_capacity_band(
     *,
     planned_hours: float,
-    blocked_hours: float,
     capacity: float,
     availability: str,
+    blocked_hours: float = 0.0,  # unused; kept for call-site compatibility
 ) -> dict:
     """Return band metadata for the capacity board (§8).
 
     Keys: band, flag, bar_fill, bar_pct, meta_class
     Bar: track = capacity (40h); fill length = planned ÷ capacity, capped at 100%.
     """
+    del blocked_hours  # no longer surfaces on the board
     if availability == "OUT":
         return {
             "band": "OUT",
@@ -346,14 +346,6 @@ def classify_capacity_band(
             "meta_class": "out",
         }
     if planned_hours <= 0:
-        if blocked_hours > 0:
-            return {
-                "band": "IDLE",
-                "flag": "Blocked → idle",
-                "bar_fill": "idle",
-                "bar_pct": 4,
-                "meta_class": "idle",
-            }
         return {
             "band": "IDLE",
             "flag": "Idle",
@@ -587,19 +579,13 @@ def format_hours(h: float | None) -> str:
     return f"{h:g}h"
 
 
-def default_flagline(band: str, *, blocked_hours: float = 0.0, **_kw) -> dict:
+def default_flagline(band: str, **_kw) -> dict:
     """Code-side coaching label when LLM doesn't provide one."""
     if band == "OVER_PLANNED":
         return {
             "kind": "over",
             "lab": "Overloaded",
             "text": "Planned remaining work exceeds a normal week — trim or rebalance.",
-        }
-    if band == "IDLE" and blocked_hours > 0:
-        return {
-            "kind": "idle",
-            "lab": "Unblock",
-            "text": "Entire plan is blocked — zero workable hours until dependencies clear.",
         }
     if band == "IDLE":
         return {
@@ -637,19 +623,16 @@ def build_person_board_row(
         is_dedicated=is_dedicated,
         dedicated_weekly_hours=dedicated_weekly_hours,
     )
-    planned, blocked = planned_and_blocked(work, dedicated_weekly_hours=dedicated_h)
+    planned, _blocked = planned_and_blocked(work, dedicated_weekly_hours=dedicated_h)
     band_info = classify_capacity_band(
         planned_hours=planned,
-        blocked_hours=blocked,
         capacity=capacity,
         availability=availability,
     )
     detail_tickets, other_tickets = partition_person_tickets(work)
     groups = group_tickets_by_status(detail_tickets)
     other_summary = summarize_other_tickets(other_tickets)
-    flagline = default_flagline(
-        band_info["band"], blocked_hours=blocked
-    )
+    flagline = default_flagline(band_info["band"])
     if availability == "OUT":
         flagline = {"kind": "", "lab": "", "text": ""}
 
@@ -696,7 +679,7 @@ def build_person_board_row(
         "avail_chip": avail_chip,
         "avail_label": avail_label,
         "planned_hours": planned,
-        "blocked_hours": blocked,
+        "blocked_hours": 0.0,  # not shown on the board; On Hold stays in Other assigned
         "normal_hours": capacity,
         "is_dedicated": bool(is_dedicated and dedicated_h > 0),
         "dedicated_weekly_hours": dedicated_h if dedicated_h > 0 else None,
@@ -745,7 +728,6 @@ def at_a_glance_kpis(people: list[dict], *, capacity: float = 40.0) -> dict:
         if p.get("availability") == "AVAILABLE"
         and float(p.get("planned_hours") or 0) < SPARE_THRESHOLD
     )
-    have_blocked = sum(1 for p in people if float(p.get("blocked_hours") or 0) > 0)
     on_leave = sum(1 for p in people if p.get("availability") == "OUT")
     team_planned = round(
         sum(float(p.get("planned_hours") or 0) for p in available), 1
@@ -755,7 +737,7 @@ def at_a_glance_kpis(people: list[dict], *, capacity: float = 40.0) -> dict:
     return {
         "fully_booked": fully_booked,
         "spare_capacity": spare_capacity,
-        "have_blocked": have_blocked,
+        "have_blocked": 0,  # removed from board; kept so older templates don't crash
         "on_leave": on_leave,
         "team_planned": team_planned,
         "team_capacity": team_capacity,

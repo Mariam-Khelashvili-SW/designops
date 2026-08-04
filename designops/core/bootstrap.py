@@ -68,9 +68,10 @@ def ensure_pipelines(session: Session) -> list[str]:
         if not wb.go_live:
             wb.go_live = True
             changed = True
-        # Keep Monday 11:00 Riga (APScheduler: mon=Monday; bare "1" is Tuesday).
+        # Fix only the known bad default (empty / numeric Tuesday-as-1); never
+        # overwrite a deliberate Mon/Tue/… choice the user saved in the UI.
         cron = (wb.schedule_cron or "").strip()
-        if cron in ("", "0 11 * * 1") or cron.endswith(" * * 1"):
+        if cron in ("", "0 11 * * 1"):
             wb.schedule_cron = "0 11 * * mon"
             changed = True
         if changed:

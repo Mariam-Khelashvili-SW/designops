@@ -369,21 +369,26 @@ class JiraClient:
         max_results: int = 100,
         fields: list[str] | None = None,
         expand: list[str] | None = None,
+        limit: int | None = None,
     ) -> list[dict]:
         """Paginate Jira issue search via enhanced /rest/api/3/search/jql.
 
         Classic /rest/api/3/search returns 410 on current Jira Cloud (CHANGE-2046).
         Enhanced API paginates with nextPageToken + isLast (no startAt/total).
+        Optional ``limit`` stops after that many issues (for lightweight sampling).
         """
         issues: list[dict] = []
         next_page_token: str | None = None
         field_list = fields or _ISSUE_FIELDS
+        page_size = max_results
+        if limit is not None:
+            page_size = max(1, min(max_results, limit))
         with self._client() as c:
             while True:
                 payload: dict[str, Any] = {
                     "jql": jql,
                     "fields": field_list,
-                    "maxResults": max_results,
+                    "maxResults": page_size,
                 }
                 if expand:
                     payload["expand"] = ",".join(expand)
@@ -394,7 +399,7 @@ class JiraClient:
                     classic: dict[str, Any] = {
                         "jql": jql,
                         "fields": field_list,
-                        "maxResults": max_results,
+                        "maxResults": page_size,
                         "startAt": len(issues),
                     }
                     if expand:
@@ -404,6 +409,8 @@ class JiraClient:
                 data = r.json()
                 batch = data.get("issues") or []
                 issues.extend(batch)
+                if limit is not None and len(issues) >= limit:
+                    return issues[:limit]
                 if not batch:
                     break
                 total = data.get("total")

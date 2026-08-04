@@ -41,13 +41,13 @@
   <p class="sub" style="margin-top:8px">
     {% if sched_enabled and sched_next %}⏰ Next run <b>{{ sched_next }}</b>{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
     {% elif sched_enabled %}Enabled.{% else %}Off — nothing runs automatically.{% endif %}
+    Delivery applies to the schedule only — manual Generate never emails.
     {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ <a href="/config">Connect Gmail in Config</a> to actually send.</span>{% endif %}
   </p>
 </div>
 <div class="card">
   <h1 style="font-size:16px;margin-bottom:2px">Generate a report</h1>
-  <p class="sub">One account export per enabled account, then one model call. This runs synchronously —
-  the page waits until the digest is ready, then opens it.</p>
+  <p class="sub">One account export per enabled account, then one model call. Stays in-app — email from the run page if needed.</p>
   <form method="post" action="/daily-report/run" class="row" style="align-items:flex-end">
     <div>
       <label>Report date</label>

@@ -94,8 +94,20 @@
     display:flex;justify-content:space-between;align-items:center;gap:10px;
     padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fafbfd;margin-top:6px;
   }
+  .jira-match.best{border-color:#9fd9cf;background:#f3fbf9}
   .jira-match .n{font-weight:650;font-size:13px}
   .jira-match .m{font-size:11px;color:var(--mut);margin-top:2px}
+  .jira-match .fit{
+    display:inline-flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;
+  }
+  .jira-match .fit .pct{
+    font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;
+    background:#eef0f5;color:#33404e;
+  }
+  .jira-match .fit .pct.hi{background:#e5f6f2;color:#0f8a7e}
+  .jira-match .fit .pct.mid{background:#fff5e8;color:#8a5a12}
+  .jira-match .fit .pct.lo{background:#fdecea;color:#b4451f}
+  .jira-match .fit .detail{font-size:11px;color:var(--mut)}
   .jira-status{font-size:12px;color:var(--mut);margin-top:6px;line-height:1.4}
   @media (max-width:720px){
     .proj-sum{grid-template-columns:36px 1fr}
@@ -252,7 +264,7 @@
                 {% endif %}
               </p>
               <div class="jira-matches" id="jira-matches-{{ t.id }}">
-                <h4>Did you mean one of these?</h4>
+                <h4>Jira keys — ranked by design-ticket match</h4>
                 <div class="jira-match-list"></div>
               </div>
             </div>
@@ -304,13 +316,14 @@
   <p class="sub" style="margin-top:8px">
     {% if sched_enabled and sched_next %}Next run <b>{{ sched_next }}</b>{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
     {% elif sched_enabled %}Enabled.{% else %}Off — nothing runs automatically.{% endif %}
+    Delivery applies to the schedule only — manual Generate never emails.
     {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ <a href="/config">Connect Gmail in Config</a> to actually send.</span>{% endif %}
   </p>
 </div>
 
 <div class="card">
   <h1 style="font-size:16px;margin-bottom:2px">Generate a health brief</h1>
-  <p class="sub">Snapshot as of today ({{ today_label }}) — latest Jira burn + Fairwind client comms from the last 7 days.</p>
+  <p class="sub">Snapshot as of today ({{ today_label }}) — latest Jira burn + Fairwind client comms from the last 7 days. Stays in-app — email from the run page if needed.</p>
   <form method="post" action="/weekly-health/run" class="row" style="align-items:flex-end">
     <div>
       <label style="display:flex;align-items:center;gap:6px;margin-top:14px">
@@ -655,14 +668,15 @@ function filterTracked() {
         });
       })
       .then(function (data) {
+        var matches = data.matches || [];
         if (data.auto_applied) {
           if (keyInput) keyInput.value = data.auto_applied.key;
           if (status) {
             status.textContent = 'Linked ' + data.auto_applied.key +
               (data.auto_applied.name ? ' — ' + data.auto_applied.name : '') +
+              (data.auto_applied.design_label ? ' · ' + data.auto_applied.design_label : '') +
               ' automatically. Save if you also changed estimate/subtitle.';
           }
-          // Refresh chip without full reload when only key changed
           var chip = btn.closest('details') && btn.closest('details').querySelector('.proj-side .jira');
           if (chip) {
             chip.textContent = data.auto_applied.key;
@@ -670,23 +684,29 @@ function filterTracked() {
           }
           var warn = btn.closest('details') && btn.closest('details').querySelector('.link-warn');
           if (warn && warn.textContent.indexOf('Needs Jira') !== -1) warn.remove();
-          return;
+          if (matches.length <= 1) return;
         }
-        var matches = data.matches || [];
         if (!matches.length) {
           if (status) status.textContent = 'No Jira project found. Type a key manually (e.g. ACERP1) and Save.';
           return;
         }
-        if (status) {
-          status.textContent = 'Found ' + matches.length + ' candidate' + (matches.length === 1 ? '' : 's') +
-            ' — confirm the one you meant.';
+        if (status && !data.auto_applied) {
+          status.textContent = 'Found ' + matches.length + ' key' + (matches.length === 1 ? '' : 's') +
+            ' — ranked by how many tickets look like design work. Pick one.';
         }
         if (!panel) return;
         var box = panel.querySelector('.jira-match-list');
-        box.innerHTML = matches.map(function (m) {
-          return '<div class="jira-match">' +
+        box.innerHTML = matches.map(function (m, i) {
+          var pct = Number(m.design_score || 0);
+          var pctClass = pct >= 40 ? 'hi' : (pct >= 10 ? 'mid' : 'lo');
+          var fitLabel = m.design_label || (pct + '% design');
+          var nameScore = (m.score != null) ? ('name rank ' + m.score) : '';
+          return '<div class="jira-match' + (i === 0 ? ' best' : '') + '">' +
             '<div><div class="n"><code>' + esc(m.key) + '</code> · ' + esc(m.name) + '</div>' +
-            '<div class="m">via ' + esc(m.source) + '</div></div>' +
+            '<div class="fit"><span class="pct ' + pctClass + '">' + pct + '% design</span>' +
+            '<span class="detail">' + esc(fitLabel) +
+            (nameScore ? ' · via ' + esc(m.source) + ' · ' + esc(nameScore) : ' · via ' + esc(m.source)) +
+            '</span></div></div>' +
             '<button type="button" class="btn sm jira-pick" data-key="' + esc(m.key) + '" data-project-id="' + esc(pid) + '">Use this</button>' +
             '</div>';
         }).join('');

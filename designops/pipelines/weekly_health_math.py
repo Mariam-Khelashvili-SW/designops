@@ -580,3 +580,96 @@ def doc_to_ticket(doc) -> dict:
         "updated": raw.get("updated"),
         "url": getattr(doc, "url", None),
     }
+
+
+_DESIGN_FIT_FIELDS = [
+    "summary",
+    "status",
+    "assignee",
+    "issuetype",
+    "components",
+    "project",
+]
+
+
+def design_fit_for_jira_key(
+    client,
+    project_key: str,
+    roster_emails: set[str],
+    *,
+    sample_size: int = 100,
+) -> dict:
+    """Sample issues in a Jira project and score how many pass design-scope.
+
+    Returns counts + a 0–100 ``design_score`` (pct of sampled tickets in design
+    scope). Used by Verify Jira so Olga can pick among HOITO vs HOITOR etc.
+    """
+    from designops.adapters.jira import issue_to_document
+
+    key = (project_key or "").strip().upper()
+    empty = {
+        "design_count": 0,
+        "sample_count": 0,
+        "design_score": 0,
+        "design_label": "no issues sampled",
+        "error": None,
+    }
+    if not key:
+        return empty
+    try:
+        issues = client.search_jql(
+            f'project = "{key}" ORDER BY updated DESC',
+            max_results=min(100, sample_size),
+            fields=_DESIGN_FIT_FIELDS,
+            limit=sample_size,
+        )
+    except Exception as e:  # noqa: BLE001 — surface in UI, don't fail verify
+        return {**empty, "error": f"{type(e).__name__}: {e}", "design_label": "lookup failed"}
+
+    tickets = [
+        doc_to_ticket(issue_to_document(issue))
+        for issue in issues
+    ]
+    sample_count = len(tickets)
+    design_count = sum(1 for t in tickets if in_design_scope(t, roster_emails))
+    pct = round(100.0 * design_count / sample_count) if sample_count else 0
+    if sample_count == 0:
+        label = "0 issues"
+    else:
+        label = f"{design_count}/{sample_count} design ({pct}%)"
+    return {
+        "design_count": design_count,
+        "sample_count": sample_count,
+        "design_score": pct,
+        "design_label": label,
+        "error": None,
+    }
+
+
+def enrich_jira_candidates_with_design_fit(
+    matches: list[dict],
+    *,
+    client,
+    roster_emails: set[str],
+    sample_size: int = 100,
+) -> list[dict]:
+    """Attach design-fit scores and re-rank (best design match first)."""
+    if not matches or client is None:
+        return matches
+    out: list[dict] = []
+    for m in matches:
+        fit = design_fit_for_jira_key(
+            client, m.get("key") or "", roster_emails, sample_size=sample_size
+        )
+        row = dict(m)
+        row.update(fit)
+        out.append(row)
+    out.sort(
+        key=lambda m: (
+            -int(m.get("design_score") or 0),
+            -int(m.get("design_count") or 0),
+            int(m.get("score") or 99),
+            (m.get("key") or ""),
+        )
+    )
+    return out

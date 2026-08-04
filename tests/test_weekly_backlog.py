@@ -147,18 +147,18 @@ def test_burn_pct_bands():
 
 def test_capacity_bands():
     out = classify_capacity_band(
-        planned_hours=0, blocked_hours=0, capacity=40, availability="OUT"
+        planned_hours=0, capacity=40, availability="OUT"
     )
     assert out["band"] == "OUT" and out["flag"] == "Out"
 
-    idle_blocked = classify_capacity_band(
-        planned_hours=0, blocked_hours=36, capacity=40, availability="AVAILABLE"
+    idle = classify_capacity_band(
+        planned_hours=0, capacity=40, availability="AVAILABLE"
     )
-    assert idle_blocked["band"] == "IDLE"
-    assert idle_blocked["flag"] == "Blocked → idle"
+    assert idle["band"] == "IDLE"
+    assert idle["flag"] == "Idle"
 
     spare = classify_capacity_band(
-        planned_hours=18, blocked_hours=0, capacity=40, availability="AVAILABLE"
+        planned_hours=18, capacity=40, availability="AVAILABLE"
     )
     assert spare["band"] == "SPARE"
     assert "Spare" in spare["flag"]
@@ -166,18 +166,18 @@ def test_capacity_bands():
     assert spare["bar_pct"] == 45  # 18h of 40h — proportional fill
 
     mid = classify_capacity_band(
-        planned_hours=25, blocked_hours=0, capacity=40, availability="AVAILABLE"
+        planned_hours=25, capacity=40, availability="AVAILABLE"
     )
     assert mid["bar_pct"] == 62  # 25h of 40h — just over half the track
 
     at_cap = classify_capacity_band(
-        planned_hours=35, blocked_hours=0, capacity=40, availability="AVAILABLE"
+        planned_hours=35, capacity=40, availability="AVAILABLE"
     )
     assert at_cap["band"] == "AT_CAPACITY"
     assert at_cap["bar_fill"] == "bal"
 
     over = classify_capacity_band(
-        planned_hours=66, blocked_hours=0, capacity=40, availability="AVAILABLE"
+        planned_hours=66, capacity=40, availability="AVAILABLE"
     )
     assert over["band"] == "OVER_PLANNED"
     assert over["flag"] == "Over-planned"  # no magnitude
@@ -185,7 +185,7 @@ def test_capacity_bands():
     assert over["bar_pct"] == 100
 
     hot = classify_capacity_band(
-        planned_hours=180, blocked_hours=0, capacity=40, availability="AVAILABLE"
+        planned_hours=180, capacity=40, availability="AVAILABLE"
     )
     assert hot["bar_fill"] == "hot"
 
@@ -222,7 +222,7 @@ def test_group_tickets_blocked_last():
     groups = group_tickets_by_status(tickets)
     labels = [g["status"] for g in groups]
     assert labels[0] == "In Progress"
-    assert labels[-1] == "Blocked"
+    assert labels[-1] == "On Hold"
     assert groups[-1]["blocked"] is True
 
 
@@ -282,7 +282,7 @@ def test_build_person_and_kpis():
     )
     # 15h IP + 40h dedicated; Client Action / Backlog / Hold not in planned
     assert row["planned_hours"] == 55
-    assert row["blocked_hours"] == 10
+    assert row["blocked_hours"] == 0  # not surfaced on the board
     assert row["band"] == "OVER_PLANNED"
     assert row["dedicated_weekly_hours"] == 40
     assert not row["unverified"]
@@ -340,7 +340,6 @@ def test_build_person_and_kpis():
     glance = at_a_glance_kpis(people, capacity=40)
     assert glance["fully_booked"] == 2  # Vlad + Kirill
     assert glance["spare_capacity"] == 0  # Tamari at 35 ≥ SPARE_THRESHOLD 30 → AT_CAPACITY
-    assert glance["have_blocked"] == 2  # Vlad + Tamari
     assert glance["on_leave"] == 1
     people.sort(key=board_sort_key)
     assert people[0]["name"] == "Kirill"  # OVER first by hours

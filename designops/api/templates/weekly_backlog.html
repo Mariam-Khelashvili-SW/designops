@@ -5,7 +5,7 @@
   <div>
     <h1 style="margin:0">Weekly Planning Board</h1>
     <p class="sub" style="margin:4px 0 0;max-width:54ch">
-      Monday brief for Olga — Friday-planned tickets, remaining hours vs capacity, blocked work. Report only; never reassigns.
+      Monday brief for Olga — Friday-planned tickets, remaining hours vs capacity. Report only; never reassigns.
     </p>
   </div>
   <div class="sub" style="margin:0;text-align:right">Normal week · <b>{{ normal_hours }}h</b></div>
@@ -24,11 +24,20 @@
 {% endif %}
 
 <div class="card">
-  <h1 style="font-size:16px;margin-bottom:2px">Monday schedule</h1>
-  <p class="sub">Fires Mondays at the chosen time (Europe/Riga). Uses last Friday's dailies + live Jira.</p>
+  <h1 style="font-size:16px;margin-bottom:2px">Weekly schedule</h1>
+  <p class="sub">Fires once a week at the chosen weekday + time (Europe/Riga). Uses last Friday's dailies + live Jira for the current planned week.</p>
   {% if flash == 'schedule_saved' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Schedule saved{% if sched_next %} · next run {{ sched_next }}{% endif %}.</div>{% endif %}
   <form method="post" action="/weekly-backlog/schedule" class="row" style="align-items:flex-end;gap:14px">
-    <div><label>Time (Riga, Mondays)</label><input type="time" name="sched_time" value="{{ sched_time }}"></div>
+    <div><label>Day</label>
+      <select name="weekday">
+        <option value="mon" {{ 'selected' if sched_weekday=='mon' }}>Monday</option>
+        <option value="tue" {{ 'selected' if sched_weekday=='tue' }}>Tuesday</option>
+        <option value="wed" {{ 'selected' if sched_weekday=='wed' }}>Wednesday</option>
+        <option value="thu" {{ 'selected' if sched_weekday=='thu' }}>Thursday</option>
+        <option value="fri" {{ 'selected' if sched_weekday=='fri' }}>Friday</option>
+      </select>
+    </div>
+    <div><label>Time (Riga)</label><input type="time" name="sched_time" value="{{ sched_time }}"></div>
     <div><label>Delivery</label>
       <select name="send_mode">
         <option value="none" {{ 'selected' if sched_send=='none' }}>Generate only</option>
@@ -43,13 +52,14 @@
   <p class="sub" style="margin-top:8px">
     {% if sched_enabled and sched_next %}⏰ Next run <b>{{ sched_next }}</b>{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
     {% elif sched_enabled %}Enabled.{% else %}Off — nothing runs automatically.{% endif %}
+    Delivery applies to the schedule only — manual Generate never emails.
     {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ <a href="/config">Connect Gmail in Config</a> to actually send.</span>{% endif %}
   </p>
 </div>
 
 <div class="card">
   <h1 style="font-size:16px;margin-bottom:2px">Generate a planned-week brief</h1>
-  <p class="sub">Pick the Monday of the week. Friday plans = the previous Friday; Jira = current open assigned backlog.</p>
+  <p class="sub">Pick the Monday of the week. Friday plans = the previous Friday; Jira = current open assigned backlog. Stays in-app — email from the run page if needed.</p>
   <form method="post" action="/weekly-backlog/run" class="row" style="align-items:flex-end">
     <div>
       <label>Week of</label>

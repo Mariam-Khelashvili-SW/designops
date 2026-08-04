@@ -164,33 +164,61 @@ def resolve_jira_candidates(
     """Rank possible Jira project keys for a health-tracked project.
 
     Each candidate: {key, name, source, score} where lower score = better.
+
+    Account-linked keys are hints only — a key that is merely a prefix of the
+    Fairwind name (HOITO ⊂ Hoitolatukku) must not beat a clearer Jira match like
+    HOITOR ("Hoitolatukku | Redesign"). Service Cloud boards are deprioritized vs
+    redesign / design-named projects.
     """
     name = (project_name or "").strip()
     nl = name.lower()
     fid = (fairwind_account_id or "").strip()
     by_key: dict[str, dict] = {}
 
+    def _name_bias(pname: str | None) -> int:
+        pl = (pname or "").strip().lower()
+        if not pl:
+            return 0
+        if any(
+            tok in pl
+            for tok in ("redesign", "| design", " ux", "ui/ux", "design system")
+        ) or ("design" in pl and "service" not in pl and "support" not in pl):
+            return -1
+        if "service cloud" in pl:
+            return 2
+        return 0
+
     def _add(key: str, pname: str | None, source: str, score: int) -> None:
         k = (key or "").strip().upper()
         if not k:
             return
+        display = (pname or "").strip() or k
+        score = max(0, int(score) + _name_bias(display))
         row = by_key.get(k)
         if row is None or score < row["score"]:
             by_key[k] = {
                 "key": k,
-                "name": (pname or "").strip() or k,
+                "name": display,
                 "source": source,
                 "score": score,
             }
+            return
+        if display not in (name, k) and row["name"] in (name, k, ""):
+            row["name"] = display
+
+    titles: dict[str, str] = {}
+    for r in list(fairwind_jira_projects or []) + list(jira_cloud_projects or []):
+        key = str(r.get("key") or "").strip().upper()
+        pname = (r.get("name") or "").strip()
+        if key and pname:
+            titles[key] = pname
 
     for k in account_keys or []:
         kk = str(k).strip().upper()
         if not kk:
             continue
-        score = 1
-        if nl and (kk.lower() in nl or nl.startswith(kk.lower())):
-            score = 0
-        _add(kk, name, "fairwind_account", score)
+        # Hint only — never treat key⊂account-name as exact (HOITO / Hoitolatukku).
+        _add(kk, titles.get(kk) or name, "fairwind_account", 2)
 
     for r in fairwind_jira_projects or []:
         key = str(r.get("key") or "").strip().upper()

@@ -382,7 +382,6 @@ def _rich_flagline(person: dict, *, capacity: float, peers: list[dict]) -> dict:
         return {"kind": "idle", "lab": "Partial leave", "text": text}
 
     planned = float(person.get("planned_hours") or 0)
-    blocked = float(person.get("blocked_hours") or 0)
     band = person.get("band") or ""
     tickets = person.get("tickets") or []
     heaviest = _heaviest_clusters(tickets)
@@ -405,15 +404,6 @@ def _rich_flagline(person: dict, *, capacity: float, peers: list[dict]) -> dict:
             text += f" Consider shifting some work to {spare_name}."
         return {"kind": "over", "lab": lab, "text": text}
 
-    if band == "IDLE" and blocked > 0:
-        return {
-            "kind": "idle",
-            "lab": "Unblock",
-            "text": (
-                f"Blocked → idle ({_fmt_plan_hours(blocked)}h blocked). "
-                "Zero workable hours until dependencies clear."
-            ),
-        }
     if band == "IDLE":
         return {
             "kind": "idle",
@@ -471,11 +461,10 @@ def _fallback_rebalance(people: list[dict], capacity: float) -> dict:
         moves.append(
             {
                 "text": (
-                    f"Unblock {p['name'].split()[0]} — "
-                    f"{'Blocked → idle' if p.get('blocked_hours') else 'idle'} "
-                    f"({p.get('blocked_hours', 0)}h blocked)."
+                    f"Give {p['name'].split()[0]} planned work — "
+                    f"currently idle (0h In Progress / To Do)."
                 ),
-                "project": "blocked",
+                "project": "capacity",
             }
         )
     if spares:
@@ -502,9 +491,9 @@ def _fallback_rebalance(people: list[dict], capacity: float) -> dict:
         "title": f"Before Monday — {len(moves)} moves" if moves else "Before Monday",
         "subtitle": (
             f"The team planned ~{over_h:.0f}h more than it can do this week. "
-            "Trim the top, unblock the idle, fill the spare."
+            "Trim the top and fill the spare."
             if over_h > 0
-            else "Rebalance where the board shows spare or blocked → idle."
+            else "Rebalance where the board shows spare or idle."
         ),
         "moves": moves[:4],
     }
@@ -546,7 +535,7 @@ def _synthesize_coaching(
     skill = _SKILL.read_text(encoding="utf-8")
     roster_block = "\n".join(
         f"- {p['name']} ({p['availability']}; "
-        f"{p['planned_hours']}h planned / {p['blocked_hours']}h blocked; "
+        f"{p['planned_hours']}h planned; "
         f"band={p['band']}"
         f")"
         for p in people_rows
@@ -573,7 +562,7 @@ def _synthesize_coaching(
     for p in people_rows:
         chunks.append(
             f"### {p['name']} — {p['availability']} · {p['band']} · "
-            f"{p['planned_hours']}h planned / {capacity}h · {p['blocked_hours']}h blocked"
+            f"{p['planned_hours']}h planned / {capacity}h"
         )
         if p.get("friday_excerpt"):
             chunks.append("Friday daily:")
