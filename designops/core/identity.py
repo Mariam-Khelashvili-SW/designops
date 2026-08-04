@@ -18,15 +18,24 @@ from datetime import date
 from designops.core.enums import PersonStatus
 
 
-def effective_status(status: str, leave_until: date | None, report_date: date | None) -> str:
-    """A person's status FOR a given report day. `on_leave` with a `leave_until` reverts
-    to `active` once the report day is past that date, so leave auto-expires."""
-    if (
-        status == PersonStatus.ON_LEAVE
-        and leave_until
-        and report_date
-        and report_date > leave_until
-    ):
+def effective_status(
+    status: str,
+    leave_until: date | None,
+    report_date: date | None,
+    leave_from: date | None = None,
+) -> str:
+    """A person's status FOR a given report day.
+
+    `on_leave` reverts to `active` when the report day is outside the leave window:
+    after `leave_until`, or (when `leave_from` is set) before leave starts. Weekly
+    availability keeps using week-level PARTIAL math and typically omits `leave_from`
+    here so Mon of a partial-leave week still resolves as on_leave.
+    """
+    if status != PersonStatus.ON_LEAVE or report_date is None:
+        return status
+    if leave_until and report_date > leave_until:
+        return PersonStatus.ACTIVE
+    if leave_from and report_date < leave_from:
         return PersonStatus.ACTIVE
     return status
 
@@ -57,8 +66,8 @@ class RosterIndex:
 
     @classmethod
     def from_rows(cls, rows, report_date: date | None = None) -> RosterIndex:
-        """Build the roster for a report day — `on_leave` members whose `leave_until` has
-        passed are treated as `active` again (leave auto-expires)."""
+        """Build the roster for a report day — leave outside [leave_from, leave_until]
+        is treated as `active` again (leave auto-expires / not-yet-started)."""
         return cls(
             [
                 RosterMember(
@@ -67,7 +76,10 @@ class RosterIndex:
                     emails=frozenset(e.lower() for e in (r.emails or [])),
                     jira_account_id=r.jira_account_id,
                     status=effective_status(
-                        r.status, getattr(r, "leave_until", None), report_date
+                        r.status,
+                        getattr(r, "leave_until", None),
+                        report_date,
+                        leave_from=getattr(r, "leave_from", None),
                     ),
                 )
                 for r in rows

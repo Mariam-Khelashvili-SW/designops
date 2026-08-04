@@ -27,8 +27,23 @@ def render_digest(
     coverage: dict | None = None,
 ) -> str:
     template = _env.get_template("digest.html.j2")
+    status = list(digest.get("status") or [])
+    # Preserve first-seen person order; group lines under each name for scanability.
+    status_groups: list[dict] = []
+    by_person: dict[str, dict] = {}
+    for row in status:
+        name = (row.get("person") or "").strip() or "Unknown"
+        if name not in by_person:
+            g = {"person": name, "lines": []}
+            by_person[name] = g
+            status_groups.append(g)
+        by_person[name]["lines"].append(row)
+    no_report = list(digest.get("no_report") or [])
     return template.render(
         digest=digest,
+        status_groups=status_groups,
+        on_leave=[r for r in no_report if r.get("status") == "on_leave"],
+        no_daily=[r for r in no_report if r.get("status") != "on_leave"],
         report_date_label=report_date.strftime("%A, %-d %b %Y"),
         sample=sample,
         coverage=coverage or {},

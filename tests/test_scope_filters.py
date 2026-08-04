@@ -203,3 +203,29 @@ def test_cro_gmail_goes_to_beyond_daily_not_reported(roster, registry):
     assert _reason(result, "gmail-1") == "beyond_daily"
     assert _reason(result, "gmail-2") == str(ExclusionReason.NOT_IN_ROSTER)
     assert result.reported_person_ids == set()
+
+
+def test_cro_gmail_from_roster_counts_as_reported(roster, registry):
+    """Designers often file dailies to cro@ — those are reports, not beyond_daily."""
+    from designops.adapters.documents import Document
+
+    daily = Document(
+        source="gmail",
+        external_id="gmail-daily-1",
+        event_date=REPORT_DATE,
+        author_identity="elene.chekurishvili@scandiweb.com",
+        title="Daily reports - Elene Chekurishvili (August)",
+        body="Felco: working on august creatives",
+        raw={
+            "folder": "cro",
+            "mailbox": "cro@scandiweb.com",
+            "from": "Elene <elene.chekurishvili@scandiweb.com>",
+        },
+    )
+    result = filter_corpus([daily], roster, registry, REPORT_DATE)
+    assert "gmail-daily-1" in _included_ids(result)
+    assert result.beyond_daily == []
+    member = roster.resolve("elene.chekurishvili@scandiweb.com")
+    assert member is not None
+    assert member.id in result.reported_person_ids
+    assert result.coverage_ratio == 1 / roster.active_count

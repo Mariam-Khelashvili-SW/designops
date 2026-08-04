@@ -31,19 +31,27 @@ _LATE_REPORT_CUTOFF_HOUR = 12
 
 
 def _is_internal_daily(doc: Document) -> bool:
-    """An internal design-team thread message (the daily-report channel)."""
-    return doc.raw.get("folder") == "internal"
+    """Design-team daily report channel.
+
+    Fairwind ``folder=internal`` threads, or mail a roster designer sent to cro@
+    (the Design team inbox — where many dailies actually land).
+    """
+    folder = (doc.raw or {}).get("folder")
+    return folder == "internal" or (
+        doc.source == "gmail" and folder == "cro"
+    )
 
 
 def _is_beyond_daily(doc: Document, report_date: date) -> bool:
     """Report-day, non-roster signal the model may mine for blockers/escalations no daily
-    carried: meeting transcript, outbound client-facing Fairwind email, or cro@ mailbox mail.
-    Report DAY only (never the next-morning window)."""
+    carried: meeting transcript, outbound client-facing Fairwind email, or cro@ mailbox mail
+    from someone *not* on the design roster (client / other). Report DAY only.
+    """
     if doc.event_date != report_date:
         return False
     if doc.source == "transcript":
         return True
-    # CRO shared inbox (inbound client + team mail to cro@) — lean beyond_daily only.
+    # CRO shared inbox — only non-roster authors (roster cro mail = their daily).
     if doc.source == "gmail" and doc.raw.get("folder") == "cro":
         return True
     return (
@@ -213,9 +221,9 @@ def filter_corpus(
         doc.person_id = member.id
         doc.project_id = project.id if project else None
         result.included.append(IncludedDoc(document=doc, person=member, project=project))
-        # "reported" means they filed an actual daily — an internal thread message.
-        # Jira tickets and cro@ Gmail are cross-checks / beyond_daily, NOT a report.
-        if doc.raw.get("folder") == "internal":
+        # "reported" = filed a design daily (Fairwind internal thread OR cro@ from roster).
+        # Jira tickets stay cross-checks only — not a substitute for the written daily.
+        if _is_internal_daily(doc):
             result.reported_person_ids.add(member.id)
         result.audit.append(
             AuditRecord(

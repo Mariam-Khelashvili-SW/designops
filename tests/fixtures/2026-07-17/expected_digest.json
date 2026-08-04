@@ -1,171 +1,112 @@
 {
   "at_a_glance": {
-    "reported": 5,
-    "blocked": 1,
-    "escalations": 1,
+    "active": 5,
+    "need_review": 2,
+    "blocked": 0,
     "no_report": 4
   },
-  "projects": [
+  "status": [
     {
-      "name": "Acer",
-      "people": [
-        {
-          "name": "Arturs Boroviks",
-          "done": "Started PLP pages; built PLP components (product pods, filters); shared updates; catch-up with Dorota.",
-          "blocker": null,
-          "escalation": null,
-          "question": null,
-          "next": "Continue PLP + components; client kick-off — present Base Template & Homepage.",
-          "jira": null
-        },
-        {
-          "name": "Dorota Umiastowska",
-          "done": "Client call; adjusting registration, cart and CMS pages; client comms via Figma.",
-          "blocker": null,
-          "escalation": null,
-          "question": null,
-          "next": "Call with Acer; My Account.",
-          "jira": {
-            "kind": "discrepancy",
-            "text": "Registration, CMS & Checkout wireframes moved to Client Action Friday — further than 'adjusting' implies. (ACERP1-41/43/45)"
-          }
-        }
-      ]
+      "person": "Arturs Boroviks",
+      "project": "Acer",
+      "line": "Started PLP pages; built PLP components (product pods, filters); shared updates; catch-up with Dorota."
     },
     {
-      "name": "Sports Group Denmark",
-      "people": [
-        {
-          "name": "Dorota Umiastowska",
-          "done": "Finished PLP; started PDP; scheduled a QA call for Monday with Viktoria.",
-          "blocker": null,
-          "escalation": null,
-          "question": null,
-          "next": "Internal call about the Club Portal.",
-          "jira": null
-        }
-      ]
+      "person": "Dorota Umiastowska",
+      "project": "Acer",
+      "line": "Client call; adjusting registration, cart and CMS pages; client comms via Figma."
     },
     {
-      "name": "Felco",
-      "people": [
-        {
-          "name": "Elene Chekurishvili",
-          "done": "Finalised all July creatives and email creatives; internal comms; FELCO colours landing page + feedback changes.",
-          "blocker": null,
-          "escalation": null,
-          "question": null,
-          "next": null,
-          "jira": null
-        }
-      ]
+      "person": "Dorota Umiastowska",
+      "project": "Sports Group Denmark",
+      "line": "Finished PLP; started PDP; scheduled a QA call for Monday with Viktoria."
     },
     {
-      "name": "The Furniture Trader",
-      "people": [
-        {
-          "name": "Elene Chekurishvili",
-          "done": "Finished the My Account designs.",
-          "blocker": "\"I think tickets aren't up yet to log time.\" — she can't log her time against them.",
-          "escalation": null,
-          "question": null,
-          "next": null,
-          "jira": null
-        }
-      ]
+      "person": "Elene Chekurishvili",
+      "project": "Felco",
+      "line": "Finalised all July creatives and email creatives; FELCO colours landing page + feedback."
     },
     {
-      "name": "University of Michigan",
-      "people": [
-        {
-          "name": "Kirill Rogovets",
-          "done": "Continued working on the Base Template.",
-          "blocker": null,
-          "escalation": null,
-          "question": null,
-          "next": "Finalise the Base Template; start the Home Page.",
-          "jira": {
-            "kind": "discrepancy",
-            "text": "Base Template needs your own sign-off before it's done (6h of 14h logged, status ANALYSIS). (UOM-482)"
-          }
-        }
-      ]
+      "person": "Elene Chekurishvili",
+      "project": "The Furniture Trader",
+      "line": "Finished the My Account designs."
     },
     {
-      "name": "Northerner / Nicokick",
-      "people": [
-        {
-          "name": "Predrag Gavrilovikj",
-          "done": "Finished the Subscription landing page; wrapped PLP filters & sorting; prepped breakpoint aspect ratios (360/1170/1440/1920); aligned with Vlad; sent everything to the US team (Joe).",
-          "blocker": null,
-          "escalation": null,
-          "question": null,
-          "next": "Finish aspect ratios → US team; wrap the Friend Referral page.",
-          "jira": null
-        }
-      ]
+      "person": "Elene Chekurishvili",
+      "project": "Reuzel",
+      "line": "Emails finished and shared with the client; second part (14 new) planned mid next week."
     },
     {
-      "name": "Reuzel",
-      "people": [
-        {
-          "name": "Elene Chekurishvili",
-          "done": "Emails finished and shared with the client; second part (14 new) planned for mid next week.",
-          "blocker": null,
-          "escalation": null,
-          "question": null,
-          "next": null,
-          "jira": null
-        }
-      ]
+      "person": "Elene Chekurishvili",
+      "project": "Redeker Aesthetics",
+      "line": "Made two videos for socials."
     },
     {
-      "name": "Redeker Aesthetics",
-      "people": [
-        {
-          "name": "Elene Chekurishvili",
-          "done": "Made two videos for socials.",
-          "blocker": null,
-          "escalation": "Planned UI wireframe not started — \"didn't have much time to start UI for the wireframe, because Felco and Reuzel were the priorities.\"",
-          "question": null,
-          "next": null,
-          "jira": null
-        }
-      ]
+      "person": "Kirill Rogovets",
+      "project": "University of Michigan",
+      "line": "Continued working on the Base Template."
+    },
+    {
+      "person": "Predrag Gavrilovikj",
+      "project": "Northerner / Nicokick",
+      "line": "Finished Subscription LP; wrapped PLP filters & sorting; prepped breakpoint aspect ratios; sent to US team."
+    }
+  ],
+  "needs_review": [
+    {
+      "item": "Registration, CMS & Checkout wireframes moved to Client Action Friday — further than \"adjusting\" implies.",
+      "link": "ACERP1-41",
+      "who": "Dorota Umiastowska",
+      "project": "Acer",
+      "blocked": false
+    },
+    {
+      "item": "Base Template needs your sign-off before it's done (6h of 14h logged, status ANALYSIS).",
+      "link": "UOM-482",
+      "who": "Kirill Rogovets",
+      "project": "University of Michigan",
+      "blocked": false
+    }
+  ],
+  "open_questions": [],
+  "todays_plans": [
+    {
+      "person": "Arturs Boroviks",
+      "plan": "Continue PLP + components; client kick-off — present Base Template & Homepage."
+    },
+    {
+      "person": "Dorota Umiastowska",
+      "plan": "Call with Acer; My Account. Internal call about the Club Portal."
+    },
+    {
+      "person": "Kirill Rogovets",
+      "plan": "Finalise the Base Template; start the Home Page."
+    },
+    {
+      "person": "Predrag Gavrilovikj",
+      "plan": "Finish aspect ratios → US team; wrap the Friend Referral page."
     }
   ],
   "no_report": [
     {
       "name": "Mariam Makharadze",
-      "context": "no daily this month",
+      "context": null,
       "status": "no_report"
     },
     {
       "name": "Tamari Giunashvili",
-      "context": "last report 2 Jul",
+      "context": null,
       "status": "no_report"
     },
     {
       "name": "Maarja Truu",
-      "context": "silent since 13 Jul",
+      "context": null,
       "status": "no_report"
     },
     {
       "name": "Vlad Shemetovets",
-      "context": "active in Predrag's work · no direct report",
+      "context": null,
       "status": "no_report"
-    }
-  ],
-  "action_needed": [
-    {
-      "text": "Unblock Elene on Furniture Trader — she can't log time until the tickets are up.",
-      "project": "The Furniture Trader",
-      "urgency": "high"
-    },
-    {
-      "text": "Elene flags the Redeker wireframe UI may slip — worth a look.",
-      "project": "Redeker Aesthetics",
-      "urgency": "normal"
     }
   ]
 }

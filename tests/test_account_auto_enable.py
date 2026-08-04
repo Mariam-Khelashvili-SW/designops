@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from designops.core.models import Account, Project
 from designops.core.projects import (
     enable_accounts_for_jira_keys,
+    fairwind_account_ids_for_jira_keys,
     jira_project_keys_from_docs,
 )
 
@@ -64,6 +65,59 @@ class _Session:
 
     def flush(self):
         pass
+
+
+def test_fairwind_account_ids_for_jira_keys():
+    acer = Account(
+        name="Acer",
+        fairwind_account_id="fw-acer",
+        jira_project_keys=["ACERP1"],
+        domains=[],
+        digest_enabled=False,
+        is_active=True,
+        salesforce_account_ids=[],
+        notion_space_ids=[],
+        data_availability={},
+        aliases=[],
+    )
+    sgd = Account(
+        name="Sports Group Denmark",
+        fairwind_account_id="fw-sgd",
+        jira_project_keys=[],
+        domains=[],
+        digest_enabled=False,
+        is_active=True,
+        salesforce_account_ids=[],
+        notion_space_ids=[],
+        data_availability={},
+        aliases=[],
+    )
+    other = Account(
+        name="Other",
+        fairwind_account_id="fw-other",
+        jira_project_keys=["ZZZ"],
+        domains=[],
+        digest_enabled=False,
+        is_active=True,
+        salesforce_account_ids=[],
+        notion_space_ids=[],
+        data_availability={},
+        aliases=[],
+    )
+    proj_sgd = Project(
+        canonical_name="Sports Group Denmark",
+        aliases=["SGD", "SGDCP"],
+        jira_project_key="SGDCP",
+        fairwind_account_id="fw-sgd",
+        active=True,
+    )
+    session = _Session([acer, other, sgd], [proj_sgd])
+    assert fairwind_account_ids_for_jira_keys(session, {"ACERP1", "SGDCP"}) == {
+        "fw-acer",
+        "fw-sgd",
+    }
+    assert fairwind_account_ids_for_jira_keys(session, {"ZZZ"}) == {"fw-other"}
+    assert fairwind_account_ids_for_jira_keys(session, set()) == set()
 
 
 def test_enable_accounts_for_jira_keys():
@@ -126,7 +180,7 @@ def test_enable_accounts_for_jira_keys():
     assert other.digest_enabled is False
     assert "ACERP1" in (acer.notes or "")
     assert "SGDCP" in (sgd.notes or "")
-    assert "weekly backlog" in (acer.notes or "").lower()
+    assert "jira work" in (acer.notes or "").lower()
 
     again = enable_accounts_for_jira_keys(session, {"ACERP1", "SGDCP"})
     assert again == []

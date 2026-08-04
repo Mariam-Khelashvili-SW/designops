@@ -1,6 +1,5 @@
-"""§7.1 golden digest + §7.3 fidelity. The deterministic parts (JSON shape, render
-DOM structure, verbatim survival) run with no LLM. The actual model reproduction is
-marked `llm` and skips without ANTHROPIC_API_KEY.
+"""§7.1 golden Growth-Pulse digest + §7.3 fidelity. Deterministic parts (JSON shape,
+render DOM, verbatim survival) run with no LLM.
 """
 
 from __future__ import annotations
@@ -40,62 +39,86 @@ def _count(html: str, css_class: str) -> int:
     return sum(1 for cls in c.classes if css_class in cls.split())
 
 
-# --- §7.1 golden counts (structured JSON reproduces the reference) --------------
 def test_golden_json_counts_match_spec(expected):
     g = expected["at_a_glance"]
-    assert g == {"reported": 5, "blocked": 1, "escalations": 1, "no_report": 4}
+    assert g == {"active": 5, "need_review": 2, "blocked": 0, "no_report": 4}
     assert len(expected["no_report"]) == 4
-    assert len(expected["action_needed"]) >= 1  # spec §9 — Olga's action list, rendered last
+    assert len(expected["needs_review"]) == 2
+    assert expected["open_questions"] == []
+    # Tier-1: every review item has a working link
+    assert all(r.get("link") for r in expected["needs_review"])
 
-    reported = {p["name"] for proj in expected["projects"] for p in proj["people"]}
-    assert reported == {
-        "Arturs Boroviks", "Dorota Umiastowska", "Elene Chekurishvili",
-        "Kirill Rogovets", "Predrag Gavrilovikj",
+    people = {s["person"] for s in expected["status"]}
+    assert people == {
+        "Arturs Boroviks",
+        "Dorota Umiastowska",
+        "Elene Chekurishvili",
+        "Kirill Rogovets",
+        "Predrag Gavrilovikj",
     }
-    # exactly one blocker and one escalation across all daily rows (lean v1)
-    blockers = [p for proj in expected["projects"] for p in proj["people"] if p["blocker"]]
-    escals = [p for proj in expected["projects"] for p in proj["people"] if p["escalation"]]
-    assert len(blockers) == 1 and blockers[0]["name"] == "Elene Chekurishvili"
-    assert len(escals) == 1 and escals[0]["name"] == "Elene Chekurishvili"
 
 
-# --- §7.1 render asserted on DOM structure, not byte equality -------------------
 def test_render_dom_structure(expected):
-    # email-safe, table-based layout (no flex/grid)
     html = render_digest(expected, REPORT_DATE, sample=True)
-    assert _count(html, "ptitle") == 8          # 8 project titles
-    assert _count(html, "pname") == 9           # 9 person entries
-    assert html.count(">Blocker</td>") == 1
-    assert html.count(">Escalation</td>") == 1
-    assert _count(html, "nrname") == 4          # 4 no-report rows
-    assert "SAMPLE" not in html                 # no demo/dry-run markers in the digest
-    assert ">5<" in html and ">4<" in html      # glance numbers rendered
-    assert "Where your action is needed" in html  # action section rendered last
-    assert "display:grid" not in html and "display:flex" not in html  # email-safe
+    assert "Daily Pulse" in html
+    assert "need review" in html
+    assert "Status" in html
+    assert "Needs attention" in html
+    assert "Today's plans" in html
+    assert "No report" in html
+    # Quiet-day rule: empty open_questions → no standalone questions section
+    assert "Open questions" not in html
+    assert _count(html, "nrname") == 4
+    assert "SAMPLE" not in html
+    assert ">5<" in html
+    assert "display:grid" not in html and "display:flex" not in html
 
 
-# --- §7.3 fidelity spot-check: verbatim blocker/escalation survive into output --
 def test_fidelity_verbatim_survives(expected):
     import html as _html
 
-    # unescape so the check is on the substance, not on HTML entity encoding of quotes
     out = _html.unescape(render_digest(expected, REPORT_DATE, sample=True))
-    assert "I think tickets aren't up yet to log time." in out
-    assert "didn't have much time to start UI for the wireframe" in out
+    assert "further than" in out
+    assert "Base Template needs your sign-off" in out
 
 
-# --- coverage caveat wording (§11.1) -------------------------------------------
+def test_quiet_day_omits_empty_sections():
+    quiet = {
+        "at_a_glance": {"active": 2, "need_review": 0, "blocked": 0, "no_report": 0},
+        "status": [
+            {"person": "A", "project": "X", "line": "Shipped a small fix."},
+            {"person": "B", "project": "Y", "line": "Sync + polish."},
+        ],
+        "needs_review": [],
+        "open_questions": [],
+        "todays_plans": [{"person": "A", "plan": "Continue X."}],
+        "no_report": [],
+    }
+    html = render_digest(quiet, REPORT_DATE, sample=True)
+    assert "Status" in html
+    assert "Today's plans" in html
+    assert "Needs attention" not in html
+    # No-report section omitted when the list is empty
+    assert html.count("No report") == 1  # KPI label only
+
+
 def test_coverage_incomplete_warns(expected):
     html = render_digest(
-        expected, REPORT_DATE, sample=True,
-        coverage={"accounts_requested": 10, "exports_succeeded": 8,
-                  "exports_failed": 2, "incomplete": True},
+        expected,
+        REPORT_DATE,
+        sample=True,
+        coverage={
+            "accounts_requested": 10,
+            "exports_succeeded": 8,
+            "exports_failed": 2,
+            "incomplete": True,
+        },
     )
-    assert "Coverage incomplete" in html
-    assert "A designer working outside these accounts can surface here wrongly." in html
+    # Coverage is audit-only (run page / flags) — not shown in the email body.
+    assert "Fairwind:" not in html
+    assert "export(s) failed" not in html
 
 
-# --- §7.1 the model actually reproduces the golden digest (needs a key) ---------
 @pytest.mark.llm
 def test_llm_reproduces_golden_counts():
     import os
@@ -105,7 +128,4 @@ def test_llm_reproduces_golden_counts():
     corpus_path = FIXTURE / "corpus.json"
     if not corpus_path.exists():
         pytest.skip("corpus fixture not present")
-
-
-    # (built lazily; the deterministic tests above are the everyday signal)
     pytest.skip("wire roster/registry from DB or seed for the live LLM run")

@@ -1,137 +1,192 @@
 {#
-  Locked digest layout — EMAIL-SAFE (table-based; no flex/grid, which Gmail drops).
-  Rendering lives in code, never in the model. Structure: KPIs → By project [person
-  rows + beyond-the-dailies] → Mentioned-but-not-tracked → No report + availability →
-  Where your action is needed (last). Context: digest (JSON), report_date_label, coverage.
+  Growth-Pulse daily email — EMAIL-SAFE (table-based; no flex/grid).
+  Context: digest, status_groups, on_leave, no_daily, report_date_label, coverage.
 #}<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Design Team — Daily Digest · {{ report_date_label }}</title>
+<title>Design Team — Daily Pulse · {{ report_date_label }}</title>
 <style>
-  body{margin:0;background:#f4f5f7;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6}
+  body{margin:0;background:#eef1f4;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
   table{border-collapse:collapse}
-  .card{background:#fff;border:1px solid #e6e8ec;border-radius:14px}
-  .eyebrow{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:#6b7280;font-weight:700}
-  h1{font-size:23px;line-height:1.15;margin:7px 0 3px}
-  h1 .g{color:#12a594}
-  .sub{color:#6b7280;font-size:13.5px;margin:0}
-  .gg .n{font-size:22px;font-weight:800;color:#0f8a7e;line-height:1}
-  .gg .n.warn{color:#b45309}.gg .n.red{color:#c0392b}
-  .gg .l{font-size:10px;color:#5b6673;padding-top:5px;text-transform:uppercase;letter-spacing:.03em}
-  h2{font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:#0f8a7e;font-weight:700;margin:24px 0 6px}
-  .ptitle{font-weight:750;font-size:16px;border-bottom:2px solid #eef0f2;padding-bottom:5px;margin:16px 0 9px}
-  .untracked{font-size:11px;font-weight:700;color:#b45309;background:#fff5e8;border:1px solid #f5c66b;border-radius:6px;padding:1px 7px;margin-left:8px;letter-spacing:0}
-  .pname{font-weight:700;font-size:14px;margin:6px 0 2px}
-  .k{color:#8a94a1;font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;padding:3px 9px 3px 0}
-  .v{font-size:13.5px;color:#2b3038;padding:3px 0}
-  .k.wait,.k.escal{color:#b45309}.k.blocker{color:#c0392b}.k.heads,.k.jira{color:#1d5fb0}
-  .k.next{color:#8a94a1}.v.next{color:#5b6470}
-  .k.agent{color:#7a6ff0}.v.agent{color:#5b6470;font-style:italic}
-  .beyond{border-left:2px solid #e2e5ea;padding:2px 0 2px 11px;margin:6px 0 4px}
-  .beyond .r{font-size:13px;margin:3px 0;color:#3a424c}
-  .bl{font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;font-weight:700;margin-right:7px}
-  .bl.blocker{color:#c0392b}.bl.escalation{color:#b45309}.bl.heads_up{color:#1d5fb0}
-  .src{color:#9aa2ad;font-size:11.5px}
-  .box{border:1px solid #eceef1;border-radius:10px;margin-top:6px}
-  .nrname{font-weight:600;font-size:13px}
-  .nrctx{color:#8a94a1;font-size:12.5px;padding-top:2px}
-  .leave{color:#0f8a7e;font-weight:600;font-size:11px;background:#e5f6f2;border-radius:20px;padding:1px 8px;margin-left:7px}
-  .coverage{font-size:12px;color:#8a94a1;margin:6px 2px 0}
-  .coverage.warn{color:#b4451f;font-weight:600}
-  .action li{font-size:14px;margin:7px 0;color:#2b3038}
-  .tag{font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;font-weight:700;color:#8a94a1;margin-left:6px}
-  .tag.high{color:#c0392b}
+  .card{background:#fff;border:1px solid #e2e6eb;border-radius:16px}
+  .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6b7280;font-weight:700}
+  h1{font-size:24px;line-height:1.2;margin:8px 0 4px;letter-spacing:-.02em;color:#111827}
+  h1 .g{color:#0f8a7e}
+  .sub{color:#6b7280;font-size:13.5px;margin:0 0 18px;line-height:1.45}
+  .kpis .n{font-size:22px;font-weight:800;line-height:1;color:#0f8a7e}
+  .kpis .n.warn{color:#b45309}.kpis .n.red{color:#c0392b}.kpis .n.mut{color:#9aa2ad}
+  .kpis .l{font-size:10px;color:#5b6673;padding-top:6px;text-transform:uppercase;letter-spacing:.04em;font-weight:650}
+  h2{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:#0f8a7e;font-weight:750;margin:0 0 4px}
+  .hint{font-size:12.5px;color:#8a94a1;margin:0 0 10px;line-height:1.4}
+  .sec{margin-top:22px}
+  .who{font-weight:750;font-size:14px;color:#111827}
+  .meta{font-size:12px;color:#6b7280;font-weight:600;padding-top:3px;line-height:1.4}
+  .body{font-size:13.5px;color:#2b3038;padding-top:6px;line-height:1.45}
+  .body.quote{font-style:italic;color:#33404e}
+  .chip{display:inline-block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:999px;line-height:1.3;margin-right:6px;vertical-align:middle}
+  .chip.block{color:#c0392b;background:#fdecea;border:1px solid #f3c0b8}
+  .chip.rev{color:#b45309;background:#fff5e8;border:1px solid #f3d18a}
+  .chip.leave{color:#0f8a7e;background:#e5f6f2;border:1px solid #bfe9e2}
+  .chip.miss{color:#6b7280;background:#f3f4f6;border:1px solid #e5e7eb}
+  .chip.warn{color:#b45309;background:#fff5e8;border:1px solid #f3d18a}
+  .link{color:#1d5fb0;text-decoration:none;font-weight:700;font-size:12.5px}
+  .projtag{display:inline-block;font-size:11px;font-weight:700;color:#5b6673;background:#f3f4f6;border-radius:6px;padding:1px 7px;margin-left:6px}
+  .status-proj{font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.04em;color:#0f8a7e;padding-bottom:3px}
+  .nrname{font-weight:750;font-size:14px;color:#111827}
+  .nrctx{font-size:12px;color:#6b7280;font-weight:600;padding-top:3px;line-height:1.4}
+  .quiet{color:#8a94a1;font-size:13.5px;padding:14px;text-align:center;margin:0}
   footer{margin-top:22px;font-size:11.5px;line-height:1.55;color:#8a94a1;padding:14px 4px 0;border-top:1px solid #eef0f2}
   footer b{color:#6b7280}
 </style>
 </head>
 <body>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:26px 14px 60px">
-<table role="presentation" width="682" cellpadding="0" cellspacing="0" style="max-width:682px;width:100%">
-<tr><td class="card" style="padding:24px 26px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#eef1f4"><tr><td align="center" style="padding:28px 14px 56px">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%">
+<tr><td class="card" style="padding:26px 28px;background:#ffffff;border:1px solid #e2e6eb;border-radius:16px">
 
-  <div class="eyebrow">Design team · consolidated daily · for Olga</div>
-  <h1><span class="g">Daily Digest</span> — {{ report_date_label }}</h1>
-  <p class="sub">Each designer's daily, grouped by project, with a Jira cross-check and report-day client signal where it adds something.</p>
+  <div class="eyebrow">Design team · for Olga</div>
+  <h1><span class="g">Daily Pulse</span></h1>
+  <p class="sub">{{ report_date_label }} · What moved, what needs you, who’s out or quiet.</p>
 
   {% set g = digest.at_a_glance %}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f2fbf9" style="border:1px solid #d7f0ec;border-radius:11px;margin:16px 0 4px">
+  <table role="presentation" class="kpis" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f2fbf9" style="border:1px solid #d7f0ec;border-radius:12px;overflow:hidden">
     <tr>
-      <td class="gg" width="25%" align="center" style="padding:13px 8px;border-right:1px solid #dcefeb"><div class="n">{{ g.reported }}</div><div class="l">reported</div></td>
-      <td class="gg" width="25%" align="center" style="padding:13px 8px;border-right:1px solid #dcefeb"><div class="n red">{{ g.blocked }}</div><div class="l">blocked</div></td>
-      <td class="gg" width="25%" align="center" style="padding:13px 8px;border-right:1px solid #dcefeb"><div class="n warn">{{ g.escalations }}</div><div class="l">escalations</div></td>
-      <td class="gg" width="25%" align="center" style="padding:13px 8px"><div class="n warn">{{ g.no_report }}</div><div class="l">no report</div></td>
+      <td width="25%" align="center" style="padding:14px 8px;border-right:1px solid #dcefeb">
+        <div class="n">{{ g.active | default(0) }}</div>
+        <div class="l">reported</div>
+      </td>
+      <td width="25%" align="center" style="padding:14px 8px;border-right:1px solid #dcefeb">
+        <div class="n{% if g.need_review %} warn{% endif %}">{{ g.need_review | default(0) }}</div>
+        <div class="l">need review</div>
+      </td>
+      <td width="25%" align="center" style="padding:14px 8px;border-right:1px solid #dcefeb">
+        <div class="n{% if g.blocked %} red{% else %} mut{% endif %}">{{ g.blocked | default(0) }}</div>
+        <div class="l">blocked</div>
+      </td>
+      <td width="25%" align="center" style="padding:14px 8px">
+        <div class="n{% if g.no_report %} warn{% else %} mut{% endif %}">{{ g.no_report | default(0) }}</div>
+        <div class="l">no report</div>
+      </td>
     </tr>
   </table>
 
-  <h2>By project</h2>
+  {% set review = digest.needs_review if digest.needs_review is defined and digest.needs_review is not none else [] %}
+  {% set questions = digest.open_questions if digest.open_questions is defined and digest.open_questions is not none else [] %}
+  {% set plans = digest.todays_plans if digest.todays_plans is defined and digest.todays_plans is not none else [] %}
 
-  {% for project in digest.projects %}
-  <div class="ptitle">{{ project.name }}{% if project.untracked %}<span class="untracked">⚠ export not pulled — enable on Accounts for Jira/client cross-check</span>{% endif %}</div>
-  {% for p in project.people %}
-  <div class="pname">{{ p.name }}</div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-    {% macro line(cls, label, value) %}
-    <tr><td class="k {{ cls }}" width="86" valign="top">{{ label }}</td><td class="v {{ cls }}" valign="top">{{ value }}</td></tr>
-    {% endmacro %}
-    {% if p.done %}{{ line('done', 'Done', p.done) }}{% endif %}
-    {% if p.blocker %}{{ line('blocker', 'Blocker', p.blocker) }}{% endif %}
-    {% if p.waiting %}{{ line('wait', 'Waiting', p.waiting) }}{% endif %}
-    {% if p.escalation %}{{ line('escal', 'Escalation', p.escalation) }}{% endif %}
-    {% if p.heads_up %}{{ line('heads', 'Heads-up', p.heads_up) }}{% endif %}
-    {% if p.next %}{{ line('next', 'Next', p.next) }}{% endif %}
-    {% if p.agent_note %}{{ line('agent', 'Agent', p.agent_note) }}{% endif %}
-    {% if p.jira %}{{ line('jira', ('✓ Jira' if p.jira.kind == 'match' else '🔎 Jira'), p.jira.text) }}{% endif %}
-  </table>
-  {% endfor %}
-  {% if project.beyond_daily %}
-  <div class="beyond">
-    {% for b in project.beyond_daily %}
-    <div class="r"><span class="bl {{ b.kind }}">{{ b.kind | replace('_',' ') }}</span>{{ b.text }}{% if b.source %} <span class="src">— {{ b.source }}</span>{% endif %}</div>
-    {% endfor %}
-  </div>
-  {% endif %}
-  {% endfor %}
-
-  <h2>No report + availability</h2>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="box">
-    {% for nr in digest.no_report %}
-    <tr><td style="padding:8px 12px;{% if not loop.last %}border-bottom:1px solid #f1f2f4{% endif %}">
-      <span class="nrname">{{ nr.name }}</span>{% if nr.status == 'on_leave' %}<span class="leave">on leave</span>{% endif %}
-      <div class="nrctx">{{ nr.context }}</div>
-    </td></tr>
-    {% else %}
-    <tr><td style="padding:8px 12px"><span class="nrname">Everyone active reported.</span></td></tr>
-    {% endfor %}
-  </table>
-  {% if coverage %}
-  <div class="coverage{% if coverage.get('incomplete') %} warn{% endif %}">
-    Coverage: {{ coverage.get('accounts_requested', 0) }} accounts tracked, {{ coverage.get('exports_succeeded', 0) }} returned.
-    A designer working outside these accounts can surface here wrongly.
-    {%- if coverage.get('incomplete') %} ⚠ Coverage incomplete — {{ coverage.get('exports_failed', 0) }} export(s) failed; treat the no-report list with caution.{% endif %}
-  </div>
-  {% endif %}
-
-  <h2>Where your action is needed</h2>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#fffdf6" style="border:1px solid #f5c66b;border-radius:12px;margin-top:10px">
-    <tr><td style="padding:12px 18px 14px">
-    {% if digest.action_needed %}
-    <ol class="action" style="margin:0;padding-left:20px">
-      {% for a in digest.action_needed %}
-      <li>{{ a.text }}{% if a.project %}<span class="tag">{{ a.project }}</span>{% endif %}{% if a.urgency == 'high' %}<span class="tag high">urgent</span>{% endif %}</li>
+  {% if review or questions %}
+  <div class="sec">
+    <h2>Needs attention</h2>
+    <p class="hint">Blockers and slips with a working link, plus verbatim questions — skim this first.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#fffdf8" style="border:1px solid #f3d7b3;border-radius:12px;overflow:hidden">
+      {% for r in review %}
+      <tr><td style="padding:12px 14px;{% if not loop.last or questions %}border-bottom:1px solid #f5e6d0{% endif %}">
+        {% if r.blocked %}<span class="chip block">Blocked</span>{% else %}<span class="chip rev">Review</span>{% endif %}
+        <span class="who">{% if r.who %}{{ r.who }}{% else %}Team{% endif %}</span>
+        {% if r.project %}<span class="projtag">{{ r.project }}</span>{% endif %}
+        <div class="body">{{ r.item }}</div>
+        {% if r.link %}
+        <div class="meta">
+          {% if r.link is string and (r.link.startswith('http://') or r.link.startswith('https://')) %}
+            <a class="link" href="{{ r.link }}">{{ r.link.rsplit('/', 1)[-1] }}</a>
+          {% else %}
+            <span class="link">{{ r.link }}</span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </td></tr>
       {% endfor %}
-    </ol>
-    {% else %}
-    <span style="color:#8a94a1;font-size:13px">Nothing needs you today.</span>
+      {% for q in questions %}
+      <tr><td style="padding:12px 14px;{% if not loop.last %}border-bottom:1px solid #f5e6d0{% endif %}">
+        <span class="chip rev">Question</span>
+        <span class="who">{% if q.who %}{{ q.who }}{% else %}Someone{% endif %}</span>
+        {% if q.project %}<span class="projtag">{{ q.project }}</span>{% endif %}
+        <div class="body quote">“{{ q.question }}”</div>
+      </td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {% if status_groups %}
+  <div class="sec">
+    <h2>Status</h2>
+    <p class="hint">One line per person and project from their daily.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px;overflow:hidden">
+      {% for group in status_groups %}
+      <tr><td bgcolor="#fafbfc" style="padding:10px 14px 6px;border-bottom:1px solid #f1f2f4{% if not loop.first %};border-top:1px solid #eef0f2{% endif %}">
+        <span class="who">{{ group.person }}</span>
+      </td></tr>
+      {% for s in group.lines %}
+      <tr><td style="padding:8px 14px 12px;{% if not loop.last %}border-bottom:1px solid #f7f8fa{% endif %}">
+        {% if s.project %}<div class="status-proj">{{ s.project }}{% if s.untracked %} · <span class="chip warn">export not pulled</span>{% endif %}</div>{% endif %}
+        <div class="body" style="padding-top:0">{{ s.line }}</div>
+      </td></tr>
+      {% endfor %}
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {% if plans %}
+  <div class="sec">
+    <h2>Today's plans</h2>
+    <p class="hint">What each person said they’ll do next.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px;overflow:hidden">
+      {% for p in plans %}
+      <tr><td style="padding:12px 14px;{% if not loop.last %}border-bottom:1px solid #f1f2f4{% endif %}">
+        <span class="who">{{ p.person }}</span>
+        {% if p.leave_upcoming %}<span class="chip leave">Leave soon</span>{% endif %}
+        <div class="body">{{ p.plan }}</div>
+      </td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {% if not status_groups and not review and not questions and not plans %}
+  <div class="sec">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px"><tr><td>
+      <p class="quiet">Quiet day — nothing beyond the glance above.</p>
+    </td></tr></table>
+  </div>
+  {% endif %}
+
+  {% if on_leave or no_daily %}
+  <div class="sec">
+    <h2>No report</h2>
+    <p class="hint">Who didn’t file an internal daily. On leave is expected — not a miss. Notes may still mention Jira work.</p>
+
+    {% if on_leave %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f7fcfb" style="border:1px solid #d7f0ec;border-radius:12px;overflow:hidden;margin-bottom:10px">
+      {% for nr in on_leave %}
+      <tr><td style="padding:12px 14px;{% if not loop.last %}border-bottom:1px solid #e5f3f0{% endif %}">
+        <span class="chip leave">On leave</span>
+        <span class="nrname">{{ nr.name }}</span>
+        {% if nr.context %}<div class="nrctx">{{ nr.context }}</div>{% endif %}
+      </td></tr>
+      {% endfor %}
+    </table>
     {% endif %}
-    </td></tr>
-  </table>
+
+    {% if no_daily %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px;overflow:hidden">
+      {% for nr in no_daily %}
+      <tr><td style="padding:12px 14px;{% if not loop.last %}border-bottom:1px solid #f1f2f4{% endif %}">
+        <span class="chip miss">No report</span>
+        <span class="nrname">{{ nr.name }}</span>
+        {% if nr.context %}<div class="nrctx">{{ nr.context }}</div>{% endif %}
+      </td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <footer>
-    <b>UX/UI design only</b> — PM/dev/QA/SEO work is filtered out before synthesis.
-    Reports are quoted close to verbatim; severity tags and agent notes are the agent's.
+    <b>UX/UI design only</b> · Quiet sections stay hidden. “No report” ≠ idle when the note mentions Jira.
   </footer>
 
 </td></tr>

@@ -32,7 +32,12 @@ from designops.core.models import (
     Project,
     RunDocument,
 )
-from designops.core.projects import enable_accounts_for_jira_keys, jira_project_keys_from_docs
+from designops.core.projects import (
+    enable_accounts_for_jira_keys,
+    ensure_projects_for_jira_keys,
+    jira_project_keys_from_docs,
+    sync_jira_keys_to_projects,
+)
 from designops.core.registry import ProjectRegistry
 from designops.pipelines.daily_digest import _ingest
 from designops.pipelines.email_subjects import email_subject_for_pipeline
@@ -742,16 +747,44 @@ def execute_run(
 
         # Auto-enable Fairwind accounts for Jira projects the team is actually on.
         worked_keys = jira_project_keys_from_docs(all_jira_docs)
+        fw_map: list[dict] = []
+        if settings.fairwind_configured:
+            try:
+                from designops.adapters.fairwind import FairwindClient
+
+                fw_map = FairwindClient(settings).list_jira_projects()
+            except Exception as exc:  # noqa: BLE001
+                coverage["fairwind_jira_map_note"] = f"{type(exc).__name__}: {exc}"
+        ensure_meta = ensure_projects_for_jira_keys(
+            session,
+            worked_keys,
+            fairwind_jira_projects=fw_map,
+            jira_get_project=client.get_project if client else None,
+        )
+        coverage["jira_key_ensure"] = {
+            "ensured": ensure_meta.get("ensured", 0),
+            "linked": len(ensure_meta.get("linked") or []),
+            "created": len(ensure_meta.get("created") or []),
+        }
         newly_enabled = enable_accounts_for_jira_keys(
             session,
             worked_keys,
             enabled_by=settings.setup_owner_email or "weekly-backlog-auto",
         )
+        # Push Account.jira_project_keys → Project (and learn new boards from docs).
+        key_sync = sync_jira_keys_to_projects(session, all_jira_docs)
         coverage["jira_project_keys"] = sorted(worked_keys)
         coverage["accounts_auto_enabled"] = [a.name for a in newly_enabled]
-        if newly_enabled:
+        coverage["jira_key_sync"] = key_sync
+        if (
+            newly_enabled
+            or key_sync.get("projects_synced")
+            or key_sync.get("accounts_learned")
+            or ensure_meta.get("ensured")
+        ):
             project_rows = session.query(Project).all()
-            registry = ProjectRegistry.from_rows(project_rows)
+            account_rows = session.query(Account).all()
+            registry = ProjectRegistry.from_rows(project_rows, accounts=account_rows)
 
         # --- Friday Fairwind dailies (DEV SPEC §4 planned ticket keys) ---
         documents, fri_cov = _ingest(session, friday_date, reuse=reuse_ingest)

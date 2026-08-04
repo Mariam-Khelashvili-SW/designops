@@ -89,11 +89,18 @@ projects:
     notes: "Heaviest design account in the corpus (Kirill + Maarja) yet absent from 17 Jul digest (§11.1). Fetch, don't display-gate."
 
   - canonical_name: "Enmedify"
-    aliases: ["Enmedify", "MediCrops"]  # 'MediCrops' observed in its own transcripts (§11.4)
-    jira_project_key: null
-    fairwind_account_id: null
+    aliases: ["Enmedify", "MediCrops"]  # designers say Enmedify; Fairwind account is MediCrops
+    jira_project_key: "ENUX"
+    fairwind_account_id: "0572dae4-26c8-4055-92a0-5ff4dc2a88ba"
     active: true
-    track_daily: false
+    track_daily: true
+
+  - canonical_name: "SuperPD"
+    aliases: ["SuperPD", "SuperPDP", "Superpdp", "SPDP"]
+    jira_project_key: "SPDP"
+    fairwind_account_id: null  # internal board — no Fairwind client export
+    active: true
+    track_daily: true
 
   - canonical_name: "Jollyes"
     aliases: ["Jollyes"]

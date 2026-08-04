@@ -99,32 +99,45 @@ def synthesize(
 
 
 def _prune_ungrounded(digest: dict, user_content: str, project_names: list[dict]) -> None:
-    """Drop anything the model invented from the registry rather than the corpus: a project
-    GROUP or an `unmatched_projects` entry whose name (or a registry alias of it) doesn't
-    actually appear in the dailies this run. Then recompute the blocked/escalation KPIs
-    over what survives."""
+    """Drop rows whose project name (or a registry alias) never appears in the corpus.
+    Then recompute glance KPIs from what survives. Rows with no project are kept."""
     uc = user_content.lower()
     alias_map = {
         p.get("canonical_name", "").lower(): [p.get("canonical_name", ""), *p.get("aliases", [])]
         for p in project_names
     }
 
-    def grounded(name: str) -> bool:
+    def grounded(name: str | None) -> bool:
+        if not name or not str(name).strip():
+            return True
         candidates = alias_map.get(name.strip().lower(), [name])
         return any(a and a.lower() in uc for a in candidates)
 
-    digest["projects"] = [p for p in digest.get("projects", []) if grounded(str(p.get("name", "")))]
-    ums = digest.get("unmatched_projects")
-    if isinstance(ums, list):
-        digest["unmatched_projects"] = [u for u in ums if grounded(str(u.get("project", "")))]
+    digest["status"] = [
+        s for s in digest.get("status", []) if grounded(s.get("project"))
+    ]
+    digest["needs_review"] = [
+        r for r in digest.get("needs_review", []) if grounded(r.get("project"))
+    ]
+    digest["open_questions"] = [
+        q for q in digest.get("open_questions", []) if grounded(q.get("project"))
+    ]
 
     g = digest.setdefault("at_a_glance", {})
-    people = [pp for p in digest["projects"] for pp in p.get("people", [])]
-    g["blocked"] = sum(1 for pp in people if pp.get("blocker"))
-    g["escalations"] = sum(1 for pp in people if pp.get("escalation"))
+    review = digest.get("needs_review") or []
+    g["need_review"] = len(review)
+    g["blocked"] = sum(1 for r in review if r.get("blocked"))
+    g["active"] = len({s.get("person") for s in digest.get("status", []) if s.get("person")})
 
 
 def _validate_shape(digest: dict) -> None:
-    for key in ("at_a_glance", "projects", "no_report", "action_needed"):
+    for key in (
+        "at_a_glance",
+        "status",
+        "needs_review",
+        "open_questions",
+        "todays_plans",
+        "no_report",
+    ):
         if key not in digest:
             raise ValueError(f"digest JSON missing '{key}': {json.dumps(digest)[:200]}")

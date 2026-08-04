@@ -13,6 +13,7 @@ Delivery is always gated by go_live in the delivery adapter (§12.4).
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -42,10 +43,24 @@ from designops.core.models import (
     RunDocument,
 )
 from designops.core.registry import ProjectRegistry
+from designops.core.projects import (
+    collect_mentioned_fairwind_ids,
+    enable_accounts_for_jira_keys,
+    enable_accounts_for_mentioned_projects,
+    ensure_projects_for_jira_keys,
+    fairwind_account_ids_for_jira_keys,
+    jira_project_keys_from_docs,
+    sync_jira_keys_to_projects,
+)
 from designops.pipelines.email_subjects import email_subject_for_pipeline
 from designops.pipelines.filter import FilterResult, filter_corpus
+from designops.pipelines.leave_from_vacsick import sync_leave_from_vacsick
 from designops.pipelines.render import render_digest
 from designops.pipelines.synthesis import synthesize
+from designops.pipelines.weekly_availability import (
+    week_friday,
+    week_monday_on_or_before,
+)
 
 FIXTURES = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures"
 
@@ -56,8 +71,109 @@ def _now() -> datetime:
 
 # --- ingest -------------------------------------------------------------------
 
+def _digest_enabled_account_ids(session: Session) -> list[str]:
+    return [
+        a.fairwind_account_id
+        for a in session.query(Account).filter_by(digest_enabled=True).all()
+        if a.fairwind_account_id
+    ]
+
+
+def resolve_daily_fairwind_scope(
+    session: Session,
+    roster_rows: list,
+    report_date: date,
+) -> tuple[list[str], list[Document], dict]:
+    """Fairwind accounts to export for a daily: Jira ticket projects (+ later mentions).
+
+    Mirrors weekly backlog: query open assigned issues for the roster, map project
+    keys → Fairwind accounts, auto-enable those accounts. Does **not** fan out to
+    every digest_enabled account — only activity-scoped ones.
+
+    Falls back to digest_enabled when Jira is off or returns no mappable keys.
+    """
+    from designops.adapters.jira import JiraClient, resolve_roster_account_ids
+
+    settings = get_settings()
+    meta: dict = {"fairwind_scope": "jira"}
+    jira_docs: list[Document] = []
+
+    if settings.jira_configured:
+        query_people = [
+            p
+            for p in roster_rows
+            if effective_status(
+                p.status,
+                p.leave_until,
+                report_date,
+                leave_from=getattr(p, "leave_from", None),
+            )
+            != "on_leave"
+        ]
+        id_map = resolve_roster_account_ids(
+            query_people, persist=True, settings=settings
+        )
+        session.flush()
+        meta["jira_account_ids_resolved"] = len(id_map)
+        client = JiraClient(settings)
+        if id_map:
+            jira_docs = client.search_open_assigned(
+                list(id_map.values()),
+                window_from=report_date,
+                window_to=report_date + timedelta(days=1),
+            )
+        keys = jira_project_keys_from_docs(jira_docs)
+        meta["jira_project_keys"] = sorted(keys)
+        meta["jira_docs"] = len(jira_docs)
+
+        # Map unknown keys onto Account/Project (Fairwind jira map + Jira names)
+        # *before* choosing which Fairwind accounts to export.
+        fw_map: list[dict] = []
+        if settings.fairwind_configured:
+            try:
+                from designops.adapters.fairwind import FairwindClient
+
+                fw_map = FairwindClient(settings).list_jira_projects()
+            except Exception as exc:  # noqa: BLE001 — still ensure via Jira names
+                meta["fairwind_jira_map_note"] = f"{type(exc).__name__}: {exc}"
+        ensure_meta = ensure_projects_for_jira_keys(
+            session,
+            keys,
+            fairwind_jira_projects=fw_map,
+            jira_get_project=client.get_project,
+        )
+        meta["jira_key_ensure"] = {
+            "ensured": ensure_meta.get("ensured", 0),
+            "linked": ensure_meta.get("linked", []),
+            "created": ensure_meta.get("created", []),
+        }
+
+        account_ids = sorted(fairwind_account_ids_for_jira_keys(session, keys))
+        newly = enable_accounts_for_jira_keys(
+            session,
+            keys,
+            enabled_by=settings.setup_owner_email or "daily-digest-jira",
+        )
+        meta["accounts_auto_enabled_jira"] = [a.name for a in newly]
+        if account_ids:
+            meta["fairwind_scope"] = "jira"
+            return account_ids, jira_docs, meta
+        meta["fairwind_scope_note"] = "jira returned no mappable Fairwind accounts"
+
+    # Offline / empty Jira — keep prior allowlist so fixtures and local runs still work.
+    fallback = _digest_enabled_account_ids(session)
+    meta["fairwind_scope"] = "digest_enabled_fallback"
+    meta.setdefault("jira_project_keys", [])
+    meta.setdefault("jira_docs", 0)
+    return fallback, jira_docs, meta
+
+
 def _ingest(
-    session: Session, report_date: date, *, reuse: bool = True
+    session: Session,
+    report_date: date,
+    *,
+    reuse: bool = True,
+    account_ids: list[str] | None = None,
 ) -> tuple[list[Document], dict]:
     settings = get_settings()
     fixture = FIXTURES / report_date.isoformat() / "corpus.json"
@@ -68,16 +184,13 @@ def _ingest(
         "exports_failed": 0,
     }
     if settings.fairwind_configured:
-        # allowlist = accounts enabled on the Accounts screen (§11); content relevance
-        # inside each export is the model's call, this only scopes what's fetched.
-        account_ids = [
-            a.fairwind_account_id
-            for a in session.query(Account).filter_by(digest_enabled=True).all()
-            if a.fairwind_account_id
-        ]
+        # Daily passes activity-scoped ids (Jira / mentions). Weekly may omit → all enabled.
+        if account_ids is None:
+            account_ids = _digest_enabled_account_ids(session)
+        else:
+            account_ids = [a for a in account_ids if a]
         # §12.2: reuse a corpus already pulled for this date — but ONLY if it covers every
-        # currently-enabled account. Enabling a new account (or unchecking reuse) forces a
-        # fresh pull, so a newly-enabled account can never be silently missing.
+        # requested account. A newly scoped account forces a fresh pull for gaps.
         if reuse:
             cached = load_corpus(settings, report_date)
             covered = set(corpus_account_ids(settings, report_date))
@@ -85,9 +198,10 @@ def _ingest(
                 docs = list(cached)
                 coverage = {
                     "source": "fairwind-cached",
-                    "accounts_requested": len(covered),
-                    "exports_succeeded": len(covered),
+                    "accounts_requested": len(account_ids),
+                    "exports_succeeded": len(account_ids),
                     "exports_failed": 0,
+                    "accounts_cached_pool": len(covered),
                 }
             else:
                 reuse = False
@@ -100,6 +214,7 @@ def _ingest(
             )
             save_corpus(settings, report_date, docs, account_ids=account_ids)
             coverage["source"] = "fairwind"
+        coverage["account_ids"] = list(account_ids)
     elif fixture.exists():
         docs = load_fixture_corpus(fixture)
         coverage = {
@@ -116,7 +231,8 @@ def _ingest(
             "exports_failed": 0,
         }
 
-    # CRO mailbox — always live (not in Fairwind cache); beyond_daily only.
+    # CRO mailbox — live (not in Fairwind cache). Roster authors = design dailies;
+    # everyone else stays beyond_daily signal in the filter.
     cro_docs, cro_meta = _ingest_cro(report_date, settings)
     if cro_docs:
         docs = list(docs) + cro_docs
@@ -168,7 +284,12 @@ def _synthesize(
     roster_names = [
         {
             "full_name": r.full_name,
-            "status": effective_status(r.status, r.leave_until, report_date),
+            "status": effective_status(
+                r.status,
+                r.leave_until,
+                report_date,
+                leave_from=getattr(r, "leave_from", None),
+            ),
         }
         for r in roster_rows
     ]
@@ -200,70 +321,209 @@ def _synthesize(
 
 # --- orchestration ------------------------------------------------------------
 
-_NOTE_FIELDS = ("blocker", "waiting", "escalation", "heads_up", "agent_note", "jira")
-
-
 def _flag_untracked_projects(digest, registry, enabled_ids, enabled_names) -> None:
-    """Mark each project group `untracked=True` when no export was pulled for it — i.e. it
-    doesn't map to an enabled account. Deterministic (code), so the inline flag is reliable
-    even when the model's own judgement isn't."""
+    """Mark STATUS rows `untracked=True` when a Fairwind export was expected but missing.
+
+    - Unknown project name → untracked (needs an alias / account map).
+    - Known project with no Fairwind account (internal boards) → not untracked;
+      there is nothing to pull.
+    - Known project with Fairwind id not in this run's pulled set → untracked.
+    """
     en = {n.lower() for n in enabled_names}
-    for proj in digest.get("projects", []):
-        name = str(proj.get("name", ""))
+    for row in digest.get("status", []):
+        name = str(row.get("project") or "")
+        if not name:
+            row["untracked"] = False
+            continue
         entry = registry.resolve(name)
-        tracked = bool(entry and entry.fairwind_account_id in enabled_ids) or name.lower() in en
-        proj["untracked"] = not tracked
+        if entry is None:
+            row["untracked"] = True
+            continue
+        if not entry.fairwind_account_id:
+            row["untracked"] = False
+            continue
+        tracked = (
+            entry.fairwind_account_id in enabled_ids or name.lower() in en
+        )
+        row["untracked"] = not tracked
+
+
+_ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
+
+
+def _working_review_link(link: str | None) -> str | None:
+    """Normalize a review link; return None if missing / not usable.
+
+    Tier-1 rule: no link → no review flag. Issue keys become browse URLs when
+    JIRA_BASE_URL is configured.
+    """
+    if link is None:
+        return None
+    raw = str(link).strip()
+    if not raw:
+        return None
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    key = raw.upper()
+    if _ISSUE_KEY_RE.match(key):
+        base = (get_settings().jira_base_url or "").rstrip("/")
+        return f"{base}/browse/{key}" if base else key
+    # Bare project keys (DCP1) are not actionable enough for a review deep-link.
+    return None
 
 
 def _enforce_structure(digest, filtered, roster_rows) -> None:
-    """Enforce the per-person structure (Liana, 22 Jul): `done`/`next` come ONLY from a
-    person's own daily. For anyone who filed no daily, null those out — they may still be
-    listed under a project IF a real Jira/external note surfaced, but never with a
-    fabricated Done. A person entry with nothing left, and a project with no people and no
-    beyond-daily, are removed."""
+    """Growth-Pulse Tier-1 structure.
+
+    - STATUS / TODAY'S PLANS only from designers who filed a daily (never invent).
+    - needs_review rows without a working link are dropped.
+    - open_questions require verbatim question + who.
+    """
     reported = {p.full_name for p in roster_rows if p.id in filtered.reported_person_ids}
-    kept_projects = []
-    for proj in digest.get("projects", []):
-        people = []
-        for pp in proj.get("people", []):
-            if pp.get("name") not in reported:
-                pp["done"] = None       # no daily → no summary of their day
-                pp["next"] = None
-            if pp.get("done") or pp.get("next") or any(pp.get(f) for f in _NOTE_FIELDS):
-                people.append(pp)
-        proj["people"] = people
-        if people or proj.get("beyond_daily"):
-            kept_projects.append(proj)
-    digest["projects"] = kept_projects
-    g = digest.setdefault("at_a_glance", {})
-    allp = [pp for p in kept_projects for pp in p.get("people", [])]
-    g["blocked"] = sum(1 for pp in allp if pp.get("blocker"))
-    g["escalations"] = sum(1 for pp in allp if pp.get("escalation"))
+    digest["status"] = [
+        s for s in (digest.get("status") or [])
+        if s.get("person") in reported and (s.get("line") or "").strip()
+    ]
+    digest["todays_plans"] = [
+        p for p in (digest.get("todays_plans") or [])
+        if p.get("person") in reported and (p.get("plan") or "").strip()
+    ]
+    kept_review = []
+    for r in digest.get("needs_review") or []:
+        if not (r.get("item") or "").strip():
+            continue
+        link = _working_review_link(r.get("link"))
+        if not link:
+            continue
+        r = dict(r)
+        r["link"] = link
+        kept_review.append(r)
+    digest["needs_review"] = kept_review
+    digest["open_questions"] = [
+        q for q in (digest.get("open_questions") or [])
+        if (q.get("question") or "").strip() and (q.get("who") or "").strip()
+    ]
+    # One plan row per person (keep first non-empty if the model duplicated).
+    seen_plans: set[str] = set()
+    deduped_plans = []
+    for p in digest["todays_plans"]:
+        name = p.get("person") or ""
+        if name in seen_plans:
+            continue
+        seen_plans.add(name)
+        deduped_plans.append(p)
+    digest["todays_plans"] = deduped_plans
+
+
+def _leave_context(person) -> str:
+    """Human leave note for the availability section."""
+    leave_from = getattr(person, "leave_from", None)
+    leave_until = person.leave_until
+    if leave_from and leave_until:
+        if leave_from == leave_until:
+            return f"On leave {leave_until.isoformat()}."
+        return f"On leave {leave_from.isoformat()}–{leave_until.isoformat()}."
+    if leave_until:
+        return f"On leave until {leave_until.isoformat()}."
+    return "On leave."
+
+
+def next_working_day(d: date) -> date:
+    """Calendar day after `d`, skipping Saturday/Sunday."""
+    n = d + timedelta(days=1)
+    while n.weekday() >= 5:
+        n += timedelta(days=1)
+    return n
+
+
+def _person_on_leave_day(person, day: date) -> bool:
+    return (
+        effective_status(
+            person.status,
+            person.leave_until,
+            day,
+            leave_from=getattr(person, "leave_from", None),
+        )
+        == "on_leave"
+    )
+
+
+def _annotate_upcoming_leave(digest, roster_rows, report_date: date) -> None:
+    """If someone is on leave the *next* working day (but not today), say so in plans.
+
+    Uses Person leave window (Config + Tempo VACSICK sync). Does not invent leave —
+    only surfaces what is already on the roster. Allowed even when they filed no daily.
+    """
+    nxt = next_working_day(report_date)
+    # e.g. "Tue 5 Aug"
+    nxt_label = nxt.strftime("%a %-d %b").replace(" 0", " ")
+    plans = list(digest.get("todays_plans") or [])
+    by_name = {p.get("person"): p for p in plans if p.get("person")}
+
+    for person in roster_rows:
+        if _person_on_leave_day(person, report_date):
+            continue
+        if not _person_on_leave_day(person, nxt):
+            continue
+        leave_until = person.leave_until
+        if leave_until and leave_until > nxt:
+            note = f"On leave from {nxt_label} (through {leave_until.strftime('%-d %b')})."
+        else:
+            note = f"On leave {nxt_label} (next working day)."
+        existing = by_name.get(person.full_name)
+        if existing is not None:
+            plan = (existing.get("plan") or "").strip()
+            if "on leave" in plan.lower():
+                continue
+            existing["plan"] = f"{plan} · {note}" if plan else note
+        else:
+            row = {"person": person.full_name, "plan": note, "leave_upcoming": True}
+            plans.append(row)
+            by_name[person.full_name] = row
+
+    plans.sort(key=lambda p: (not p.get("leave_upcoming"), p.get("person") or ""))
+    digest["todays_plans"] = plans
 
 
 def _reconcile_availability(digest, filtered, roster_rows, report_date) -> None:
-    """Overwrite `no_report` + its KPI from the filter (authoritative), keeping the model's
-    per-person context where it gave one. Silent = active designer with no daily; plus the
-    on-leave designers. `out` designers were never in the roster."""
+    """Overwrite `no_report` + Growth-Pulse KPIs from the filter (authoritative).
+
+    Silent designers get status=no_report with no subtitle — the chip is enough.
+    On-leave keeps a short date note (not counted in the no_report KPI).
+    """
     people = {p.id: p for p in roster_rows}
-    ctx = {nr.get("name", ""): nr.get("context", "") for nr in digest.get("no_report", [])}
     rows = []
     for pid in filtered.silent_person_ids:
         p = people.get(pid)
         if p:
-            rows.append({"name": p.full_name, "status": "no_report",
-                         "context": ctx.get(p.full_name) or "No daily in the corpus."})
+            rows.append({"name": p.full_name, "status": "no_report", "context": None})
     for p in roster_rows:
-        if effective_status(p.status, p.leave_until, report_date) == "on_leave":
-            note = ctx.get(p.full_name) or (
-                f"On leave{(' until ' + p.leave_until.isoformat()) if p.leave_until else ''}."
+        if (
+            effective_status(
+                p.status,
+                p.leave_until,
+                report_date,
+                leave_from=getattr(p, "leave_from", None),
             )
-            rows.append({"name": p.full_name, "status": "on_leave", "context": note})
+            == "on_leave"
+        ):
+            rows.append({
+                "name": p.full_name,
+                "status": "on_leave",
+                "context": _leave_context(p),
+            })
     rows.sort(key=lambda r: (r["status"] != "no_report", r["name"]))
     digest["no_report"] = rows
+
+    review = digest.get("needs_review") or []
     g = digest.setdefault("at_a_glance", {})
+    g["active"] = len(filtered.reported_person_ids)
+    g["need_review"] = len(review)
+    g["blocked"] = sum(1 for r in review if r.get("blocked"))
     g["no_report"] = sum(1 for r in rows if r["status"] == "no_report")
-    g["reported"] = len(filtered.reported_person_ids)  # designers who filed a daily
+    # Back-compat aliases for older templates / fixtures
+    g["reported"] = g["active"]
+    g["escalations"] = g["need_review"]
 
 
 def create_pending_run(session: Session, report_date: date) -> PipelineRun:
@@ -292,11 +552,23 @@ def execute_run(
     from a background thread with its own session (fetch the run there first)."""
     report_date = run.report_date
     pipeline = session.get(Pipeline, run.pipeline_id)
-    # `out` = former team member — excluded from the digest entirely (never shown).
-    # `on_leave` stays in the roster and shows as on-leave in the availability section.
+    # All DB designers except former members (`out`). `on_leave` stays in the roster
+    # and shows under availability — never counted as a missing daily.
     roster_rows = [p for p in session.query(Person).all() if p.status != "out"]
     project_rows = session.query(Project).all()
+
+    # Tempo VACSICK (≥8h/day) → Person.on_leave before filter/coverage, same as A3.
+    week_mon = week_monday_on_or_before(report_date)
+    leave_cov = sync_leave_from_vacsick(
+        roster_rows,
+        week_monday=week_mon,
+        week_friday=week_friday(week_mon),
+    )
+    if leave_cov.get("updated_names"):
+        session.flush()
+
     roster = RosterIndex.from_rows(roster_rows, report_date)
+    # Registry rebuilt after ingest once Jira keys are synced from accounts/corpus.
     registry = ProjectRegistry.from_rows(project_rows)
 
     filtered = None
@@ -310,7 +582,79 @@ def execute_run(
                 .order_by(IngestBatch.finished_at.desc())
                 .first()
             )
-        documents, coverage = _ingest(session, report_date, reuse=reuse_ingest)
+        # Only Fairwind-export accounts tied to roster Jira tickets (mentions add more below).
+        scoped_ids, jira_docs, scope_meta = resolve_daily_fairwind_scope(
+            session, roster_rows, report_date
+        )
+        documents, coverage = _ingest(
+            session, report_date, reuse=reuse_ingest, account_ids=scoped_ids
+        )
+        coverage["vacsick_leave"] = leave_cov
+        coverage.update(scope_meta)
+        pulled_ids: set[str] = set(scoped_ids)
+
+        # Merge direct Jira issues so ticket context isn't lost when Fairwind is scoped thin.
+        seen_ext = {
+            (d.external_id or "").strip()
+            for d in documents
+            if getattr(d, "external_id", None)
+        }
+        for jd in jira_docs:
+            eid = (jd.external_id or "").strip()
+            if eid and eid not in seen_ext:
+                documents.append(jd)
+                seen_ext.add(eid)
+
+        # Fairwind already knows account→Jira keys; copy them onto Project (+ learn
+        # any new board keys seen on this corpus) so DCP1/JYDP/AAD resolve automatically.
+        key_sync = sync_jira_keys_to_projects(session, documents)
+        coverage["jira_key_sync"] = key_sync
+        project_rows = session.query(Project).all()
+        account_rows = session.query(Account).all()
+        registry = ProjectRegistry.from_rows(project_rows, accounts=account_rows)
+
+        # Second pass: projects named in dailies that weren't in the Jira set → pull those too.
+        mentioned_fw = collect_mentioned_fairwind_ids(documents, registry)
+        settings = get_settings()
+        newly_enabled = enable_accounts_for_mentioned_projects(
+            session,
+            fairwind_account_ids=mentioned_fw,
+            enabled_by=settings.setup_owner_email or "daily-digest-auto",
+        )
+        coverage["accounts_auto_enabled"] = [a.name for a in newly_enabled]
+        need_ids = sorted(mentioned_fw - pulled_ids)
+        if need_ids and settings.fairwind_configured:
+            try:
+                client = FairwindClient(settings)
+                extra_docs, extra_cov = client.prepare_corpus(
+                    need_ids,
+                    report_date,
+                    window_end=report_date + timedelta(days=1),
+                )
+                if extra_docs:
+                    documents = list(documents) + list(extra_docs)
+                pulled_ids |= set(need_ids)
+                save_corpus(
+                    settings, report_date, documents, account_ids=sorted(pulled_ids)
+                )
+                coverage["mention_exports_succeeded"] = extra_cov.get(
+                    "exports_succeeded", 0
+                )
+                coverage["mention_exports_failed"] = extra_cov.get("exports_failed", 0)
+                coverage["mention_account_ids"] = need_ids
+                if extra_cov.get("exports_failed"):
+                    coverage["incomplete"] = True
+                key_sync2 = sync_jira_keys_to_projects(session, extra_docs)
+                coverage["jira_key_sync_mentions"] = key_sync2
+                project_rows = session.query(Project).all()
+                account_rows = session.query(Account).all()
+                registry = ProjectRegistry.from_rows(project_rows, accounts=account_rows)
+            except Exception as exc:  # noqa: BLE001 — enable still sticks; gap noted
+                coverage["mention_export_note"] = f"{type(exc).__name__}: {exc}"
+
+        coverage["accounts_pulled"] = sorted(pulled_ids)
+        coverage["accounts_requested"] = len(pulled_ids)
+
         if batch is None:
             batch = IngestBatch(
                 report_date=report_date,
@@ -333,25 +677,55 @@ def execute_run(
         filtered = filter_corpus(
             documents, roster, registry, report_date, account_names=account_names
         )
-        # "Tracked" = both the enabled account names AND the canonical project names whose
-        # account is enabled — designers mention project names (Enmedify, UG), which don't
-        # always equal the account name (MediCrops, The Universal Group).
-        enabled_accts = session.query(Account).filter_by(digest_enabled=True).all()
-        enabled_ids = {a.fairwind_account_id for a in enabled_accts}
+        # "Tracked" this run = accounts we actually exported (Jira + mention scope),
+        # not the full historical digest_enabled list.
+        pulled_accts = [
+            a
+            for a in session.query(Account).all()
+            if a.fairwind_account_id and a.fairwind_account_id in pulled_ids
+        ]
+        enabled_ids = set(pulled_ids)
         tracked = sorted(
-            {a.name for a in enabled_accts}
-            | {p.canonical_name for p in project_rows if p.fairwind_account_id in enabled_ids}
+            {a.name for a in pulled_accts}
+            | {
+                p.canonical_name
+                for p in project_rows
+                if p.fairwind_account_id in enabled_ids
+            }
         )
         digest, synth = _synthesize(
             filtered, report_date, roster_rows, project_rows, tracked_accounts=tracked
         )
-        # Enforce the per-person structure (done/next only from a daily; drop fabricated
-        # entries) then set the availability + KPIs authoritatively from the filter.
+        # Growth-Pulse: enforce status/plans from dailies only; set availability + KPIs.
         _enforce_structure(digest, filtered, roster_rows)
+        # Safety net: status projects still marked untracked → enable + pull next time via mentions.
+        status_names = {
+            str(s.get("project") or "").strip()
+            for s in (digest.get("status") or [])
+            if s.get("project")
+        }
+        more = enable_accounts_for_mentioned_projects(
+            session,
+            project_names=status_names,
+            enabled_by=get_settings().setup_owner_email or "daily-digest-auto",
+        )
+        if more:
+            coverage.setdefault("accounts_auto_enabled", [])
+            coverage["accounts_auto_enabled"] = sorted(
+                set(coverage["accounts_auto_enabled"]) | {a.name for a in more}
+            )
+            for a in more:
+                if a.fairwind_account_id:
+                    enabled_ids.add(a.fairwind_account_id)
         _flag_untracked_projects(
-            digest, registry, enabled_ids, {a.name for a in enabled_accts}
+            digest,
+            registry,
+            enabled_ids,
+            {a.name for a in pulled_accts}
+            | {a.name for a in more},
         )
         _reconcile_availability(digest, filtered, roster_rows, report_date)
+        _annotate_upcoming_leave(digest, roster_rows, report_date)
         incomplete = coverage.get("exports_failed", 0) > 0
         html = render_digest(
             digest, report_date, sample=True, coverage={**coverage, "incomplete": incomplete}

@@ -35,15 +35,51 @@ class ProjectRegistry:
         self._by_account: dict[str, ProjectEntry] = {}
         for entry, aliases in entries:
             for a in [entry.canonical_name, *aliases]:
-                self._by_alias[normalize(a)] = entry
+                key = normalize(a)
+                existing = self._by_alias.get(key)
+                # Prefer the mapping that has a Fairwind account (Enmedify seed vs MediCrops).
+                if existing is None or (
+                    not existing.fairwind_account_id and entry.fairwind_account_id
+                ):
+                    self._by_alias[key] = entry
+                raw = (a or "").strip()
+                if raw and " " not in raw and raw.replace("_", "").isalnum():
+                    jk = raw.upper()
+                    prev = self._by_jira_key.get(jk)
+                    if prev is None or (
+                        not prev.fairwind_account_id and entry.fairwind_account_id
+                    ):
+                        self._by_jira_key[jk] = entry
             if entry.jira_project_key:
-                self._by_jira_key[entry.jira_project_key.upper()] = entry
+                jk = entry.jira_project_key.upper()
+                prev = self._by_jira_key.get(jk)
+                if prev is None or (
+                    not prev.fairwind_account_id and entry.fairwind_account_id
+                ):
+                    self._by_jira_key[jk] = entry
             if entry.fairwind_account_id:
                 self._by_account[entry.fairwind_account_id] = entry
 
     @classmethod
-    def from_rows(cls, rows) -> ProjectRegistry:
-        return cls(
+    def from_rows(cls, rows, accounts=None) -> ProjectRegistry:
+        """Build registry from Project rows.
+
+        Optional ``accounts``: also index every ``Account.jira_project_keys`` entry to
+        the project linked by ``fairwind_account_id``. Fairwind often lists many boards
+        per client (Amiel → AAD, AMIEL, …); only syncing ``Project.jira_project_key``
+        would miss the rest.
+
+        Rows with a Fairwind account are indexed first so a linked MediCrops wins
+        over an orphan Enmedify seed that shares aliases.
+        """
+        ordered = sorted(
+            rows,
+            key=lambda r: (
+                0 if getattr(r, "fairwind_account_id", None) else 1,
+                (getattr(r, "canonical_name", None) or ""),
+            ),
+        )
+        reg = cls(
             [
                 (
                     ProjectEntry(
@@ -54,9 +90,28 @@ class ProjectRegistry:
                     ),
                     list(r.aliases or []),
                 )
-                for r in rows
+                for r in ordered
             ]
         )
+        if not accounts:
+            return reg
+        by_fw = {
+            e.fairwind_account_id: e
+            for e in reg._entries
+            if e.fairwind_account_id
+        }
+        for acct in accounts:
+            fw = (getattr(acct, "fairwind_account_id", None) or "").strip()
+            entry = by_fw.get(fw)
+            if entry is None:
+                continue
+            for k in getattr(acct, "jira_project_keys", None) or []:
+                key = str(k).strip().upper()
+                if not key:
+                    continue
+                reg._by_jira_key[key] = entry
+                reg._by_alias[normalize(key)] = entry
+        return reg
 
     def resolve(self, text: str | None) -> ProjectEntry | None:
         """Exact (normalized) alias match. None = unmatched → Unassigned + flag."""
