@@ -100,9 +100,8 @@ def test_next_morning_internal_daily_kept_client_and_jira_strict(roster, registr
                    event_date=REPORT_DATE),
     ]
     result = filter_corpus(docs, r, registry, REPORT_DATE)
-    assert _included_ids(result) == {"late_am", "onday"}
+    assert _included_ids(result) == {"late_am", "onday", "client_next"}
     assert _reason(result, "late_pm") == str(ExclusionReason.AFTER_REPORT_DAY)
-    assert _reason(result, "client_next") == str(ExclusionReason.AFTER_REPORT_DAY)
     assert _reason(result, "jira_next") == str(ExclusionReason.AFTER_REPORT_DAY)
 
 
@@ -187,7 +186,7 @@ def test_cro_gmail_goes_to_beyond_daily_not_reported(roster, registry):
         body="Please share the latest PLP.",
         raw={"folder": "cro", "mailbox": "cro@scandiweb.com", "from": "Client <client@acer.com>"},
     )
-    # Wrong day → drop
+    # Wrong day (afternoon) → drop
     cro_next = Document(
         source="gmail",
         external_id="gmail-2",
@@ -195,6 +194,7 @@ def test_cro_gmail_goes_to_beyond_daily_not_reported(roster, registry):
         author_identity="client@acer.com",
         title="Tomorrow",
         body="…",
+        sent_at=datetime(NEXT_DAY.year, NEXT_DAY.month, NEXT_DAY.day, 15, 0),
         raw={"folder": "cro", "mailbox": "cro@scandiweb.com"},
     )
     result = filter_corpus([cro, cro_next], roster, registry, REPORT_DATE)
@@ -229,3 +229,57 @@ def test_cro_gmail_from_roster_counts_as_reported(roster, registry):
     assert member is not None
     assert member.id in result.reported_person_ids
     assert result.coverage_ratio == 1 / roster.active_count
+
+
+def test_cro_gmail_late_next_morning_non_roster_is_beyond_daily(roster, registry):
+    """Late-morning cro@ from someone off the roster → beyond_daily, not a hard drop."""
+    from datetime import timezone
+
+    from designops.adapters.documents import Document
+
+    late = Document(
+        source="gmail",
+        external_id="gmail-late-anastasia",
+        event_date=NEXT_DAY,
+        author_identity="anastasia.papaskua@scandiweb.com",
+        title="Re: Daily Reports - AUGUST",
+        body="Project X: shipped wireframes",
+        sent_at=datetime(NEXT_DAY.year, NEXT_DAY.month, NEXT_DAY.day, 1, 25, tzinfo=timezone(timedelta(hours=4))),
+        raw={
+            "folder": "cro",
+            "mailbox": "cro@scandiweb.com",
+            "from": "Anastasia Papaskua <anastasia.papaskua@scandiweb.com>",
+        },
+    )
+    result = filter_corpus([late], roster, registry, REPORT_DATE)
+    assert _included_ids(result) == set()
+    assert result.beyond_daily
+    assert result.beyond_daily[0].document.external_id == "gmail-late-anastasia"
+    assert _reason(result, "gmail-late-anastasia") == "beyond_daily"
+
+
+def test_cro_gmail_late_next_morning_counts_as_reported(roster, registry):
+    """Predrag/Maarja-style: cro@ daily sent early next morning still counts."""
+    from datetime import timezone
+
+    from designops.adapters.documents import Document
+
+    late = Document(
+        source="gmail",
+        external_id="gmail-late-predrag",
+        event_date=NEXT_DAY,
+        author_identity="predrag.gavrilovikj@scandiweb.com",
+        title="Re: Daily Report | Predrag",
+        body="Northerner: continued wireframes",
+        sent_at=datetime(NEXT_DAY.year, NEXT_DAY.month, NEXT_DAY.day, 1, 27, tzinfo=timezone(timedelta(hours=2))),
+        raw={
+            "folder": "cro",
+            "mailbox": "cro@scandiweb.com",
+            "from": "Predrag Gavrilovikj <predrag.gavrilovikj@scandiweb.com>",
+        },
+    )
+    result = filter_corpus([late], roster, registry, REPORT_DATE)
+    assert "gmail-late-predrag" in _included_ids(result)
+    member = roster.resolve("predrag.gavrilovikj@scandiweb.com")
+    assert member is not None
+    assert member.id in result.reported_person_ids

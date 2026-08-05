@@ -11,12 +11,16 @@ from designops.adapters.tempo import (
     normalize_tempo_worklog,
 )
 from designops.core.enums import PersonStatus
+from designops.core.models import Person
 from designops.pipelines.leave_from_vacsick import (
     LEAVE_DAY_HOURS_THRESHOLD,
     apply_leave_from_days,
+    contiguous_leave_blocks,
     detect_leave_from_worklogs,
     hours_by_day,
     leave_days_from_hours,
+    leave_sync_until,
+    pick_leave_window,
     sync_leave_from_vacsick,
 )
 from designops.pipelines.weekly_availability import availability_marker
@@ -136,15 +140,31 @@ def test_hours_by_day_filters_account_and_window():
     assert by_day == {date(2026, 8, 4): 8.0}
 
 
+def test_contiguous_leave_blocks_and_pick_window():
+    days = [date(2026, 8, 3), date(2026, 8, 4), date(2026, 8, 5), date(2026, 8, 14)]
+    assert contiguous_leave_blocks(days) == [
+        (date(2026, 8, 3), date(2026, 8, 5)),
+        (date(2026, 8, 14), date(2026, 8, 14)),
+    ]
+    window, on_today = pick_leave_window(contiguous_leave_blocks(days), date(2026, 8, 4))
+    assert window == (date(2026, 8, 3), date(2026, 8, 5))
+    assert on_today is True
+    window, on_today = pick_leave_window(contiguous_leave_blocks(days), date(2026, 8, 7))
+    assert window == (date(2026, 8, 14), date(2026, 8, 14))
+    assert on_today is False
+
+
 def test_apply_leave_sets_status_and_leave_until():
     p = _person()
-    assert apply_leave_from_days(p, [date(2026, 8, 4), date(2026, 8, 6)]) is True
+    ref = date(2026, 8, 4)
+    # Non-contiguous days: only the block containing reference_date (Aug 4)
+    assert apply_leave_from_days(p, [date(2026, 8, 4), date(2026, 8, 6)], reference_date=ref) is True
     assert p.status == PersonStatus.ON_LEAVE
     assert p.leave_from == date(2026, 8, 4)
-    assert p.leave_until == date(2026, 8, 6)
-    # Extends later leave_until; keeps earlier leave_from
-    assert apply_leave_from_days(p, [date(2026, 8, 7)]) is True
-    assert p.leave_from == date(2026, 8, 4)
+    assert p.leave_until == date(2026, 8, 4)
+    # Reference moves into the later block
+    assert apply_leave_from_days(p, [date(2026, 8, 4), date(2026, 8, 6), date(2026, 8, 7)], reference_date=date(2026, 8, 7)) is True
+    assert p.leave_from == date(2026, 8, 6)
     assert p.leave_until == date(2026, 8, 7)
     # Empty days — no clear
     assert apply_leave_from_days(p, []) is False
@@ -194,7 +214,7 @@ def test_detect_leave_and_availability_out_partial():
         },
     ]
     dets = detect_leave_from_worklogs(
-        [kirill, arturs], worklogs, week_monday=mon, week_friday=fri
+        [kirill, arturs], worklogs, week_monday=mon, week_friday=fri, reference_date=mon
     )
     assert len(dets) == 1
     assert dets[0].full_name == "Kirill Rogovets"
@@ -229,6 +249,90 @@ def test_detect_leave_and_availability_out_partial():
         )
         == "PARTIAL"
     )
+
+
+def test_detect_leave_spans_multiple_weeks():
+    """Contiguous VACSICK Mon–Fri + later days → one block through last day."""
+    from uuid import uuid4
+
+    dorota = Person(
+        id=uuid4(),
+        full_name="Dorota Umiastowska",
+        emails=["dorota@example.com"],
+        jira_account_id="acct-dorota",
+        status=PersonStatus.ACTIVE,
+        leave_from=None,
+        leave_until=None,
+    )
+    worklogs = [
+        {
+            "account_id": "acct-dorota",
+            "started": date(2026, 8, d),
+            "hours": 8.0,
+            "issue_key": "VACSICK-1",
+        }
+        for d in range(5, 20)  # Aug 5–19 contiguous
+    ]
+    dets = detect_leave_from_worklogs(
+        [dorota],
+        worklogs,
+        week_monday=date(2026, 8, 3),
+        week_friday=date(2026, 8, 30),
+        reference_date=date(2026, 8, 5),
+    )
+    assert len(dets) == 1
+    assert dets[0].leave_from == date(2026, 8, 5)
+    assert dets[0].leave_until == date(2026, 8, 19)
+    assert dorota.leave_until == date(2026, 8, 19)
+
+
+def test_predrag_sparse_vacsick_does_not_bridge_gap():
+    """Single sick day + later sick day must not show as one Mon–Fri vacation."""
+    predrag = _person(
+        full_name="Predrag Gavrilovikj",
+        jira_account_id="acct-predrag",
+    )
+    worklogs = [
+        {
+            "account_id": "acct-predrag",
+            "started": date(2026, 8, 3),
+            "hours": 8.0,
+            "issue_key": "VACSICK-1",
+        },
+        {
+            "account_id": "acct-predrag",
+            "started": date(2026, 8, 14),
+            "hours": 8.0,
+            "issue_key": "VACSICK-2",
+        },
+    ]
+    dets = detect_leave_from_worklogs(
+        [predrag],
+        worklogs,
+        week_monday=date(2026, 8, 3),
+        week_friday=date(2026, 8, 30),
+        reference_date=date(2026, 8, 4),
+    )
+    assert len(dets) == 1
+    assert dets[0].leave_from == date(2026, 8, 14)
+    assert dets[0].leave_until == date(2026, 8, 14)
+    assert predrag.leave_from == date(2026, 8, 14)
+    assert predrag.leave_until == date(2026, 8, 14)
+    from designops.core.identity import effective_status
+
+    assert (
+        effective_status(
+            predrag.status,
+            predrag.leave_until,
+            date(2026, 8, 4),
+            leave_from=predrag.leave_from,
+        )
+        == PersonStatus.ACTIVE
+    )
+
+
+def test_leave_sync_until_extends_past_report_week():
+    assert leave_sync_until(date(2026, 8, 3), date(2026, 8, 7)) == date(2026, 8, 30)
 
 
 def test_sync_leave_noop_without_tempo_token(monkeypatch):

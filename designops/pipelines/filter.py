@@ -42,35 +42,55 @@ def _is_internal_daily(doc: Document) -> bool:
     )
 
 
-def _is_beyond_daily(doc: Document, report_date: date) -> bool:
-    """Report-day, non-roster signal the model may mine for blockers/escalations no daily
-    carried: meeting transcript, outbound client-facing Fairwind email, or cro@ mailbox mail
-    from someone *not* on the design roster (client / other). Report DAY only.
-    """
-    if doc.event_date != report_date:
+def is_late_morning_window(doc: Document, report_date: date) -> bool:
+    """Shared AM grace: filed the morning after report_date, before noon."""
+    if doc.event_date != report_date + timedelta(days=1):
         return False
-    if doc.source == "transcript":
-        return True
-    # CRO shared inbox — only non-roster authors (roster cro mail = their daily).
+    return doc.sent_at is None or doc.sent_at.hour < _LATE_REPORT_CUTOFF_HOUR
+
+
+def is_late_morning_daily(doc: Document, report_date: date) -> bool:
+    """True when a design daily was filed the morning after report_date (before noon)."""
+    return is_late_morning_window(doc, report_date) and _is_internal_daily(doc)
+
+
+def is_late_morning_external(doc: Document, report_date: date) -> bool:
+    """Outbound client mail filed the next morning — still tied to the report day."""
+    folder = (doc.raw or {}).get("folder")
+    return is_late_morning_window(doc, report_date) and folder == "external"
+
+
+def _is_beyond_daily(doc: Document, report_date: date) -> bool:
+    """Report-day (or late-morning cro@) non-roster signal the model may mine for
+    blockers/escalations no daily carried: transcript, client-facing email, or cro@ mail
+    from someone *not* on the design roster."""
+    if doc.event_date == report_date:
+        if doc.source == "transcript":
+            return True
+        # CRO shared inbox — only non-roster authors (roster cro mail = their daily).
+        if doc.source == "gmail" and doc.raw.get("folder") == "cro":
+            return True
+        return (
+            doc.raw.get("folder") == "external"
+            and doc.author_identity.endswith("@scandiweb.com")
+        )
+    # Late-morning cro@ from non-roster (still a daily thread landing in cro@).
     if doc.source == "gmail" and doc.raw.get("folder") == "cro":
-        return True
-    return (
-        doc.raw.get("folder") == "external"
-        and doc.author_identity.endswith("@scandiweb.com")
-    )
+        return is_late_morning_daily(doc, report_date)
+    return False
 
 
 def _temporal_verdict(doc: Document, report_date: date, next_day: date) -> str | None:
     """None = in scope; otherwise the exclusion reason. Channel-aware (§ user 21 Jul):
-    Jira + external email → report day only; internal dailies → report day or next AM."""
+    Jira → report day only; internal dailies → report day or next AM; roster external
+    mail → report day or next AM."""
     ed = doc.event_date
     if ed == report_date:
         return None
-    if _is_internal_daily(doc) and ed == next_day:
-        # a late daily written the next morning still belongs to the report day
-        if doc.sent_at is None or doc.sent_at.hour < _LATE_REPORT_CUTOFF_HOUR:
-            return None
-        return str(ExclusionReason.AFTER_REPORT_DAY)
+    if _is_internal_daily(doc) and ed == next_day and is_late_morning_window(doc, report_date):
+        return None
+    if is_late_morning_external(doc, report_date):
+        return None
     return str(
         ExclusionReason.AFTER_REPORT_DAY if ed > report_date
         else ExclusionReason.BEFORE_REPORT_DAY

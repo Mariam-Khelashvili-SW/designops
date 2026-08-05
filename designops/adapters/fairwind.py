@@ -139,7 +139,9 @@ class FairwindClient:
         types = data_types if data_types is not None else self.s.fw_data_types
         return self._post_export(account_id, date_from, date_to, types)
 
-    def poll_export(self, export_id: str, *, timeout_s: int = 300, interval_s: int = 5) -> dict:
+    def poll_export(
+        self, export_id: str, *, timeout_s: int = 300, interval_s: float = 5
+    ) -> dict:
         deadline = self._clock() + timeout_s
         while self._clock() < deadline:
             r = self._get(f"/api/v1/exports/{export_id}")
@@ -243,9 +245,10 @@ class FairwindClient:
         account_ids: list[str],
         report_date: date,
         *,
-        concurrency: int = 3,
+        concurrency: int | None = None,
         data_types: list[str] | None = None,
         window_end: date | None = None,
+        poll_interval_s: float | None = None,
     ) -> tuple[list[Document], dict]:
         """Fan out one export per account (bounded concurrency), union + persist.
         Returns (documents, coverage) where coverage records requested/succeeded/failed
@@ -258,18 +261,30 @@ class FairwindClient:
 
         Each account: create → poll → download the ZIP bundle → extract → parse the real
         thread/Jira tree (parse_export_dir). Uses the reliable zip path, never per-file
-        streaming. data_types defaults to settings.fw_data_types."""
+        streaming. data_types defaults to settings.fw_data_types.
+
+        Concurrency defaults to settings.fw_export_concurrency (8); poll interval to
+        settings.fw_export_poll_interval_s (2s).
+        """
         end = window_end or report_date
         results: dict[str, list[Document]] = {}
         failed: list[str] = []
         per_account: dict[str, int] = {}
+        n = len(account_ids)
+        workers = concurrency if concurrency is not None else int(self.s.fw_export_concurrency)
+        workers = max(1, min(workers, n or 1))
+        interval = (
+            poll_interval_s
+            if poll_interval_s is not None
+            else float(self.s.fw_export_poll_interval_s)
+        )
 
         def _one(account_id: str) -> None:
             try:
                 export_id = self.create_export_range(
                     account_id, report_date, end, data_types=data_types
                 )
-                self.poll_export(export_id)
+                self.poll_export(export_id, interval_s=interval)
                 manifest = self.download_manifest(export_id)
                 blob = self.download_zip(export_id)
                 root = Path(self.s.corpus_store_dir) / account_id / report_date.isoformat()
@@ -285,8 +300,9 @@ class FairwindClient:
                 per_account[account_id] = 0
                 _log_account_failure(account_id, exc)
 
-        with ThreadPoolExecutor(max_workers=concurrency) as pool:
-            list(pool.map(_one, account_ids))
+        if account_ids:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                list(pool.map(_one, account_ids))
 
         documents = [d for docs in results.values() for d in docs]
         coverage = {
@@ -296,6 +312,8 @@ class FairwindClient:
             "failed_accounts": failed,
             "docs_per_account": per_account,
             "data_types": data_types if data_types is not None else self.s.fw_data_types,
+            "concurrency": workers,
+            "poll_interval_s": interval,
         }
         return documents, coverage
 

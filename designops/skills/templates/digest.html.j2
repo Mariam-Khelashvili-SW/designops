@@ -32,6 +32,7 @@
   .chip.miss{color:#6b7280;background:#f3f4f6;border:1px solid #e5e7eb}
   .chip.warn{color:#b45309;background:#fff5e8;border:1px solid #f3d18a}
   .link{color:#1d5fb0;text-decoration:none;font-weight:700;font-size:12.5px}
+  .ev{display:block;font-size:11.5px;color:#6b7280;font-weight:600;padding-top:4px;font-style:normal}
   .projtag{display:inline-block;font-size:11px;font-weight:700;color:#5b6673;background:#f3f4f6;border-radius:6px;padding:1px 7px;margin-left:6px}
   .status-proj{font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.04em;color:#0f8a7e;padding-bottom:3px}
   .nrname{font-weight:750;font-size:14px;color:#111827}
@@ -74,7 +75,6 @@
 
   {% set review = digest.needs_review if digest.needs_review is defined and digest.needs_review is not none else [] %}
   {% set questions = digest.open_questions if digest.open_questions is defined and digest.open_questions is not none else [] %}
-  {% set plans = digest.todays_plans if digest.todays_plans is defined and digest.todays_plans is not none else [] %}
 
   {% if review or questions %}
   <div class="sec">
@@ -104,25 +104,45 @@
         <span class="who">{% if q.who %}{{ q.who }}{% else %}Someone{% endif %}</span>
         {% if q.project %}<span class="projtag">{{ q.project }}</span>{% endif %}
         <div class="body quote">“{{ q.question }}”</div>
+        {% if q.link or q.evidence %}
+        <div class="meta">
+          {% if q.link %}
+            {% if q.link is string and (q.link.startswith('http://') or q.link.startswith('https://')) %}
+              <a class="link" href="{{ q.link }}">{{ q.link.rsplit('/', 1)[-1] }}</a>
+            {% else %}
+              <span class="link">{{ q.link }}</span>
+            {% endif %}
+          {% endif %}
+          {% if q.evidence %}<span class="ev">Source: {{ q.evidence }}</span>{% endif %}
+        </div>
+        {% endif %}
       </td></tr>
       {% endfor %}
     </table>
   </div>
   {% endif %}
 
-  {% if status_groups %}
+  {% if project_groups %}
   <div class="sec">
-    <h2>Status</h2>
-    <p class="hint">One line per person and project from their daily.</p>
+    <h2>By project</h2>
+    <p class="hint">Done and next under each project, from their dailies.</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px;overflow:hidden">
-      {% for group in status_groups %}
-      <tr><td bgcolor="#fafbfc" style="padding:10px 14px 6px;border-bottom:1px solid #f1f2f4{% if not loop.first %};border-top:1px solid #eef0f2{% endif %}">
-        <span class="who">{{ group.person }}</span>
+      {% for group in project_groups %}
+      <tr><td bgcolor="#f2fbf9" style="padding:12px 14px 8px;border-bottom:1px solid #d7f0ec{% if not loop.first %};border-top:1px solid #e5f3f0{% endif %}">
+        <span class="who" style="color:#0f8a7e;text-transform:none;letter-spacing:0;font-size:15px">{{ group.project }}</span>
+        {% if group.untracked %}<span class="chip warn">export not pulled</span>{% endif %}
       </td></tr>
-      {% for s in group.lines %}
-      <tr><td style="padding:8px 14px 12px;{% if not loop.last %}border-bottom:1px solid #f7f8fa{% endif %}">
-        {% if s.project %}<div class="status-proj">{{ s.project }}{% if s.untracked %} · <span class="chip warn">export not pulled</span>{% endif %}</div>{% endif %}
-        <div class="body" style="padding-top:0">{{ s.line }}</div>
+      {% for p in group.people %}
+      <tr><td style="padding:12px 14px;border-bottom:1px solid #f1f2f4">
+        <div class="who">{{ p.person }}</div>
+        {% if p.done %}
+        <div class="meta" style="padding-top:8px;color:#0f8a7e;text-transform:uppercase;letter-spacing:.06em;font-size:10px">Done</div>
+        <div class="body" style="padding-top:2px">{{ p.done }}</div>
+        {% endif %}
+        {% if p.next %}
+        <div class="meta" style="padding-top:8px;color:#0f8a7e;text-transform:uppercase;letter-spacing:.06em;font-size:10px">Next</div>
+        <div class="body" style="padding-top:2px">{{ p.next }}</div>
+        {% endif %}
       </td></tr>
       {% endfor %}
       {% endfor %}
@@ -130,15 +150,21 @@
   </div>
   {% endif %}
 
-  {% if plans %}
+  {% if leave_plans or other_plans %}
   <div class="sec">
-    <h2>Today's plans</h2>
-    <p class="hint">What each person said they’ll do next.</p>
+    <h2>{% if leave_plans and not other_plans %}Upcoming leave{% else %}Other plans{% endif %}</h2>
+    <p class="hint">{% if leave_plans and not other_plans %}Leave starting the next working day.{% else %}Cross-project plans and leave notes not tied to one project above.{% endif %}</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px;overflow:hidden">
-      {% for p in plans %}
+      {% for p in leave_plans %}
+      <tr><td style="padding:12px 14px;{% if not loop.last or other_plans %}border-bottom:1px solid #f1f2f4{% endif %}">
+        <span class="who">{{ p.person }}</span>
+        <span class="chip leave">Leave soon</span>
+        <div class="body">{{ p.plan }}</div>
+      </td></tr>
+      {% endfor %}
+      {% for p in other_plans %}
       <tr><td style="padding:12px 14px;{% if not loop.last %}border-bottom:1px solid #f1f2f4{% endif %}">
         <span class="who">{{ p.person }}</span>
-        {% if p.leave_upcoming %}<span class="chip leave">Leave soon</span>{% endif %}
         <div class="body">{{ p.plan }}</div>
       </td></tr>
       {% endfor %}
@@ -146,7 +172,7 @@
   </div>
   {% endif %}
 
-  {% if not status_groups and not review and not questions and not plans %}
+  {% if not project_groups and not review and not questions and not leave_plans and not other_plans %}
   <div class="sec">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px"><tr><td>
       <p class="quiet">Quiet day — nothing beyond the glance above.</p>
@@ -157,7 +183,7 @@
   {% if on_leave or no_daily %}
   <div class="sec">
     <h2>No report</h2>
-    <p class="hint">Who didn’t file an internal daily. On leave is expected — not a miss. Notes may still mention Jira work.</p>
+    <p class="hint">Who didn’t file an internal daily. On leave is expected — not a miss.</p>
 
     {% if on_leave %}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f7fcfb" style="border:1px solid #d7f0ec;border-radius:12px;overflow:hidden;margin-bottom:10px">

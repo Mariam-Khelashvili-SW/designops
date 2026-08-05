@@ -62,6 +62,11 @@ class Settings(BaseSettings):
             return [t.strip() for t in v.split(",") if t.strip()]
         return v
 
+    # Parallel Fairwind exports (create→poll→download per account). Higher = faster
+    # digests when many mentioned accounts; keep modest to avoid 409 storms.
+    fw_export_concurrency: int = Field(default=8, alias="FW_EXPORT_CONCURRENCY")
+    fw_export_poll_interval_s: float = Field(default=2.0, alias="FW_EXPORT_POLL_INTERVAL_S")
+
     # Anthropic
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     digest_model: str = Field(default="claude-opus-4-8", alias="DIGEST_MODEL")

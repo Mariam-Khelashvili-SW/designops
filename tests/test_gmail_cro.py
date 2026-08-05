@@ -2,11 +2,40 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
 from designops.adapters.gmail import cro_mailbox_query
+
+
+def test_is_late_morning_daily_cro():
+    from designops.adapters.documents import Document
+    from designops.pipelines.filter import is_late_morning_daily
+
+    report = date(2026, 8, 4)
+    next_day = date(2026, 8, 5)
+
+    def cro(author: str, *, day, hour: int | None, eid: str) -> Document:
+        return Document(
+            source="gmail",
+            external_id=eid,
+            event_date=day,
+            author_identity=author,
+            title="Daily",
+            body="…",
+            sent_at=(
+                None
+                if hour is None
+                else datetime(day.year, day.month, day.day, hour, 0, tzinfo=timezone.utc)
+            ),
+            raw={"folder": "cro"},
+        )
+
+    assert is_late_morning_daily(cro("a@x.com", day=next_day, hour=8, eid="1"), report)
+    assert is_late_morning_daily(cro("a@x.com", day=next_day, hour=1, eid="2"), report)
+    assert not is_late_morning_daily(cro("a@x.com", day=next_day, hour=14, eid="3"), report)
+    assert not is_late_morning_daily(cro("a@x.com", day=report, hour=9, eid="4"), report)
 
 
 def test_cro_mailbox_query_requires_address():

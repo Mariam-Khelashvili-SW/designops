@@ -62,9 +62,9 @@ def test_render_dom_structure(expected):
     html = render_digest(expected, REPORT_DATE, sample=True)
     assert "Daily Pulse" in html
     assert "need review" in html
-    assert "Status" in html
+    assert "By project" in html
     assert "Needs attention" in html
-    assert "Today's plans" in html
+    assert "Other plans" in html  # cross-project Club Portal line
     assert "No report" in html
     # Quiet-day rule: empty open_questions → no standalone questions section
     assert "Open questions" not in html
@@ -86,20 +86,45 @@ def test_quiet_day_omits_empty_sections():
     quiet = {
         "at_a_glance": {"active": 2, "need_review": 0, "blocked": 0, "no_report": 0},
         "status": [
-            {"person": "A", "project": "X", "line": "Shipped a small fix."},
-            {"person": "B", "project": "Y", "line": "Sync + polish."},
+            {"person": "A", "project": "X", "done": "Shipped a small fix.", "next": "Continue X."},
+            {"person": "B", "project": "Y", "done": "Sync + polish.", "next": ""},
         ],
         "needs_review": [],
         "open_questions": [],
-        "todays_plans": [{"person": "A", "plan": "Continue X."}],
+        "todays_plans": [],
         "no_report": [],
     }
     html = render_digest(quiet, REPORT_DATE, sample=True)
-    assert "Status" in html
-    assert "Today's plans" in html
+    assert "By project" in html
+    assert "Done" in html
+    assert "Next" in html
     assert "Needs attention" not in html
     # No-report section omitted when the list is empty
     assert html.count("No report") == 1  # KPI label only
+
+
+def test_render_groups_by_project_with_done_next():
+    digest = {
+        "at_a_glance": {"active": 2, "need_review": 0, "blocked": 0, "no_report": 0},
+        "status": [
+            {"person": "Arturs Boroviks", "project": "Acer", "done": "PLP work.", "next": "Kick-off."},
+            {"person": "Dorota Umiastowska", "project": "Acer", "done": "CMS tweaks.", "next": ""},
+            {"person": "Dorota Umiastowska", "project": "SGD", "done": "Finished PLP.", "next": "PDP."},
+        ],
+        "needs_review": [],
+        "open_questions": [],
+        "todays_plans": [],
+        "no_report": [],
+    }
+    html = render_digest(digest, REPORT_DATE, sample=True)
+    # Project headers before people
+    acer_i = html.index("Acer")
+    sgd_i = html.index("SGD")
+    assert acer_i < sgd_i
+    assert html.index("Arturs Boroviks") > acer_i
+    assert "PLP work." in html
+    assert "Kick-off." in html
+    assert "Finished PLP." in html
 
 
 def test_coverage_incomplete_warns(expected):

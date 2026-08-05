@@ -9,47 +9,56 @@
     {
       "person": "Arturs Boroviks",
       "project": "Acer",
-      "line": "Started PLP pages; built PLP components (product pods, filters); shared updates; catch-up with Dorota."
+      "done": "Started PLP pages; built PLP components (product pods, filters); shared updates; catch-up with Dorota.",
+      "next": "Continue PLP + components; client kick-off — present Base Template & Homepage."
     },
     {
       "person": "Dorota Umiastowska",
       "project": "Acer",
-      "line": "Client call; adjusting registration, cart and CMS pages; client comms via Figma."
+      "done": "Client call; adjusting registration, cart and CMS pages; client comms via Figma.",
+      "next": "Call with Acer; My Account."
     },
     {
       "person": "Dorota Umiastowska",
       "project": "Sports Group Denmark",
-      "line": "Finished PLP; started PDP; scheduled a QA call for Monday with Viktoria."
+      "done": "Finished PLP; started PDP; scheduled a QA call for Monday with Viktoria.",
+      "next": ""
     },
     {
       "person": "Elene Chekurishvili",
       "project": "Felco",
-      "line": "Finalised all July creatives and email creatives; FELCO colours landing page + feedback."
+      "done": "Finalised all July creatives and email creatives; FELCO colours landing page + feedback.",
+      "next": ""
     },
     {
       "person": "Elene Chekurishvili",
       "project": "The Furniture Trader",
-      "line": "Finished the My Account designs."
+      "done": "Finished the My Account designs.",
+      "next": ""
     },
     {
       "person": "Elene Chekurishvili",
       "project": "Reuzel",
-      "line": "Emails finished and shared with the client; second part (14 new) planned mid next week."
+      "done": "Emails finished and shared with the client; second part (14 new) planned mid next week.",
+      "next": ""
     },
     {
       "person": "Elene Chekurishvili",
       "project": "Redeker Aesthetics",
-      "line": "Made two videos for socials."
+      "done": "Made two videos for socials.",
+      "next": ""
     },
     {
       "person": "Kirill Rogovets",
       "project": "University of Michigan",
-      "line": "Continued working on the Base Template."
+      "done": "Continued working on the Base Template.",
+      "next": "Finalise the Base Template; start the Home Page."
     },
     {
       "person": "Predrag Gavrilovikj",
       "project": "Northerner / Nicokick",
-      "line": "Finished Subscription LP; wrapped PLP filters & sorting; prepped breakpoint aspect ratios; sent to US team."
+      "done": "Finished Subscription LP; wrapped PLP filters & sorting; prepped breakpoint aspect ratios; sent to US team.",
+      "next": "Finish aspect ratios → US team; wrap the Friend Referral page."
     }
   ],
   "needs_review": [
@@ -71,20 +80,8 @@
   "open_questions": [],
   "todays_plans": [
     {
-      "person": "Arturs Boroviks",
-      "plan": "Continue PLP + components; client kick-off — present Base Template & Homepage."
-    },
-    {
       "person": "Dorota Umiastowska",
-      "plan": "Call with Acer; My Account. Internal call about the Club Portal."
-    },
-    {
-      "person": "Kirill Rogovets",
-      "plan": "Finalise the Base Template; start the Home Page."
-    },
-    {
-      "person": "Predrag Gavrilovikj",
-      "plan": "Finish aspect ratios → US team; wrap the Friend Referral page."
+      "plan": "Internal call about the Club Portal."
     }
   ],
   "no_report": [

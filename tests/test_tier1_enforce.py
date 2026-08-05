@@ -36,11 +36,11 @@ def test_enforce_drops_linkless_review_and_unowned_questions():
     filtered = SimpleNamespace(reported_person_ids={reported_id})
     digest = {
         "status": [
-            {"person": "Dorota Umiastowska", "project": "Acer", "line": "Adjusted CMS."},
-            {"person": "Elene Chekurishvili", "project": "FT", "line": "Invented."},
+            {"person": "Dorota Umiastowska", "project": "Acer", "done": "Adjusted CMS.", "next": "My Account."},
+            {"person": "Elene Chekurishvili", "project": "FT", "done": "Invented.", "next": ""},
         ],
         "todays_plans": [
-            {"person": "Dorota Umiastowska", "plan": "My Account."},
+            {"person": "Dorota Umiastowska", "plan": "Club Portal sync."},
             {"person": "Elene Chekurishvili", "plan": "Should not keep."},
         ],
         "needs_review": [
@@ -59,15 +59,28 @@ def test_enforce_drops_linkless_review_and_unowned_questions():
         ],
         "open_questions": [
             {"question": "Can we ship?", "who": "Dorota Umiastowska"},
+            {
+                "question": "Which pages go live?",
+                "who": "Mariam Makharadze",
+                "project": "Enmedify",
+                "evidence": 'email "Preparing for Phase 2 go live", 5 Aug',
+                "link": "MEDPPC-12",
+            },
             {"question": "Orphan ask", "who": ""},
         ],
     }
     _enforce_structure(digest, filtered, roster)
     assert [s["person"] for s in digest["status"]] == ["Dorota Umiastowska"]
+    assert digest["status"][0]["done"] == "Adjusted CMS."
+    assert digest["status"][0]["next"] == "My Account."
     assert [p["person"] for p in digest["todays_plans"]] == ["Dorota Umiastowska"]
     assert len(digest["needs_review"]) == 1
     assert digest["needs_review"][0]["link"].endswith("UOM-482") or digest["needs_review"][0][
         "link"
     ] == "UOM-482"
-    assert len(digest["open_questions"]) == 1
+    assert len(digest["open_questions"]) == 2
     assert digest["open_questions"][0]["who"] == "Dorota Umiastowska"
+    q2 = digest["open_questions"][1]
+    assert q2["who"] == "Mariam Makharadze"
+    assert q2["evidence"].startswith("email")
+    assert q2["link"].endswith("MEDPPC-12") or q2["link"] == "MEDPPC-12"

@@ -207,6 +207,21 @@ def _alias_token_re(alias: str) -> re.Pattern:
     return _ALIAS_TOKEN_RE_CACHE[alias]
 
 
+def collect_fairwind_ids_from_jira_documents(documents: list, registry) -> set[str]:
+    """Fairwind account ids for projects touched in report-day Jira (late internal dailies)."""
+    found: set[str] = set()
+    for doc in documents or []:
+        if getattr(doc, "source", None) != "jira":
+            continue
+        hint = getattr(doc, "project_hint", None)
+        entry = None
+        if hint:
+            entry = registry.resolve_jira_key(hint) or registry.resolve(hint)
+        if entry and entry.fairwind_account_id:
+            found.add(entry.fairwind_account_id)
+    return found
+
+
 def collect_mentioned_fairwind_ids(documents: list, registry) -> set[str]:
     """Fairwind account ids for projects named in *designer dailies*.
 

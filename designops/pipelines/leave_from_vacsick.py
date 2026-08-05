@@ -23,6 +23,9 @@ from designops.core.models import Person
 # One full day logged to VACSICK ⇒ that calendar day is leave.
 LEAVE_DAY_HOURS_THRESHOLD = 8.0
 
+# Tempo fetch window: report week plus ~4 weeks so multi-week vacations extend leave_until.
+LEAVE_SYNC_HORIZON_DAYS = 28
+
 # Fallback when Jira cannot resolve Tempo issue ids.
 _LEAVE_DESC_MARKERS = (
     "vacation",
@@ -78,6 +81,45 @@ def leave_days_from_hours(
     return [d for d, h in sorted(day_hours.items()) if h >= threshold]
 
 
+def contiguous_leave_blocks(days: list[date]) -> list[tuple[date, date]]:
+    """Group leave days into contiguous calendar ranges (no gap-filling)."""
+    if not days:
+        return []
+    sorted_days = sorted(set(days))
+    blocks: list[tuple[date, date]] = []
+    start = end = sorted_days[0]
+    for d in sorted_days[1:]:
+        if (d - end).days == 1:
+            end = d
+        else:
+            blocks.append((start, end))
+            start = end = d
+    blocks.append((start, end))
+    return blocks
+
+
+def pick_leave_window(
+    blocks: list[tuple[date, date]],
+    reference_date: date,
+) -> tuple[tuple[date, date] | None, bool]:
+    """Choose leave_from/until for the roster relative to a report/sync day.
+
+    Returns (window, on_leave_today). When the reference day falls inside a block,
+    that block is used and on_leave_today is True. Otherwise the next future block
+    is stored (status stays on_leave with a future leave_from for upcoming notes).
+    Past-only blocks clear the window (None).
+    """
+    if not blocks:
+        return None, False
+    for start, end in blocks:
+        if start <= reference_date <= end:
+            return (start, end), True
+    future = next((b for b in blocks if b[0] > reference_date), None)
+    if future:
+        return future, False
+    return None, False
+
+
 def is_leave_description(description: str | None) -> bool:
     text = (description or "").strip().lower()
     if not text:
@@ -88,29 +130,46 @@ def is_leave_description(description: str | None) -> bool:
 def apply_leave_from_days(
     person: Person,
     leave_days: list[date],
+    *,
+    reference_date: date | None = None,
 ) -> bool:
-    """Set person on_leave for [min(days), max(days)]. Returns True if changed.
+    """Apply VACSICK leave using contiguous blocks only (not min/max of all days).
 
     Never touches status=out. Never clears leave when leave_days is empty.
-    Sets leave_from so mid-week starts become PARTIAL on the weekly board.
-    Merges with an existing leave window (earlier start / later end).
+    Sets leave_from/leave_until to the block containing reference_date, or the
+    next upcoming block when between/absent — never bridges a gap (e.g. Mon + Fri
+    sick days must not imply Mon–Fri vacation).
     """
     if not leave_days:
         return False
     if person.status == PersonStatus.OUT:
         return False
 
-    start = min(leave_days)
-    until = max(leave_days)
+    ref = reference_date or date.today()
+    window, _on_leave_today = pick_leave_window(
+        contiguous_leave_blocks(leave_days), ref
+    )
     changed = False
+    if window is None:
+        if person.status == PersonStatus.ON_LEAVE:
+            person.status = PersonStatus.ACTIVE
+            changed = True
+        if person.leave_from is not None:
+            person.leave_from = None
+            changed = True
+        if person.leave_until is not None:
+            person.leave_until = None
+            changed = True
+        return changed
+
+    start, until = window
     if person.status != PersonStatus.ON_LEAVE:
         person.status = PersonStatus.ON_LEAVE
         changed = True
-    existing_from = getattr(person, "leave_from", None)
-    if existing_from is None or start < existing_from:
+    if person.leave_from != start:
         person.leave_from = start
         changed = True
-    if person.leave_until is None or person.leave_until < until:
+    if person.leave_until != until:
         person.leave_until = until
         changed = True
     return changed
@@ -181,15 +240,24 @@ def filter_vacsick_worklogs(
     return kept
 
 
+def leave_sync_until(week_monday: date, week_friday: date | None = None) -> date:
+    """Last calendar day to scan in Tempo for VACSICK (multi-week vacations)."""
+    fri = week_friday or (week_monday + timedelta(days=4))
+    horizon_end = week_monday + timedelta(days=LEAVE_SYNC_HORIZON_DAYS - 1)
+    return max(fri, horizon_end)
+
+
 def detect_leave_from_worklogs(
     people: list[Person],
     worklogs: list[dict],
     *,
     week_monday: date,
     week_friday: date,
+    reference_date: date | None = None,
     threshold: float = LEAVE_DAY_HOURS_THRESHOLD,
 ) -> list[LeaveDetection]:
     """Pure detection + in-memory Person updates from normalized worklogs."""
+    ref = reference_date or week_monday
     results: list[LeaveDetection] = []
     for person in people:
         aid = (person.jira_account_id or "").strip()
@@ -201,14 +269,16 @@ def detect_leave_from_worklogs(
         days = leave_days_from_hours(by_day, threshold=threshold)
         if not days:
             continue
-        updated = apply_leave_from_days(person, days)
+        updated = apply_leave_from_days(person, days, reference_date=ref)
+        window, _ = pick_leave_window(contiguous_leave_blocks(days), ref)
+        leave_from, leave_until = window if window else (min(days), max(days))
         results.append(
             LeaveDetection(
                 person_id=str(person.id),
                 full_name=person.full_name,
                 leave_days=tuple(days),
-                leave_from=min(days),
-                leave_until=max(days),
+                leave_from=leave_from,
+                leave_until=leave_until,
                 total_hours=round(sum(by_day[d] for d in days), 2),
                 updated=updated,
             )
@@ -221,6 +291,7 @@ def sync_leave_from_vacsick(
     *,
     week_monday: date,
     week_friday: date | None = None,
+    reference_date: date | None = None,
     settings: Settings | None = None,
     client: TempoClient | None = None,
 ) -> dict:
@@ -231,6 +302,7 @@ def sync_leave_from_vacsick(
     """
     s = settings or get_settings()
     fri = week_friday or (week_monday + timedelta(days=4))
+    sync_to = leave_sync_until(week_monday, fri)
     if not s.tempo_configured:
         return {
             "configured": False,
@@ -249,7 +321,7 @@ def sync_leave_from_vacsick(
     # Do not pass project= — Tempo Cloud returns 400 for project=VACSICK.
     all_logs = tempo.list_worklogs(
         from_date=week_monday,
-        to_date=fri,
+        to_date=sync_to,
         project=None,
         account_ids=account_ids or None,
     )
@@ -257,12 +329,17 @@ def sync_leave_from_vacsick(
     issue_meta = resolve_issue_projects(issue_ids, settings=s)
     worklogs = filter_vacsick_worklogs(all_logs, issue_meta=issue_meta)
     detections = detect_leave_from_worklogs(
-        people, worklogs, week_monday=week_monday, week_friday=fri
+        people,
+        worklogs,
+        week_monday=week_monday,
+        week_friday=sync_to,
+        reference_date=reference_date or week_monday,
     )
     return {
         "configured": True,
         "fetched": len(worklogs),
         "fetched_all": len(all_logs),
+        "sync_until": sync_to.isoformat(),
         "detections": [
             {
                 "name": d.full_name,

@@ -89,7 +89,7 @@ def test_reconcile_marks_on_leave_not_no_report():
     )
     by_name = {r["name"]: r for r in digest["no_report"]}
     assert by_name["Kirill Rogovets"]["status"] == "on_leave"
-    assert by_name["Kirill Rogovets"]["context"] == "On leave 2026-08-04."
+    assert by_name["Kirill Rogovets"]["context"] == "On leave Tue 4 Aug."
     assert by_name["Arturs Boroviks"]["status"] == "no_report"
     assert by_name["Arturs Boroviks"]["context"] in (None, "")
     assert digest["at_a_glance"]["no_report"] == 1
@@ -102,7 +102,7 @@ def test_leave_context_range():
         leave_from=date(2026, 8, 3),
         leave_until=date(2026, 8, 5),
     )
-    assert _leave_context(p) == "On leave 2026-08-03–2026-08-05."
+    assert _leave_context(p) == "On leave from Mon 3 Aug (through 5 Aug)."
 
 
 def test_daily_execute_syncs_vacsick(monkeypatch):
@@ -113,9 +113,10 @@ def test_daily_execute_syncs_vacsick(monkeypatch):
     report_date = date(2026, 8, 4)  # Tuesday
     seen: dict = {}
 
-    def fake_sync(people, *, week_monday, week_friday=None, settings=None, client=None):
+    def fake_sync(people, *, week_monday, week_friday=None, reference_date=None, settings=None, client=None):
         seen["week_monday"] = week_monday
         seen["week_friday"] = week_friday
+        seen["reference_date"] = reference_date
         seen["people"] = [p.full_name for p in people]
         return {
             "configured": True,
@@ -263,6 +264,7 @@ def test_daily_execute_syncs_vacsick(monkeypatch):
     dd.execute_run(FakeSession(), run, reuse_ingest=False)
     assert seen["week_monday"] == date(2026, 8, 3)
     assert seen["week_friday"] == date(2026, 8, 7)
+    assert seen["reference_date"] == report_date
     assert "Kirill Rogovets" in seen["people"]
     assert seen.get("flushed") is True
     assert run.status in (RunStatus.OK, RunStatus.FLAGGED)
