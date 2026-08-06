@@ -86,6 +86,8 @@ was pulled.
   up, the upgrade path is an external cron hitting an endpoint, or Temporal — not needed now.)
 - **Cost** — roughly a few USD/month (small service + Postgres) plus the per-run Anthropic
   tokens (~$0.30–0.60 each).
-- **`go_live`** — the delivery adapter's separate hard gate is bypassed by the app's own
-  "Email recipients" send path; the real gate is the schedule card's **On** + **Delivery**
-  + recipients. Keep Delivery = "Generate only" until you've eyeballed a few live runs.
+- **`go_live`** — delivery adapter hard gate. Daily + weekly pipelines auto-promote
+  `go_live=true` on boot (same as weekly). Emails still only leave via:
+  (1) schedule with Delivery = **Email recipients**, or (2) the run-page **Send** button.
+  Manual **Generate** always forces `send_mode=none` (never emails). Keep Delivery =
+  "Generate only" until you've eyeballed a few live runs.

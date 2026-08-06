@@ -27,7 +27,9 @@ def ensure_pipelines(session: Session) -> list[str]:
                 recipients=[],
                 send_mode="none",
                 enabled=False,
-                go_live=False,
+                # Same gate as weekly: schedule "Email recipients" + run-page Send
+                # can deliver; manual Generate still forces send_mode=none.
+                go_live=True,
                 config={
                     "source_mode": "fairwind",
                     "min_coverage": 0.6,
@@ -37,6 +39,14 @@ def ensure_pipelines(session: Session) -> list[str]:
             )
         )
         created.append("daily-digest")
+    else:
+        # Promote delivery gate so schedule "Email recipients" + run-page Send work
+        # (Generate remains send_mode=none). Same pattern as weekly pipelines.
+        daily = session.query(Pipeline).filter_by(key="daily-digest").one()
+        if not daily.go_live:
+            daily.go_live = True
+            session.add(daily)
+            created.append("daily-digest:go_live")
 
     if session.query(Pipeline).filter_by(key="weekly-backlog").one_or_none() is None:
         session.add(
