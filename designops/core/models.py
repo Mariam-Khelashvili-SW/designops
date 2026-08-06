@@ -264,3 +264,35 @@ class Flag(Base):
     run: Mapped[PipelineRun] = relationship(back_populates="flags")
     # No uniqueness on (run_id, type, project_id, person_id): a run can raise several
     # unmatched_project flags that all carry null project/person, distinguished by body.
+
+
+class CallSummaryDraft(Base):
+    """Client confirmation email draft from a design call (never sent from here).
+
+    Transcript text lives in transcript-processor; we store only the draft + metadata
+    keyed by their transcript id string.
+    """
+
+    __tablename__ = "call_summary_draft"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    transcript_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    transcript_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    account_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewer_notes: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    extraction_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    transcript_quality: Mapped[str | None] = mapped_column(String, nullable=True)
+    low_confidence: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    placeholder_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    designer_recipient_emails: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    owner_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    policy_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    policy_block_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cost_usd: Mapped[float] = mapped_column(Numeric(10, 4), default=0, nullable=False)

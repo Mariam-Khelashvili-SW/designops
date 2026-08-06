@@ -1,0 +1,25 @@
+# Project link registry for call-summary drafts (spec §5).
+# Prefer keys that match the call's Jira board (e.g. SGDB2B), not the whole
+# Fairwind account — a B2B weekly must not pull Club Portal (SGDCP) links.
+#
+# Explicit Figma/Notion URLs in the transcript always win; registry fills
+# named artifacts that have no URL ("the checkout wireframes in Figma").
+#
+# Override / extend via Pipeline.config.link_registry in the DB if needed.
+#
+# Notion page *content* via API is not wired yet — only URLs for the link map.
+
+projects:
+  SGDB2B:
+    notion_brief: "https://www.notion.so/scandiweb/Sports-Group-Denmark-B2B-249c346d72c0801a9ee3f569398af15d"
+    figma:
+      - name: "SW_EXT_SportsShop_B2B"
+        url: "https://www.figma.com/design/fA2bj1XNF1JiohrbdC6iqh/SW_EXT_SportsShop_B2B"
+      - name: "B2B Sports Shop"
+        url: "https://www.figma.com/design/fA2bj1XNF1JiohrbdC6iqh/SW_EXT_SportsShop_B2B"
+  SGDCP:
+    figma: []
+  SGDP1:
+    figma: []
+  SGD:
+    figma: []

@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+{% block title %}Call summary — Design Ops{% endblock %}
+{% block body %}
+<h1>Call summary</h1>
+<p class="sub">Client confirmation email drafts from design calls. Nothing is sent — drafts are stored for review.</p>
+
+{% if flash %}
+<div class="banner {% if flash_type=='error' %}warn{% else %}ok{% endif %}" style="{% if flash_type!='error' %}background:#e5f6f2;border:1px solid #9fd9cc;color:#0f5c54{% endif %}">{{ flash }}{% if pending_tid %} <span class="spin"></span>{% endif %}</div>
+{% endif %}
+{% if pending_tid and pending_since %}
+<script>
+(function () {
+  var tid = {{ pending_tid|tojson }};
+  var since = {{ pending_since|tojson }};
+  var tab = {{ tab|tojson }};
+  function poll() {
+    fetch('/call-summary/pending-status?pending=' + encodeURIComponent(tid) + '&pending_since=' + encodeURIComponent(since) + '&tab=' + encodeURIComponent(tab), {
+      headers: { 'Accept': 'application/json' },
+      credentials: 'same-origin'
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (!data || data.status === 'pending') {
+        setTimeout(poll, 3000);
+        return;
+      }
+      if (data.redirect) {
+        window.location.replace(data.redirect);
+        return;
+      }
+      if (data.status === 'ready' && data.draft_id) {
+        window.location.replace('/call-summary?tab=drafts&draft_id=' + encodeURIComponent(data.draft_id) + '&flash=Draft+generated');
+        return;
+      }
+      if (data.status === 'error') {
+        var msg = data.error || 'Generation failed';
+        window.location.replace('/call-summary?tab=' + encodeURIComponent(tab) + '&flash=' + encodeURIComponent(msg) + '&flash_type=error');
+        return;
+      }
+      setTimeout(poll, 3000);
+    }).catch(function () {
+      setTimeout(poll, 4000);
+    });
+  }
+  setTimeout(poll, 3000);
+})();
+</script>
+{% endif %}
+
+{% if not anthropic_ready %}
+<div class="banner warn">ANTHROPIC_API_KEY is not set — generation will fail.</div>
+{% endif %}
+{% if not transcript_api_ready %}
+<div class="banner warn">Transcript API is not configured (TRANSCRIPT_API_BASE_URL / TRANSCRIPT_API_TOKEN).</div>
+{% endif %}
+
+<div class="card" style="padding:0;overflow:hidden">
+  <div style="display:flex;gap:0;border-bottom:1px solid var(--line)">
+    <a href="/call-summary?tab=designers" style="padding:10px 16px;text-decoration:none;font-size:13px;font-weight:600;{% if tab=='designers' %}color:var(--ink);border-bottom:2px solid var(--teal){% else %}color:var(--mut){% endif %}">Designers</a>
+    <a href="/call-summary?tab=calls{% if q %}&amp;q={{ q }}{% endif %}" style="padding:10px 16px;text-decoration:none;font-size:13px;font-weight:600;{% if tab=='calls' %}color:var(--ink);border-bottom:2px solid var(--teal){% else %}color:var(--mut){% endif %}">Calls{% if tab=='calls' %} ({{ calls_total }}){% endif %}</a>
+    <a href="/call-summary?tab=drafts{% if draft_id %}&amp;draft_id={{ draft_id }}{% endif %}" style="padding:10px 16px;text-decoration:none;font-size:13px;font-weight:600;{% if tab=='drafts' %}color:var(--ink);border-bottom:2px solid var(--teal){% else %}color:var(--mut){% endif %}">Drafts{% if tab=='drafts' and drafts_total is defined %} ({{ drafts_total }}){% endif %}</a>
+  </div>
+
+  {% if tab == 'designers' %}
+  <div style="padding:18px 20px">
+    <p class="sub" style="margin-top:0">Include people by roster role and/or manual email. Role matches are substring (e.g. “Designer” includes “Designer (Creatives)”).</p>
+    <form method="post" action="/call-summary/designers">
+      <div class="row" style="margin-bottom:14px">
+        <div>
+          <label>Include roles (comma-separated)</label>
+          <input name="include_roles" value="{{ include_roles_csv }}" style="min-width:280px" />
+        </div>
+      </div>
+      <div style="margin-bottom:14px">
+        <label>Roster (check to include regardless of role)</label>
+        <div style="max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:4px">
+          {% for p in people %}
+          <label style="display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid #f1f2f4;color:inherit;margin:0">
+            <input type="checkbox" name="person_id" value="{{ p.id }}" {% if p.id|string in selected_person_ids %}checked{% endif %} />
+            <span style="flex:1">{{ p.full_name }}{% if p.role %} <span style="color:var(--mut);font-size:12px">· {{ p.role }}</span>{% endif %}</span>
+            <span class="mono" style="color:var(--mut)">{{ (p.emails or [''])[0] }}</span>
+          </label>
+          {% else %}
+          <p style="padding:12px;color:var(--mut);margin:0">No people in roster. Seed or add via Config.</p>
+          {% endfor %}
+        </div>
+      </div>
+      <div style="margin-bottom:14px">
+        <label>Extra emails (one per line)</label>
+        <textarea name="manual_emails" rows="4" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">{{ manual_emails_text }}</textarea>
+      </div>
+      <p style="font-size:12px;color:var(--mut)">Resolved designers right now: <strong>{{ designer_count }}</strong></p>
+      <button class="btn" type="submit">Save</button>
+    </form>
+  </div>
+
+  {% elif tab == 'calls' %}
+  <div style="padding:14px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <form method="get" action="/call-summary" style="display:flex;gap:8px;flex:1;min-width:200px">
+      <input type="hidden" name="tab" value="calls" />
+      <input type="search" name="q" value="{{ q }}" placeholder="Search by call, account, or designer…" style="flex:1;min-width:180px" />
+      <button class="btn sm" type="submit">Search</button>
+    </form>
+    <span style="font-size:12px;color:var(--mut)">{{ calls_total }} matching call{% if calls_total != 1 %}s{% endif %}{% if q %} for “{{ q }}”{% endif %}</span>
+  </div>
+  {% if designer_count == 0 %}
+  <div style="padding:40px;text-align:center;color:var(--mut)">
+    No designers configured yet.
+    <div style="margin-top:8px"><a href="/call-summary?tab=designers">Choose designers →</a></div>
+  </div>
+  {% elif not calls %}
+  <div style="padding:40px;text-align:center;color:var(--mut)">
+    {% if q %}No calls match that search.{% else %}No external calls found with those designers.{% endif %}
+  </div>
+  {% else %}
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Call</th><th>Account</th><th>Designers</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for c in calls %}
+        <tr>
+          <td class="mono" style="white-space:nowrap">{{ (c.event_start_time or '')[:10] or '—' }}</td>
+          <td>{{ c.name }}</td>
+          <td>{{ c.account_name or '—' }}</td>
+          <td style="font-size:12px;color:var(--mut)">
+            {% for d in c.designer_attendees %}{{ d.name or d.email }}{% if not loop.last %}, {% endif %}{% endfor %}
+          </td>
+          <td class="cs-call-actions" style="white-space:nowrap;min-width:11.5rem;text-align:right">
+            {% if pending_busy and c.id in pending_ids %}
+            <button class="btn sm busy" type="button" disabled style="min-width:6.5rem"><span class="spin"></span>Generating…</button>
+            {% elif c.draft_id %}
+            <a class="btn sm ghost" href="/call-summary?tab=drafts&amp;draft_id={{ c.draft_id }}" style="min-width:3.5rem;text-align:center">View</a>
+            <form method="post" action="/call-summary/generate" class="js-call-summary-generate" style="display:inline">
+              <input type="hidden" name="transcript_id" value="{{ c.id }}" />
+              <input type="hidden" name="return_tab" value="calls" />
+              <button class="btn sm js-generate-btn" type="submit" style="min-width:6.5rem" {% if not anthropic_ready or not transcript_api_ready or pending_busy %}disabled{% endif %}>Regenerate</button>
+            </form>
+            {% else %}
+            <form method="post" action="/call-summary/generate" class="js-call-summary-generate" style="display:inline">
+              <input type="hidden" name="transcript_id" value="{{ c.id }}" />
+              <input type="hidden" name="return_tab" value="calls" />
+              <button class="btn sm js-generate-btn" type="submit" style="min-width:6.5rem" {% if not anthropic_ready or not transcript_api_ready or pending_busy %}disabled{% endif %}>Generate</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <script>
+  (function () {
+    document.querySelectorAll('form.js-call-summary-generate').forEach(function (form) {
+      form.addEventListener('submit', function () {
+        document.querySelectorAll('.js-generate-btn').forEach(function (btn) {
+          btn.disabled = true;
+          if (btn.form === form) btn.textContent = 'Generating…';
+        });
+      });
+    });
+  })();
+  </script>
+  {% if calls_total > page_size %}
+  <div style="padding:10px 16px;display:flex;justify-content:space-between;font-size:13px;color:var(--mut);border-top:1px solid var(--line)">
+    <span>Page {{ page }} of {{ total_pages }}</span>
+    <span>
+      {% if page > 1 %}<a href="/call-summary?tab=calls&amp;page={{ page - 1 }}{% if q %}&amp;q={{ q }}{% endif %}">Previous</a>{% endif %}
+      {% if page < total_pages %} · <a href="/call-summary?tab=calls&amp;page={{ page + 1 }}{% if q %}&amp;q={{ q }}{% endif %}">Next</a>{% endif %}
+    </span>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  {% elif tab == 'drafts' %}
+  <style>
+    .cs-drafts{
+      display:grid;
+      grid-template-columns:minmax(240px,300px) 1fr;
+      height:min(640px, calc(100vh - 210px));
+      min-height:420px;
+      overflow:hidden;
+    }
+    .cs-drafts-side{
+      display:flex;flex-direction:column;min-height:0;min-width:0;
+      border-right:1px solid var(--line);background:#fafbfc;
+    }
+    .cs-drafts-side-h{
+      flex-shrink:0;padding:10px 14px;border-bottom:1px solid var(--line);
+      display:flex;align-items:center;justify-content:space-between;gap:8px;
+    }
+    .cs-drafts-side-h strong{font-size:12px;font-weight:700;color:var(--ink)}
+    .cs-drafts-side-h span{font-size:11px;color:var(--mut)}
+    .cs-drafts-list{list-style:none;margin:0;padding:6px;overflow-y:auto;flex:1;min-height:0}
+    .cs-draft-item{
+      display:block;padding:10px 12px;border-radius:8px;text-decoration:none;
+      color:inherit;border:1px solid transparent;margin-bottom:2px;
+    }
+    .cs-draft-item:hover{background:#fff;border-color:var(--line)}
+    .cs-draft-item.on{background:#fff;border-color:#9fd9cc;box-shadow:0 0 0 1px #ccebe4}
+    .cs-draft-item .t{font-size:13px;font-weight:600;color:var(--ink);line-height:1.35;
+      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .cs-draft-item.on .t{font-weight:700}
+    .cs-draft-item .m{font-size:12px;color:var(--mut);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .cs-draft-item .meta{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:6px;font-size:11px;color:#9aa3af}
+    .cs-drafts-main{display:flex;flex-direction:column;min-height:0;min-width:0;background:#fff}
+    .cs-drafts-toolbar{
+      flex-shrink:0;padding:12px 16px;border-bottom:1px solid var(--line);
+      display:flex;flex-direction:column;gap:10px;
+    }
+    .cs-drafts-toolbar h2{
+      font-size:15px;font-weight:700;margin:0;line-height:1.35;word-break:break-word;
+      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+      min-height:2.7em;
+    }
+    .cs-drafts-toolbar .subline{
+      font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    }
+    .cs-drafts-pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:24px}
+    .cs-drafts-actions{
+      display:flex;flex-wrap:nowrap;gap:8px;align-items:center;justify-content:flex-end;
+      margin-top:2px;min-height:32px;
+    }
+    .cs-drafts-actions .btn{min-width:7.5rem;text-align:center;justify-content:center}
+    .cs-drafts-actions form{margin:0;display:inline-flex}
+    .cs-drafts-body{flex:1;min-height:0;overflow-y:auto;padding:16px}
+    .cs-email{
+      background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;
+    }
+    .cs-email-label{
+      font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+      color:var(--mut);padding:8px 14px;background:#f8f9fb;border-bottom:1px solid var(--line);
+    }
+    .cs-email-body{
+      margin:0;padding:16px 18px;
+      font:13.5px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      color:var(--ink);
+    }
+    .cs-email-body p{margin:0 0 0.85em}
+    .cs-email-body p:last-child{margin-bottom:0}
+    .cs-email-body strong{font-weight:700;color:var(--ink)}
+    .cs-email-body ul{margin:0.2em 0 0.95em;padding-left:1.25em}
+    .cs-email-body li{margin:0.25em 0}
+    .cs-email-body a{color:var(--blue);word-break:break-word}
+    .cs-section{margin-top:16px}
+    .cs-section h3{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin:0 0 8px}
+    .cs-chips{display:flex;flex-wrap:wrap;gap:6px}
+    .cs-chip{
+      display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:4px 10px;
+      border-radius:999px;background:#eef0f3;color:#3d4450;max-width:100%;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    }
+    .cs-notes{margin:0;padding-left:18px;font-size:13px;color:#4b5563}
+    .cs-notes li{margin-bottom:4px}
+    .cs-empty{
+      flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+      text-align:center;color:var(--mut);padding:32px;gap:8px;
+    }
+    .cs-empty a{font-weight:600}
+    .cs-toast{
+      position:fixed;bottom:24px;right:24px;background:#10132c;color:#fff;
+      padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;
+      box-shadow:0 8px 24px rgba(16,24,40,.18);opacity:0;transform:translateY(8px);
+      transition:opacity .2s,transform .2s;pointer-events:none;z-index:50;
+    }
+    .cs-toast.show{opacity:1;transform:translateY(0)}
+    @media (max-width:800px){
+      .cs-drafts{grid-template-columns:1fr;height:auto;min-height:0}
+      .cs-drafts-side{border-right:none;border-bottom:1px solid var(--line);max-height:220px}
+      .cs-drafts-main{min-height:360px;height:min(520px, calc(100vh - 280px))}
+    }
+  </style>
+
+  {% if not drafts %}
+  <div class="cs-empty" style="min-height:280px">
+    <div style="font-size:15px;font-weight:600;color:var(--ink)">No drafts yet</div>
+    <div>Generate a client email from a matching design call.</div>
+    <a href="/call-summary?tab=calls">Go to Calls →</a>
+  </div>
+  {% else %}
+  <div class="cs-drafts">
+    <aside class="cs-drafts-side">
+      <div class="cs-drafts-side-h">
+        <strong>Inbox</strong>
+        <span>{{ drafts|length }} draft{% if drafts|length != 1 %}s{% endif %}</span>
+      </div>
+      <ul class="cs-drafts-list">
+        {% for d in drafts %}
+        <li>
+          <a class="cs-draft-item{% if viewed and viewed.id == d.id %} on{% endif %}" href="/call-summary?tab=drafts&amp;draft_id={{ d.id }}">
+            <div class="t">{{ d.subject or '(no subject)' }}</div>
+            <div class="m">{{ d.account_name or d.transcript_name or d.transcript_id }}</div>
+            <div class="meta">
+              <span>{{ d.generated_at.strftime('%b %d, %H:%M') if d.generated_at else '' }}</span>
+              {% if d.policy_blocked %}<span class="pill failed">blocked</span>{% endif %}
+              {% if d.low_confidence %}<span class="pill flagged">low conf.</span>{% endif %}
+            </div>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </aside>
+
+    <section class="cs-drafts-main">
+      {% if viewed %}
+      <div class="cs-drafts-toolbar">
+        <div>
+          <h2>{{ viewed.subject }}</h2>
+          <div class="subline">
+            {{ viewed.transcript_name or viewed.transcript_id }}{% if viewed.account_name %} · {{ viewed.account_name }}{% endif %}
+            · {{ viewed.generated_at.strftime('%Y-%m-%d %H:%M') if viewed.generated_at else '' }}
+          </div>
+        </div>
+        <div class="cs-drafts-pills">
+          {% if viewed.transcript_quality %}<span class="pill mut">{{ viewed.transcript_quality }}</span>{% endif %}
+          {% if viewed.low_confidence %}<span class="pill flagged">low confidence</span>{% endif %}
+          {% if viewed.policy_blocked %}<span class="pill failed">policy blocked</span>{% endif %}
+          {% if viewed.placeholder_count %}<span class="pill flagged">{{ viewed.placeholder_count }} placeholder{% if viewed.placeholder_count != 1 %}s{% endif %}</span>{% else %}<span class="pill ok">no placeholders</span>{% endif %}
+          {% if viewed.owner_name %}<span class="pill mut">owner: {{ viewed.owner_name }}</span>{% endif %}
+        </div>
+        <div class="cs-drafts-actions">
+          <button type="button" class="btn sm ghost" id="cs-copy-subject" data-copy="{{ viewed.subject|e }}">Copy subject</button>
+          <button type="button" class="btn sm ghost" id="cs-copy-body" title="Copies bold/lists as HTML for Gmail and Docs">Copy body</button>
+          {% if viewed.transcript_id %}
+          <form method="post" action="/call-summary/generate" class="js-call-summary-generate">
+            <input type="hidden" name="transcript_id" value="{{ viewed.transcript_id }}" />
+            <input type="hidden" name="return_tab" value="drafts" />
+            <button class="btn sm js-generate-btn" type="submit" {% if not anthropic_ready or not transcript_api_ready or pending_busy %}disabled{% endif %}>{% if pending_busy and viewed.transcript_id in pending_ids %}Generating…{% else %}Regenerate{% endif %}</button>
+          </form>
+          {% else %}
+          <button class="btn sm" type="button" disabled>Regenerate</button>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="cs-drafts-body">
+        {% if viewed.policy_block_reason %}
+        <div class="banner warn" style="margin-top:0">{{ viewed.policy_block_reason }}</div>
+        {% endif %}
+
+        <div class="cs-email">
+          <div class="cs-email-label">Email body <span style="font-weight:500;text-transform:none;letter-spacing:0">· markdown rendered · not sent</span></div>
+          <div class="cs-email-body" id="cs-body-html">{{ body_html | safe }}</div>
+        </div>
+
+        <div class="cs-section">
+          <h3>Recipients on call</h3>
+          {% if viewed.designer_recipient_emails %}
+          <div class="cs-chips">
+            {% for email in viewed.designer_recipient_emails %}
+            <span class="cs-chip" title="{{ email }}">{{ email }}</span>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p style="margin:0;font-size:13px;color:var(--mut)">No designer emails recorded.</p>
+          {% endif %}
+        </div>
+
+        {% if viewed.reviewer_notes %}
+        <div class="cs-section">
+          <h3>Reviewer notes</h3>
+          <ul class="cs-notes">
+            {% for n in viewed.reviewer_notes %}<li>{{ n }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+        <div class="cs-section">
+          <details>
+            <summary style="cursor:pointer;font-size:12px;color:var(--mut);font-weight:600">Technical details</summary>
+            <div style="margin-top:10px;font-size:12px;color:var(--mut);display:flex;flex-wrap:wrap;gap:10px">
+              <span class="mono">{{ viewed.transcript_id }}</span>
+            </div>
+            <pre class="mono" style="margin-top:10px;background:#10132c;color:#e8eaf6;padding:12px;border-radius:8px;overflow:auto;font-size:11px;max-height:220px">{{ extraction_json_pretty }}</pre>
+          </details>
+        </div>
+      </div>
+      <textarea id="cs-body-raw" hidden>{{ viewed.body_text }}</textarea>
+      <textarea id="cs-body-plain" hidden>{{ body_plain }}</textarea>
+      {% else %}
+      <div class="cs-empty">
+        <div style="font-size:15px;font-weight:600;color:var(--ink)">Select a draft</div>
+        <div>Pick one from the list to review the email.</div>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+  <div class="cs-toast" id="cs-toast" role="status"></div>
+  <script>
+  (function () {
+    function toast(msg) {
+      var el = document.getElementById('cs-toast');
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(el._t);
+      el._t = setTimeout(function () { el.classList.remove('show'); }, 1600);
+    }
+    function copyText(text, label) {
+      if (!text) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { toast(label + ' copied'); }).catch(function () {
+          toast('Copy failed');
+        });
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); toast(label + ' copied'); } catch (e) { toast('Copy failed'); }
+        document.body.removeChild(ta);
+      }
+    }
+    function copyRich(htmlInner, plain, label) {
+      var htmlDoc =
+        '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#1f2328">' +
+        htmlInner +
+        '</div>';
+      if (navigator.clipboard && window.ClipboardItem) {
+        var item = new ClipboardItem({
+          'text/html': new Blob([htmlDoc], { type: 'text/html' }),
+          'text/plain': new Blob([plain || ''], { type: 'text/plain' })
+        });
+        navigator.clipboard.write([item]).then(function () {
+          toast(label + ' copied (formatted)');
+        }).catch(function () {
+          copyText(plain || '', label);
+        });
+        return;
+      }
+      copyText(plain || '', label);
+    }
+    var subBtn = document.getElementById('cs-copy-subject');
+    if (subBtn) subBtn.addEventListener('click', function () {
+      copyText(subBtn.getAttribute('data-copy') || '', 'Subject');
+    });
+    var bodyBtn = document.getElementById('cs-copy-body');
+    if (bodyBtn) bodyBtn.addEventListener('click', function () {
+      var htmlEl = document.getElementById('cs-body-html');
+      var plainEl = document.getElementById('cs-body-plain');
+      copyRich(
+        htmlEl ? htmlEl.innerHTML : '',
+        plainEl ? plainEl.value : '',
+        'Body'
+      );
+    });
+    document.querySelectorAll('form.js-call-summary-generate').forEach(function (form) {
+      form.addEventListener('submit', function () {
+        document.querySelectorAll('.js-generate-btn').forEach(function (btn) {
+          btn.disabled = true;
+          if (btn.form === form) btn.textContent = 'Generating…';
+        });
+      });
+    });
+  })();
+  </script>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

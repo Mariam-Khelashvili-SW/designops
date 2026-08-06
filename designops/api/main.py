@@ -28,6 +28,7 @@ from designops.core.enums import PersonStatus, SendMode
 from designops.core.models import (
     Account,
     Artifact,
+    CallSummaryDraft,
     Flag,
     Person,
     Pipeline,
@@ -178,6 +179,374 @@ def daily_report(request: Request, db: Session = Depends(get_db)):
             "can_send": google_oauth.is_connected() or s.smtp_configured,
             "flash": request.query_params.get("flash"),
         },
+    )
+
+
+CALL_SUMMARY_PAGE_SIZE = 50
+
+# In-flight call-summary generations: transcript_id → started_at (epoch seconds)
+_call_summary_pending: dict[str, float] = {}
+_call_summary_failed: dict[str, str] = {}
+
+
+@app.get("/call-summary", response_class=HTMLResponse)
+def call_summary_page(request: Request, db: Session = Depends(get_db)):
+    from designops.pipelines.call_summary import (
+        load_designer_config,
+        resolve_designer_emails,
+        list_matching_calls,
+        prune_older_drafts,
+    )
+
+    s = get_settings()
+    # Keep one draft per meeting (cleanup any duplicates from earlier multi-clicks)
+    prune_older_drafts(db)
+    tab = (request.query_params.get("tab") or "designers").strip().lower()
+    if tab not in ("designers", "calls", "drafts"):
+        tab = "designers"
+
+    # In-memory pending is the source of truth (survives refresh / tab switches).
+    # URL ?pending= is optional; restore from memory when missing.
+    url_pending = (request.query_params.get("pending") or "").strip()
+    try:
+        url_pending_since = float(request.query_params.get("pending_since") or "0")
+    except ValueError:
+        url_pending_since = 0.0
+
+    # Resolve finished / failed jobs from memory (any tab). Pending stays until
+    # this handler sees the draft — the worker must not clear it on success.
+    completed_redirect: RedirectResponse | None = None
+    for tid, started in list(_call_summary_pending.items()):
+        err = _call_summary_failed.pop(tid, None)
+        if err:
+            _call_summary_pending.pop(tid, None)
+            if tid == url_pending or not completed_redirect:
+                completed_redirect = RedirectResponse(
+                    f"/call-summary?tab={tab}&flash={quote(err)}&flash_type=error",
+                    status_code=303,
+                )
+            continue
+        latest = (
+            db.query(CallSummaryDraft)
+            .filter(CallSummaryDraft.transcript_id == tid)
+            .order_by(CallSummaryDraft.generated_at.desc())
+            .first()
+        )
+        if latest is None:
+            continue
+        gen_ts = latest.generated_at.timestamp() if latest.generated_at else 0.0
+        if gen_ts >= started - 2:
+            _call_summary_pending.pop(tid, None)
+            completed_redirect = RedirectResponse(
+                f"/call-summary?tab=drafts&draft_id={latest.id}&flash=Draft+generated",
+                status_code=303,
+            )
+    if url_pending and url_pending in _call_summary_failed:
+        err = _call_summary_failed.pop(url_pending)
+        return RedirectResponse(
+            f"/call-summary?tab={tab}&flash={quote(err)}&flash_type=error",
+            status_code=303,
+        )
+    if completed_redirect is not None:
+        return completed_redirect
+
+    pending_ids = set(_call_summary_pending.keys())
+    pending_busy = bool(pending_ids)
+    if pending_ids:
+        pending_tid, pending_since = max(
+            ((t, _call_summary_pending[t]) for t in pending_ids),
+            key=lambda kv: kv[1],
+        )
+    else:
+        pending_tid = None
+        pending_since = None
+        # Stale URL after process restart with no in-memory job
+        if url_pending and url_pending_since > 0:
+            latest = (
+                db.query(CallSummaryDraft)
+                .filter(CallSummaryDraft.transcript_id == url_pending)
+                .order_by(CallSummaryDraft.generated_at.desc())
+                .first()
+            )
+            if latest and latest.generated_at and latest.generated_at.timestamp() >= url_pending_since - 2:
+                return RedirectResponse(
+                    f"/call-summary?tab=drafts&draft_id={latest.id}&flash=Draft+generated",
+                    status_code=303,
+                )
+
+    cfg = load_designer_config(db)
+    designers = resolve_designer_emails(db)
+    people = (
+        db.query(Person)
+        .filter(Person.status != "out")
+        .order_by(Person.full_name)
+        .all()
+    )
+    drafts = (
+        db.query(CallSummaryDraft)
+        .order_by(CallSummaryDraft.generated_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    draft_id = (request.query_params.get("draft_id") or "").strip()
+    viewed = None
+    if draft_id:
+        try:
+            viewed = db.get(CallSummaryDraft, draft_id)
+        except Exception:  # noqa: BLE001 — invalid UUID
+            viewed = None
+    if tab == "drafts" and not viewed and drafts:
+        viewed = drafts[0]
+        draft_id = str(viewed.id)
+
+    q = (request.query_params.get("q") or "").strip()
+    page = max(1, int(request.query_params.get("page") or "1") or 1)
+    calls: list = []
+    calls_total = 0
+    if tab == "calls" and designers:
+        try:
+            calls, calls_total = list_matching_calls(
+                db,
+                search=q,
+                limit=CALL_SUMMARY_PAGE_SIZE,
+                offset=(page - 1) * CALL_SUMMARY_PAGE_SIZE,
+            )
+        except Exception as e:  # noqa: BLE001
+            return templates.TemplateResponse(
+                "call_summary.html",
+                {
+                    "request": request,
+                    "nav": "call_summary",
+                    "tab": tab,
+                    "flash": f"Failed to load calls: {e}",
+                    "flash_type": "error",
+                    "pending_tid": pending_tid or None,
+                    "pending_since": _call_summary_pending.get(pending_tid) if pending_tid else None,
+                    "pending_ids": list(_call_summary_pending.keys()),
+                    "pending_busy": bool(_call_summary_pending),
+                    "anthropic_ready": s.anthropic_configured,
+                    "transcript_api_ready": s.transcript_api_configured,
+                    "people": people,
+                    "include_roles_csv": ", ".join(cfg.get("include_roles") or []),
+                    "manual_emails_text": "\n".join(cfg.get("manual_emails") or []),
+                    "selected_person_ids": set(cfg.get("selected_person_ids") or []),
+                    "designer_count": len(designers),
+                    "calls": [],
+                    "calls_total": 0,
+                    "q": q,
+                    "page": page,
+                    "page_size": CALL_SUMMARY_PAGE_SIZE,
+                    "total_pages": 1,
+                    "drafts": drafts,
+                    "drafts_total": len(drafts),
+                    "viewed": viewed,
+                    "draft_id": draft_id,
+                    "extraction_json_pretty": "",
+                },
+            )
+
+    total_pages = max(1, (calls_total + CALL_SUMMARY_PAGE_SIZE - 1) // CALL_SUMMARY_PAGE_SIZE)
+    flash = request.query_params.get("flash")
+    flash_type = request.query_params.get("flash_type") or "ok"
+    if pending_ids and not flash:
+        flash = "Generating draft… you can switch tabs; status is kept until it finishes."
+        flash_type = "ok"
+
+    import json as _json
+
+    extraction_json_pretty = ""
+    body_html = ""
+    body_plain = ""
+    if viewed and viewed.extraction_json is not None:
+        extraction_json_pretty = _json.dumps(viewed.extraction_json, indent=2, default=str)
+    if viewed and viewed.body_text:
+        from designops.api.markdown_lite import markdown_lite_to_html, markdown_lite_to_plain
+
+        body_html = markdown_lite_to_html(viewed.body_text)
+        body_plain = markdown_lite_to_plain(viewed.body_text)
+
+    return templates.TemplateResponse(
+        "call_summary.html",
+        {
+            "request": request,
+            "nav": "call_summary",
+            "tab": tab,
+            "flash": flash,
+            "flash_type": flash_type,
+            "pending_tid": pending_tid,
+            "pending_since": pending_since,
+            "pending_ids": list(pending_ids),
+            "pending_busy": pending_busy,
+            "anthropic_ready": s.anthropic_configured,
+            "transcript_api_ready": s.transcript_api_configured,
+            "people": people,
+            "include_roles_csv": ", ".join(cfg.get("include_roles") or []),
+            "manual_emails_text": "\n".join(cfg.get("manual_emails") or []),
+            "selected_person_ids": set(cfg.get("selected_person_ids") or []),
+            "designer_count": len(designers),
+            "calls": calls,
+            "calls_total": calls_total,
+            "q": q,
+            "page": page,
+            "page_size": CALL_SUMMARY_PAGE_SIZE,
+            "total_pages": total_pages,
+            "drafts": drafts,
+            "drafts_total": len(drafts),
+            "viewed": viewed,
+            "draft_id": draft_id,
+            "extraction_json_pretty": extraction_json_pretty,
+            "body_html": body_html,
+            "body_plain": body_plain,
+        },
+    )
+
+
+@app.post("/call-summary/designers")
+async def call_summary_save_designers(
+    request: Request,
+    db: Session = Depends(get_db),
+    include_roles: str = Form(""),
+    manual_emails: str = Form(""),
+):
+    from designops.pipelines.call_summary import save_designer_config
+
+    form = await request.form()
+    person_ids = [str(v) for v in form.getlist("person_id")]
+    roles = [r.strip() for r in include_roles.split(",") if r.strip()]
+    emails = [ln.strip() for ln in manual_emails.splitlines() if ln.strip()]
+    save_designer_config(
+        db,
+        {
+            "include_roles": roles,
+            "manual_emails": emails,
+            "selected_person_ids": person_ids,
+        },
+    )
+    return RedirectResponse("/call-summary?tab=designers&flash=Designer+selection+saved", status_code=303)
+
+
+@app.get("/call-summary/pending-status")
+def call_summary_pending_status(request: Request, db: Session = Depends(get_db)):
+    """Lightweight poll for in-flight draft generation (no full page reload)."""
+    from fastapi.responses import JSONResponse
+
+    tid = (request.query_params.get("pending") or "").strip()
+    try:
+        since = float(request.query_params.get("pending_since") or "0")
+    except ValueError:
+        since = 0.0
+    tab = (request.query_params.get("tab") or "calls").strip().lower()
+    if tab not in ("designers", "calls", "drafts"):
+        tab = "calls"
+
+    if not tid:
+        return JSONResponse({"status": "idle"})
+
+    err = _call_summary_failed.get(tid)
+    if err:
+        _call_summary_failed.pop(tid, None)
+        _call_summary_pending.pop(tid, None)
+        return JSONResponse(
+            {
+                "status": "error",
+                "error": err,
+                "redirect": f"/call-summary?tab={tab}&flash={quote(err)}&flash_type=error",
+            }
+        )
+
+    started = _call_summary_pending.get(tid)
+    if started is None:
+        # Job finished and was cleared, or process restarted — check for a new draft
+        latest = (
+            db.query(CallSummaryDraft)
+            .filter(CallSummaryDraft.transcript_id == tid)
+            .order_by(CallSummaryDraft.generated_at.desc())
+            .first()
+        )
+        if latest and latest.generated_at and since > 0 and latest.generated_at.timestamp() >= since - 2:
+            return JSONResponse(
+                {
+                    "status": "ready",
+                    "draft_id": str(latest.id),
+                    "redirect": f"/call-summary?tab=drafts&draft_id={latest.id}&flash=Draft+generated",
+                }
+            )
+        return JSONResponse({"status": "idle"})
+
+    latest = (
+        db.query(CallSummaryDraft)
+        .filter(CallSummaryDraft.transcript_id == tid)
+        .order_by(CallSummaryDraft.generated_at.desc())
+        .first()
+    )
+    if latest and latest.generated_at and latest.generated_at.timestamp() >= started - 2:
+        _call_summary_pending.pop(tid, None)
+        return JSONResponse(
+            {
+                "status": "ready",
+                "draft_id": str(latest.id),
+                "redirect": f"/call-summary?tab=drafts&draft_id={latest.id}&flash=Draft+generated",
+            }
+        )
+
+    return JSONResponse({"status": "pending", "pending": tid, "pending_since": started})
+
+
+@app.post("/call-summary/generate")
+def call_summary_generate(
+    transcript_id: str = Form(...),
+    return_tab: str = Form("calls"),
+):
+    """Start draft generation in the background; stay on the requesting tab until ready."""
+    import time as _time
+
+    tab = (return_tab or "calls").strip().lower()
+    if tab not in ("designers", "calls", "drafts"):
+        tab = "calls"
+
+    tid = (transcript_id or "").strip()
+    if not tid:
+        return RedirectResponse(
+            f"/call-summary?tab={tab}&flash=Missing+transcript&flash_type=error",
+            status_code=303,
+        )
+    if _call_summary_pending:
+        return RedirectResponse(
+            f"/call-summary?tab={tab}&flash=Already+generating+a+draft&flash_type=error",
+            status_code=303,
+        )
+
+    started = _time.time()
+    _call_summary_pending[tid] = started
+    _call_summary_failed.pop(tid, None)
+
+    def _bg_generate(transcript_id: str) -> None:
+        from designops.core.db import session_scope
+        from designops.pipelines.call_summary import generate_call_summary_draft
+        import logging
+
+        log = logging.getLogger("designops.call_summary")
+        try:
+            with session_scope() as s:
+                result = generate_call_summary_draft(s, transcript_id)
+            log.info(
+                "call-summary draft ready id=%s transcript=%s blocked=%s",
+                result.draft_id,
+                transcript_id,
+                result.policy_blocked,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.exception("call-summary generate failed transcript=%s", transcript_id)
+            _call_summary_failed[transcript_id] = str(e)[:200]
+            # Keep pending until the page handler surfaces the error (same as success).
+        # On success, leave _call_summary_pending until the page handler sees the
+        # draft and redirects — otherwise refresh / tab switch loses Generating.
+
+    threading.Thread(target=_bg_generate, args=(tid,), daemon=True).start()
+    return RedirectResponse(
+        f"/call-summary?tab={tab}&pending={quote(tid)}&pending_since={started:.3f}",
+        status_code=303,
     )
 
 
