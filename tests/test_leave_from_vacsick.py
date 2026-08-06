@@ -154,10 +154,33 @@ def test_contiguous_leave_blocks_and_pick_window():
     assert on_today is False
 
 
+def test_contiguous_leave_bridges_weekend_only():
+    """Tempo skips weekends — Fri + Mon VACSICK is one vacation, not two blocks."""
+    days = [
+        date(2026, 8, 5),
+        date(2026, 8, 6),
+        date(2026, 8, 7),
+        date(2026, 8, 10),
+        date(2026, 8, 11),
+        date(2026, 8, 12),
+        date(2026, 8, 13),
+        date(2026, 8, 14),
+        date(2026, 8, 17),
+        date(2026, 8, 18),
+        date(2026, 8, 19),
+    ]
+    assert contiguous_leave_blocks(days) == [
+        (date(2026, 8, 5), date(2026, 8, 19)),
+    ]
+    window, on_today = pick_leave_window(contiguous_leave_blocks(days), date(2026, 8, 4))
+    assert window == (date(2026, 8, 5), date(2026, 8, 19))
+    assert on_today is False
+
+
 def test_apply_leave_sets_status_and_leave_until():
     p = _person()
     ref = date(2026, 8, 4)
-    # Non-contiguous days: only the block containing reference_date (Aug 4)
+    # Weekday gap (Tue leave + Thu leave): only the block containing reference_date
     assert apply_leave_from_days(p, [date(2026, 8, 4), date(2026, 8, 6)], reference_date=ref) is True
     assert p.status == PersonStatus.ON_LEAVE
     assert p.leave_from == date(2026, 8, 4)
@@ -252,7 +275,7 @@ def test_detect_leave_and_availability_out_partial():
 
 
 def test_detect_leave_spans_multiple_weeks():
-    """Contiguous VACSICK Mon–Fri + later days → one block through last day."""
+    """Weekday-only VACSICK across weekends → one block through last leave day."""
     from uuid import uuid4
 
     dorota = Person(
@@ -264,6 +287,7 @@ def test_detect_leave_spans_multiple_weeks():
         leave_from=None,
         leave_until=None,
     )
+    # Real Tempo shape: no weekend rows
     worklogs = [
         {
             "account_id": "acct-dorota",
@@ -271,14 +295,14 @@ def test_detect_leave_spans_multiple_weeks():
             "hours": 8.0,
             "issue_key": "VACSICK-1",
         }
-        for d in range(5, 20)  # Aug 5–19 contiguous
+        for d in (5, 6, 7, 10, 11, 12, 13, 14, 17, 18, 19)
     ]
     dets = detect_leave_from_worklogs(
         [dorota],
         worklogs,
         week_monday=date(2026, 8, 3),
         week_friday=date(2026, 8, 30),
-        reference_date=date(2026, 8, 5),
+        reference_date=date(2026, 8, 4),
     )
     assert len(dets) == 1
     assert dets[0].leave_from == date(2026, 8, 5)

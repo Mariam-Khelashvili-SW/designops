@@ -54,6 +54,10 @@ from designops.core.projects import (
 )
 from designops.pipelines.email_subjects import email_subject_for_pipeline
 from designops.pipelines.filter import FilterResult, filter_corpus
+from designops.pipelines.daily_signals import (
+    empty_signals,
+    enforce_intelligence_artifacts,
+)
 from designops.pipelines.leave_from_vacsick import sync_leave_from_vacsick
 from designops.pipelines.render import render_digest
 from designops.pipelines.synthesis import synthesize
@@ -133,11 +137,14 @@ def resolve_daily_jira_context(
     meta["jira_docs"] = len(jira_docs)
 
     fw_map: list[dict] = []
-    if settings.fairwind_configured:
+    skip_fw = bool(getattr(settings, "daily_skip_fairwind", False))
+    if settings.fairwind_configured and not skip_fw:
         try:
             fw_map = FairwindClient(settings).list_jira_projects()
         except Exception as exc:  # noqa: BLE001 — still ensure via Jira names
             meta["fairwind_jira_map_note"] = f"{type(exc).__name__}: {exc}"
+    elif skip_fw:
+        meta["fairwind_jira_map_note"] = "skipped (DAILY_SKIP_FAIRWIND)"
     ensure_meta = ensure_projects_for_jira_keys(
         session,
         keys,
@@ -301,9 +308,94 @@ def _ingest_cro(report_date: date, settings) -> tuple[list[Document], dict]:
 
 # --- synthesize ---------------------------------------------------------------
 
+def _leave_calendar_rows(roster_rows, report_date: date) -> list[dict]:
+    """People with a leave window near the report day (for R1/R2)."""
+    rows = []
+    for r in roster_rows:
+        lf = getattr(r, "leave_from", None)
+        lu = getattr(r, "leave_until", None)
+        if not lf and not lu:
+            continue
+        rows.append(
+            {
+                "full_name": r.full_name,
+                "status": effective_status(
+                    r.status, lu, report_date, leave_from=lf
+                ),
+                "leave_from": lf.isoformat() if lf else None,
+                "leave_until": lu.isoformat() if lu else None,
+            }
+        )
+    return rows
+
+
+def _load_prior_next(
+    session: Session | None,
+    report_date: date,
+    *,
+    limit: int = 4,
+) -> list[dict]:
+    """Recent digest JSON artifacts → status Next items for R4/R6 run-log."""
+    if session is None:
+        return []
+    pipeline = session.query(Pipeline).filter_by(key="daily-digest").one_or_none()
+    if pipeline is None:
+        return []
+    runs = (
+        session.query(PipelineRun)
+        .filter(
+            PipelineRun.pipeline_id == pipeline.id,
+            PipelineRun.report_date < report_date,
+            PipelineRun.status.in_([RunStatus.OK, RunStatus.FLAGGED]),
+        )
+        .order_by(PipelineRun.report_date.desc())
+        .limit(limit)
+        .all()
+    )
+    out: list[dict] = []
+    for run in runs:
+        art = (
+            session.query(Artifact)
+            .filter_by(run_id=run.id, kind="json")
+            .order_by(Artifact.id.desc())
+            .first()
+        )
+        if art is None or not art.content:
+            continue
+        try:
+            digest = json.loads(art.content)
+        except json.JSONDecodeError:
+            continue
+        next_items = []
+        for s in digest.get("status") or []:
+            nxt = (s.get("next") or "").strip()
+            if not nxt:
+                continue
+            next_items.append(
+                {
+                    "person": s.get("person") or "",
+                    "project": s.get("project") or "",
+                    "next": nxt,
+                }
+            )
+        if next_items:
+            out.append(
+                {
+                    "report_date": run.report_date.isoformat(),
+                    "next_items": next_items,
+                }
+            )
+    return out
+
+
 def _synthesize(
-    filtered: FilterResult, report_date: date, roster_rows, project_rows,
+    filtered: FilterResult,
+    report_date: date,
+    roster_rows,
+    project_rows,
     tracked_accounts: list[str] | None = None,
+    *,
+    session: Session | None = None,
 ) -> tuple[dict, dict]:
     """Return (digest_json, synth_meta)."""
     settings = get_settings()
@@ -316,16 +408,29 @@ def _synthesize(
                 report_date,
                 leave_from=getattr(r, "leave_from", None),
             ),
+            "leave_from": (
+                r.leave_from.isoformat() if getattr(r, "leave_from", None) else None
+            ),
+            "leave_until": (
+                r.leave_until.isoformat() if getattr(r, "leave_until", None) else None
+            ),
         }
         for r in roster_rows
     ]
     project_names = [
         {"canonical_name": p.canonical_name, "aliases": p.aliases} for p in project_rows
     ]
+    leave_calendar = _leave_calendar_rows(roster_rows, report_date)
+    prior_next = _load_prior_next(session, report_date)
     if settings.anthropic_configured:
         digest, result = synthesize(
-            filtered, report_date, roster_names, project_names,
+            filtered,
+            report_date,
+            roster_names,
+            project_names,
             tracked_accounts=tracked_accounts,
+            leave_calendar=leave_calendar,
+            prior_next=prior_next,
         )
         return digest, {
             "mode": "llm", "model": result.model,
@@ -334,7 +439,11 @@ def _synthesize(
         }
     recorded = FIXTURES / report_date.isoformat() / "expected_digest.json"
     if recorded.exists():
-        return json.loads(recorded.read_text()), {
+        digest = json.loads(recorded.read_text())
+        digest.setdefault("signals", empty_signals(checked="recorded golden fixture"))
+        digest.setdefault("escalations", [])
+        digest.setdefault("heads_ups", [])
+        return digest, {
             "mode": "recorded", "model": None, "input_tokens": 0, "output_tokens": 0,
             "cost_usd": 0.0,
             "note": "No ANTHROPIC_API_KEY — used recorded golden digest for validation.",
@@ -404,6 +513,7 @@ def _enforce_structure(digest, filtered, roster_rows) -> None:
     - STATUS Done/Next only from designers who filed a daily (never invent).
     - needs_review rows without a working link are dropped.
     - open_questions require verbatim question + who.
+    - escalations / heads_ups / agent_notes normalized (intelligence layer).
     """
     reported = {p.full_name for p in roster_rows if p.id in filtered.reported_person_ids}
     normalized_status = []
@@ -420,6 +530,11 @@ def _enforce_structure(digest, filtered, roster_rows) -> None:
         row.pop("line", None)
         if not (row.get("project") or "").strip():
             row["project"] = "Unassigned"
+        note = (row.get("agent_note") or "").strip()
+        if note:
+            row["agent_note"] = note
+        else:
+            row.pop("agent_note", None)
         normalized_status.append(row)
     digest["status"] = normalized_status
     digest["todays_plans"] = [
@@ -461,6 +576,10 @@ def _enforce_structure(digest, filtered, roster_rows) -> None:
         seen_plans.add(name)
         deduped_plans.append(p)
     digest["todays_plans"] = deduped_plans
+    digest.setdefault("signals", empty_signals(checked="not provided by model"))
+    digest.setdefault("escalations", [])
+    digest.setdefault("heads_ups", [])
+    enforce_intelligence_artifacts(digest)
 
 
 def _fmt_leave_day(d: date) -> str:
@@ -582,14 +701,20 @@ def _reconcile_availability(digest, filtered, roster_rows, report_date) -> None:
     digest["no_report"] = rows
 
     review = digest.get("needs_review") or []
+    escalations = [
+        e
+        for e in (digest.get("escalations") or [])
+        if not str(e.get("text") or "").startswith("+")
+    ]
     g = digest.setdefault("at_a_glance", {})
     g["active"] = len(filtered.reported_person_ids)
-    g["need_review"] = len(review)
+    # Intelligence escalations are counted; link-backed reviews stay separate rows.
+    g["need_review"] = len(review) + len(escalations)
     g["blocked"] = sum(1 for r in review if r.get("blocked"))
     g["no_report"] = sum(1 for r in rows if r["status"] == "no_report")
     # Back-compat aliases for older templates / fixtures
     g["reported"] = g["active"]
-    g["escalations"] = g["need_review"]
+    g["escalations"] = len(escalations)
 
 
 def create_pending_run(session: Session, report_date: date) -> PipelineRun:
@@ -679,10 +804,10 @@ def execute_run(
         registry = ProjectRegistry.from_rows(project_rows, accounts=account_rows)
 
         # --- Pass B: Fairwind only for accounts named in dailies ---
+        settings = get_settings()
         mentioned_fw = collect_mentioned_fairwind_ids(documents, registry) | (
             collect_fairwind_ids_from_jira_documents(jira_docs, registry)
         )
-        settings = get_settings()
         newly_enabled = enable_accounts_for_mentioned_projects(
             session,
             fairwind_account_ids=mentioned_fw,
@@ -692,6 +817,13 @@ def execute_run(
         need_ids = sorted(mentioned_fw)
         coverage["mention_data_types"] = list(MENTION_DATA_TYPES)
         coverage["mention_account_ids"] = need_ids
+        # TEMPORARY: skip Fairwind exports — CRO dailies + Jira only.
+        if getattr(settings, "daily_skip_fairwind", False):
+            coverage["fairwind_scope"] = "skipped-temporary"
+            coverage["source"] = "cro-jira-only"
+            coverage["mention_exports_succeeded"] = 0
+            coverage["mention_exports_failed"] = 0
+            need_ids = []
         if need_ids and settings.fairwind_configured:
             try:
                 client = FairwindClient(settings)
@@ -773,7 +905,12 @@ def execute_run(
             }
         )
         digest, synth = _synthesize(
-            filtered, report_date, roster_rows, project_rows, tracked_accounts=tracked
+            filtered,
+            report_date,
+            roster_rows,
+            project_rows,
+            tracked_accounts=tracked,
+            session=session,
         )
         # Growth-Pulse: enforce status/plans from dailies only; set availability + KPIs.
         _enforce_structure(digest, filtered, roster_rows)
@@ -796,13 +933,18 @@ def execute_run(
             for a in more:
                 if a.fairwind_account_id:
                     enabled_ids.add(a.fairwind_account_id)
-        _flag_untracked_projects(
-            digest,
-            registry,
-            enabled_ids,
-            {a.name for a in pulled_accts}
-            | {a.name for a in more},
-        )
+        # When Fairwind is skipped, don't chip every client project as untracked.
+        if not getattr(get_settings(), "daily_skip_fairwind", False):
+            _flag_untracked_projects(
+                digest,
+                registry,
+                enabled_ids,
+                {a.name for a in pulled_accts}
+                | {a.name for a in more},
+            )
+        else:
+            for row in digest.get("status", []):
+                row["untracked"] = False
         _reconcile_availability(digest, filtered, roster_rows, report_date)
         _annotate_upcoming_leave(digest, roster_rows, report_date)
         incomplete = bool(
@@ -852,6 +994,14 @@ def execute_run(
     session.flush()
 
     _persist_documents(session, run, filtered)
+    session.add(
+        Artifact(
+            run_id=run.id,
+            kind="json",
+            content=json.dumps(digest, ensure_ascii=False, default=str),
+            delivery_status="not_sent",
+        )
+    )
     session.add(
         Artifact(run_id=run.id, kind="html", content=html, delivery_status=delivery.status,
                  delivered_at=_now() if delivery.status in ("self", "draft", "sent") else None,

@@ -1,6 +1,7 @@
 {#
-  Growth-Pulse daily email — EMAIL-SAFE (table-based; no flex/grid).
-  Context: digest, status_groups, on_leave, no_daily, report_date_label, coverage.
+  Daily Pulse v2 layout (design-daily-v2-4aug.html) — EMAIL-SAFE tables only.
+  Context: digest, project_groups, on_leave, no_daily, leave_plans, other_plans,
+  report_date_label, on_leave_names, sample, coverage.
 #}<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,65 +9,66 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Design Team — Daily Pulse · {{ report_date_label }}</title>
 <style>
-  body{margin:0;background:#eef1f4;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#f4f5f7;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
   table{border-collapse:collapse}
-  .card{background:#fff;border:1px solid #e2e6eb;border-radius:16px}
-  .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6b7280;font-weight:700}
-  h1{font-size:24px;line-height:1.2;margin:8px 0 4px;letter-spacing:-.02em;color:#111827}
-  h1 .g{color:#0f8a7e}
-  .sub{color:#6b7280;font-size:13.5px;margin:0 0 18px;line-height:1.45}
+  .card{background:#fff;border:1px solid #e6e8ec;border-radius:14px}
+  .eyebrow{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:#6b7280;font-weight:700}
+  h1{font-size:23px;line-height:1.15;margin:7px 0 3px;letter-spacing:-.01em;color:#111827}
+  h1 .g{color:#12a594}
+  .sub{color:#6b7280;font-size:13.5px;margin:0}
   .kpis .n{font-size:22px;font-weight:800;line-height:1;color:#0f8a7e}
   .kpis .n.warn{color:#b45309}.kpis .n.red{color:#c0392b}.kpis .n.mut{color:#9aa2ad}
-  .kpis .l{font-size:10px;color:#5b6673;padding-top:6px;text-transform:uppercase;letter-spacing:.04em;font-weight:650}
-  h2{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:#0f8a7e;font-weight:750;margin:0 0 4px}
-  .hint{font-size:12.5px;color:#8a94a1;margin:0 0 10px;line-height:1.4}
-  .sec{margin-top:22px}
-  .who{font-weight:750;font-size:14px;color:#111827}
-  .meta{font-size:12px;color:#6b7280;font-weight:600;padding-top:3px;line-height:1.4}
-  .body{font-size:13.5px;color:#2b3038;padding-top:6px;line-height:1.45}
-  .body.quote{font-style:italic;color:#33404e}
-  .chip{display:inline-block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:999px;line-height:1.3;margin-right:6px;vertical-align:middle}
+  .kpis .l{font-size:10px;color:#5b6673;padding-top:5px;text-transform:uppercase;letter-spacing:.03em;font-weight:650}
+  h2{font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:#0f8a7e;font-weight:700;margin:24px 0 6px}
+  .sec{margin-top:0}
+  .pname{font-weight:700;font-size:14px;color:#111827;padding:2px 0 2px}
+  .ptag{font-weight:500;font-size:11px;color:#b45309}
+  .rk{color:#8a94a1;font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;vertical-align:top;padding-top:2px;width:66px}
+  .rv-done{color:#2b3038;font-size:13.5px;line-height:1.45}
+  .rv-next{color:#5b6470;font-size:13.5px;line-height:1.45}
+  .agent-inline{color:#7c6fb0;font-weight:700}
+  .agent-note{font-size:13px;color:#7c6fb0;font-weight:700;padding:2px 0 6px;line-height:1.45}
+  .ev-inline{color:#aeb4bd;font-size:11px;font-weight:600}
+  .ev{display:block;font-size:11px;color:#aeb4bd;font-weight:600;padding-top:2px}
+  .chip{display:inline-block;font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:20px;line-height:1.3;margin-right:6px;vertical-align:middle;text-align:center;min-width:64px}
   .chip.block{color:#c0392b;background:#fdecea;border:1px solid #f3c0b8}
   .chip.rev{color:#b45309;background:#fff5e8;border:1px solid #f3d18a}
-  .chip.leave{color:#0f8a7e;background:#e5f6f2;border:1px solid #bfe9e2}
-  .chip.miss{color:#6b7280;background:#f3f4f6;border:1px solid #e5e7eb}
   .chip.warn{color:#b45309;background:#fff5e8;border:1px solid #f3d18a}
   .link{color:#1d5fb0;text-decoration:none;font-weight:700;font-size:12.5px}
-  .ev{display:block;font-size:11.5px;color:#6b7280;font-weight:600;padding-top:4px;font-style:normal}
-  .projtag{display:inline-block;font-size:11px;font-weight:700;color:#5b6673;background:#f3f4f6;border-radius:6px;padding:1px 7px;margin-left:6px}
-  .status-proj{font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.04em;color:#0f8a7e;padding-bottom:3px}
-  .nrname{font-weight:750;font-size:14px;color:#111827}
-  .nrctx{font-size:12px;color:#6b7280;font-weight:600;padding-top:3px;line-height:1.4}
+  .body{font-size:13.5px;color:#2b3038;line-height:1.45;padding-top:4px}
+  .body.quote{font-style:italic;color:#33404e}
+  .who{font-weight:700;font-size:14px;color:#111827}
+  .projtag{font-size:10.5px;font-weight:700;color:#9a7a4a;text-transform:uppercase;letter-spacing:.03em}
   .quiet{color:#8a94a1;font-size:13.5px;padding:14px;text-align:center;margin:0}
   footer{margin-top:22px;font-size:11.5px;line-height:1.55;color:#8a94a1;padding:14px 4px 0;border-top:1px solid #eef0f2}
   footer b{color:#6b7280}
 </style>
 </head>
 <body>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#eef1f4"><tr><td align="center" style="padding:28px 14px 56px">
-<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%">
-<tr><td class="card" style="padding:26px 28px;background:#ffffff;border:1px solid #e2e6eb;border-radius:16px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f4f5f7"><tr><td align="center" style="padding:26px 18px 60px">
+<table role="presentation" width="710" cellpadding="0" cellspacing="0" style="max-width:710px;width:100%">
+<tr><td class="card" style="padding:24px 26px;background:#ffffff;border:1px solid #e6e8ec;border-radius:14px">
 
-  <div class="eyebrow">Design team · for Olga</div>
-  <h1><span class="g">Daily Pulse</span></h1>
-  <p class="sub">{{ report_date_label }} · What moved, what needs you, who’s out or quiet.</p>
+  <div class="eyebrow">Design team · consolidated daily · for Olga</div>
+  <h1><span class="g">Daily Pulse</span> — {{ report_date_label }}</h1>
+  <p class="sub">What moved, what needs you, who’s out or quiet.</p>
 
   {% set g = digest.at_a_glance %}
-  <table role="presentation" class="kpis" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f2fbf9" style="border:1px solid #d7f0ec;border-radius:12px;overflow:hidden">
+  <table role="presentation" class="kpis" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f2fbf9" style="border:1px solid #d7f0ec;border-radius:11px;overflow:hidden;margin:16px 0 4px">
     <tr>
-      <td width="25%" align="center" style="padding:14px 8px;border-right:1px solid #dcefeb">
+      <td width="25%" align="center" style="padding:13px 8px;border-right:1px solid #dcefeb">
         <div class="n">{{ g.active | default(0) }}</div>
         <div class="l">reported</div>
       </td>
-      <td width="25%" align="center" style="padding:14px 8px;border-right:1px solid #dcefeb">
+      <td width="25%" align="center" style="padding:13px 8px;border-right:1px solid #dcefeb">
         <div class="n{% if g.need_review %} warn{% endif %}">{{ g.need_review | default(0) }}</div>
-        <div class="l">need review</div>
+        <div class="l">needs you</div>
       </td>
-      <td width="25%" align="center" style="padding:14px 8px;border-right:1px solid #dcefeb">
+      <td width="25%" align="center" style="padding:13px 8px;border-right:1px solid #dcefeb">
         <div class="n{% if g.blocked %} red{% else %} mut{% endif %}">{{ g.blocked | default(0) }}</div>
         <div class="l">blocked</div>
       </td>
-      <td width="25%" align="center" style="padding:14px 8px">
+      <td width="25%" align="center" style="padding:13px 8px">
         <div class="n{% if g.no_report %} warn{% else %} mut{% endif %}">{{ g.no_report | default(0) }}</div>
         <div class="l">no report</div>
       </td>
@@ -75,144 +77,173 @@
 
   {% set review = digest.needs_review if digest.needs_review is defined and digest.needs_review is not none else [] %}
   {% set questions = digest.open_questions if digest.open_questions is defined and digest.open_questions is not none else [] %}
+  {% set escalations = digest.escalations if digest.escalations is defined and digest.escalations is not none else [] %}
+
+  {% if escalations %}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;background:#fff8f1;border:1px solid #f3d7b3;border-radius:12px">
+    <tr><td style="padding:16px 18px">
+      <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#b45309;font-weight:800;margin-bottom:4px">Needs Olga — clear the board</div>
+      <div style="font-size:12px;color:#9a7a4a;margin-bottom:10px">Only items that need your action, most time-sensitive first.</div>
+      {% for e in escalations %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0"><tr>
+        <td width="30" valign="top" style="padding-top:1px">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr><td align="center" valign="middle" width="20" height="20" bgcolor="#b45309" style="background:#b45309;border-radius:50%;width:20px;height:20px;font-size:11px;font-weight:800;color:#ffffff;line-height:20px">{{ loop.index }}</td></tr></table>
+        </td>
+        <td valign="top" style="font-size:13.5px;color:#2b3038;line-height:1.45">
+          {% if e.project %}<span class="projtag">{{ e.project }} · </span>{% endif %}{{ e.text }}{% if e.agent_note %} <span class="agent-inline">⚙ Agent:</span> {{ e.agent_note }}{% endif %}{% if e.evidence %} <span class="ev-inline">{{ e.evidence }}</span>{% endif %}
+        </td>
+      </tr></table>
+      {% endfor %}
+    </td></tr>
+  </table>
+  {% endif %}
 
   {% if review or questions %}
-  <div class="sec">
-    <h2>Needs attention</h2>
-    <p class="hint">Blockers and slips with a working link, plus verbatim questions — skim this first.</p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#fffdf8" style="border:1px solid #f3d7b3;border-radius:12px;overflow:hidden">
-      {% for r in review %}
-      <tr><td style="padding:12px 14px;{% if not loop.last or questions %}border-bottom:1px solid #f5e6d0{% endif %}">
-        {% if r.blocked %}<span class="chip block">Blocked</span>{% else %}<span class="chip rev">Review</span>{% endif %}
-        <span class="who">{% if r.who %}{{ r.who }}{% else %}Team{% endif %}</span>
-        {% if r.project %}<span class="projtag">{{ r.project }}</span>{% endif %}
-        <div class="body">{{ r.item }}</div>
-        {% if r.link %}
-        <div class="meta">
-          {% if r.link is string and (r.link.startswith('http://') or r.link.startswith('https://')) %}
-            <a class="link" href="{{ r.link }}">{{ r.link.rsplit('/', 1)[-1] }}</a>
+  <h2>Needs attention</h2>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:10px;margin-top:6px">
+    {% for r in review %}
+    <tr><td style="padding:10px 12px;{% if not loop.last or questions %}border-bottom:1px solid #f1f2f4{% endif %}">
+      {% if r.blocked %}<span class="chip block">Blocked</span>{% else %}<span class="chip rev">Review</span>{% endif %}
+      <span class="who">{% if r.who %}{{ r.who }}{% else %}Team{% endif %}</span>
+      {% if r.project %}<span style="font-size:11px;color:#9a7a4a;font-weight:700"> · {{ r.project }}</span>{% endif %}
+      <div class="body">{{ r.item }}</div>
+      {% if r.link %}
+      <div style="padding-top:4px">
+        {% if r.link is string and (r.link.startswith('http://') or r.link.startswith('https://')) %}
+          <a class="link" href="{{ r.link }}">{{ r.link.rsplit('/', 1)[-1] }}</a>
+        {% else %}
+          <span class="link">{{ r.link }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </td></tr>
+    {% endfor %}
+    {% for q in questions %}
+    <tr><td style="padding:10px 12px;{% if not loop.last %}border-bottom:1px solid #f1f2f4{% endif %}">
+      <span class="chip rev">Question</span>
+      <span class="who">{% if q.who %}{{ q.who }}{% else %}Someone{% endif %}</span>
+      {% if q.project %}<span style="font-size:11px;color:#9a7a4a;font-weight:700"> · {{ q.project }}</span>{% endif %}
+      <div class="body quote">“{{ q.question }}”</div>
+      {% if q.link or q.evidence %}
+      <div style="padding-top:4px">
+        {% if q.link %}
+          {% if q.link is string and (q.link.startswith('http://') or q.link.startswith('https://')) %}
+            <a class="link" href="{{ q.link }}">{{ q.link.rsplit('/', 1)[-1] }}</a>
           {% else %}
-            <span class="link">{{ r.link }}</span>
+            <span class="link">{{ q.link }}</span>
           {% endif %}
-        </div>
         {% endif %}
-      </td></tr>
-      {% endfor %}
-      {% for q in questions %}
-      <tr><td style="padding:12px 14px;{% if not loop.last %}border-bottom:1px solid #f5e6d0{% endif %}">
-        <span class="chip rev">Question</span>
-        <span class="who">{% if q.who %}{{ q.who }}{% else %}Someone{% endif %}</span>
-        {% if q.project %}<span class="projtag">{{ q.project }}</span>{% endif %}
-        <div class="body quote">“{{ q.question }}”</div>
-        {% if q.link or q.evidence %}
-        <div class="meta">
-          {% if q.link %}
-            {% if q.link is string and (q.link.startswith('http://') or q.link.startswith('https://')) %}
-              <a class="link" href="{{ q.link }}">{{ q.link.rsplit('/', 1)[-1] }}</a>
-            {% else %}
-              <span class="link">{{ q.link }}</span>
-            {% endif %}
-          {% endif %}
-          {% if q.evidence %}<span class="ev">Source: {{ q.evidence }}</span>{% endif %}
-        </div>
-        {% endif %}
-      </td></tr>
-      {% endfor %}
-    </table>
-  </div>
+        {% if q.evidence %}<span class="ev-inline"> {{ q.evidence }}</span>{% endif %}
+      </div>
+      {% endif %}
+    </td></tr>
+    {% endfor %}
+  </table>
   {% endif %}
 
   {% if project_groups %}
-  <div class="sec">
-    <h2>By project</h2>
-    <p class="hint">Done and next under each project, from their dailies.</p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px;overflow:hidden">
-      {% for group in project_groups %}
-      <tr><td bgcolor="#f2fbf9" style="padding:12px 14px 8px;border-bottom:1px solid #d7f0ec{% if not loop.first %};border-top:1px solid #e5f3f0{% endif %}">
-        <span class="who" style="color:#0f8a7e;text-transform:none;letter-spacing:0;font-size:15px">{{ group.project }}</span>
-        {% if group.untracked %}<span class="chip warn">export not pulled</span>{% endif %}
-      </td></tr>
-      {% for p in group.people %}
-      <tr><td style="padding:12px 14px;border-bottom:1px solid #f1f2f4">
-        <div class="who">{{ p.person }}</div>
-        {% if p.done %}
-        <div class="meta" style="padding-top:8px;color:#0f8a7e;text-transform:uppercase;letter-spacing:.06em;font-size:10px">Done</div>
-        <div class="body" style="padding-top:2px">{{ p.done }}</div>
-        {% endif %}
-        {% if p.next %}
-        <div class="meta" style="padding-top:8px;color:#0f8a7e;text-transform:uppercase;letter-spacing:.06em;font-size:10px">Next</div>
-        <div class="body" style="padding-top:2px">{{ p.next }}</div>
-        {% endif %}
-      </td></tr>
-      {% endfor %}
-      {% endfor %}
-    </table>
-  </div>
-  {% endif %}
-
-  {% if leave_plans or other_plans %}
-  <div class="sec">
-    <h2>{% if leave_plans and not other_plans %}Upcoming leave{% else %}Other plans{% endif %}</h2>
-    <p class="hint">{% if leave_plans and not other_plans %}Leave starting the next working day.{% else %}Cross-project plans and leave notes not tied to one project above.{% endif %}</p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px;overflow:hidden">
-      {% for p in leave_plans %}
-      <tr><td style="padding:12px 14px;{% if not loop.last or other_plans %}border-bottom:1px solid #f1f2f4{% endif %}">
-        <span class="who">{{ p.person }}</span>
-        <span class="chip leave">Leave soon</span>
-        <div class="body">{{ p.plan }}</div>
-      </td></tr>
-      {% endfor %}
-      {% for p in other_plans %}
-      <tr><td style="padding:12px 14px;{% if not loop.last %}border-bottom:1px solid #f1f2f4{% endif %}">
-        <span class="who">{{ p.person }}</span>
-        <div class="body">{{ p.plan }}</div>
-      </td></tr>
-      {% endfor %}
-    </table>
-  </div>
-  {% endif %}
-
-  {% if not project_groups and not review and not questions and not leave_plans and not other_plans %}
-  <div class="sec">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px"><tr><td>
-      <p class="quiet">Quiet day — nothing beyond the glance above.</p>
-    </td></tr></table>
-  </div>
-  {% endif %}
-
-  {% if on_leave or no_daily %}
-  <div class="sec">
-    <h2>No report</h2>
-    <p class="hint">Who didn’t file an internal daily. On leave is expected — not a miss.</p>
-
-    {% if on_leave %}
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f7fcfb" style="border:1px solid #d7f0ec;border-radius:12px;overflow:hidden;margin-bottom:10px">
-      {% for nr in on_leave %}
-      <tr><td style="padding:12px 14px;{% if not loop.last %}border-bottom:1px solid #e5f3f0{% endif %}">
-        <span class="chip leave">On leave</span>
-        <span class="nrname">{{ nr.name }}</span>
-        {% if nr.context %}<div class="nrctx">{{ nr.context }}</div>{% endif %}
-      </td></tr>
-      {% endfor %}
-    </table>
+  <h2>By project</h2>
+  {% for group in project_groups %}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:15px">
+    <tr><td style="border-bottom:2px solid #eef0f2;padding-bottom:5px;margin-bottom:8px">
+      <span style="font-weight:750;font-size:16px;color:#111827">{{ group.project }}</span>
+      {% if group.untracked %}<span class="chip warn" style="margin-left:8px;min-width:auto">export not pulled</span>{% endif %}
+    </td></tr>
+    {% for p in group.people %}
+    <tr><td style="padding:2px 0 5px">
+      <div class="pname">
+        {{ p.person }}
+        {% if on_leave_names and p.person in on_leave_names %}<span class="ptag"> · on leave</span>{% endif %}
+      </div>
+      {% if p.done %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:3px 0"><tr>
+        <td class="rk" width="66" valign="top">Done</td>
+        <td class="rv-done" valign="top">{{ p.done }}</td>
+      </tr></table>
+      {% endif %}
+      {% if p.next %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:3px 0"><tr>
+        <td class="rk" width="66" valign="top">Next</td>
+        <td class="rv-next" valign="top">{{ p.next }}</td>
+      </tr></table>
+      {% endif %}
+      {% if p.agent_note %}
+      <div class="agent-note"><span class="agent-inline">⚙ Agent:</span> {{ p.agent_note }}</div>
+      {% endif %}
+    </td></tr>
+    {% endfor %}
+    {% if group.heads_ups %}
+    <tr><td style="padding:6px 0 2px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#fafbfc" style="background:#fafbfc;border:1px solid #eceef1;border-radius:9px">
+        <tr><td style="padding:8px 12px 5px">
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9aa2ad;margin-bottom:4px">Beyond the dailies (UX/UI)</div>
+          {% for h in group.heads_ups %}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:5px 0"><tr>
+            <td width="72" valign="top" style="padding-top:2px">
+              <span class="chip" style="color:#1d5fb0;background:#e8f0fb;border:1px solid #c3d8f4">Heads-up</span>
+            </td>
+            <td valign="top" style="font-size:12.5px;color:#33404e;line-height:1.45">
+              {{ h.text }}{% if h.evidence %} <span class="ev-inline">{{ h.evidence }}</span>{% endif %}
+            </td>
+          </tr></table>
+          {% endfor %}
+        </td></tr>
+      </table>
+    </td></tr>
     {% endif %}
+  </table>
+  {% endfor %}
+  {% endif %}
 
-    {% if no_daily %}
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:12px;overflow:hidden">
-      {% for nr in no_daily %}
-      <tr><td style="padding:12px 14px;{% if not loop.last %}border-bottom:1px solid #f1f2f4{% endif %}">
-        <span class="chip miss">No report</span>
-        <span class="nrname">{{ nr.name }}</span>
-        {% if nr.context %}<div class="nrctx">{{ nr.context }}</div>{% endif %}
-      </td></tr>
-      {% endfor %}
-    </table>
-    {% endif %}
-  </div>
+  {% if other_plans %}
+  <h2>Other plans</h2>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:10px;margin-top:6px">
+    {% for p in other_plans %}
+    <tr><td style="padding:8px 12px;{% if not loop.last %}border-bottom:1px solid #f1f2f4{% endif %}">
+      <span class="who">{{ p.person }}</span>
+      <div class="body">{{ p.plan }}</div>
+    </td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if not project_groups and not review and not questions and not other_plans and not escalations %}
+  <p class="quiet" style="margin-top:18px">Quiet day — nothing beyond the glance above.</p>
+  {% endif %}
+
+  {% if on_leave or no_daily or leave_plans %}
+  <h2>Out &amp; quiet</h2>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:10px;margin-top:6px">
+    {% for p in leave_plans %}
+    <tr><td style="padding:8px 12px;border-bottom:1px solid #f1f2f4">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td style="font-weight:600;font-size:13px;color:#111827">{{ p.person }}</td>
+        <td align="right" style="color:#0f8a7e;font-size:12px">{{ p.plan }}</td>
+      </tr></table>
+    </td></tr>
+    {% endfor %}
+    {% for nr in on_leave %}
+    <tr><td style="padding:8px 12px;{% if not loop.last or no_daily %}border-bottom:1px solid #f1f2f4{% endif %}">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td style="font-weight:600;font-size:13px;color:#111827">{{ nr.name }}</td>
+        <td align="right" style="color:#0f8a7e;font-size:12px">{% if nr.context %}{{ nr.context }}{% else %}On leave — expected, not a miss{% endif %}</td>
+      </tr></table>
+    </td></tr>
+    {% endfor %}
+    {% for nr in no_daily %}
+    <tr><td style="padding:8px 12px;{% if not loop.last %}border-bottom:1px solid #f1f2f4{% endif %}">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td style="font-weight:600;font-size:13px;color:#111827">{{ nr.name }}</td>
+        <td align="right" style="color:#8a94a1;font-size:12px">{% if nr.context %}{{ nr.context }}{% else %}No report — no approved leave found{% endif %}</td>
+      </tr></table>
+    </td></tr>
+    {% endfor %}
+  </table>
   {% endif %}
 
   <footer>
-    <b>UX/UI design only</b> · Quiet sections stay hidden. “No report” ≠ idle when the note mentions Jira.
+    <b>Scope:</b> UX/UI design roster only. Quiet sections stay hidden. “No report” ≠ idle when the note mentions Jira.<br>
+    <b>Reading this:</b> everything under a person’s name is their own words, lightly trimmed. Lines tagged <span class="agent-inline">⚙ Agent</span> are the pipeline’s inference — sourced, and yours to overrule.
   </footer>
 
 </td></tr>

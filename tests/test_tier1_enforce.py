@@ -84,3 +84,6 @@ def test_enforce_drops_linkless_review_and_unowned_questions():
     assert q2["who"] == "Mariam Makharadze"
     assert q2["evidence"].startswith("email")
     assert q2["link"].endswith("MEDPPC-12") or q2["link"] == "MEDPPC-12"
+    assert digest.get("escalations") == []
+    assert digest.get("heads_ups") == []
+    assert "signals" in digest

@@ -81,15 +81,31 @@ def leave_days_from_hours(
     return [d for d, h in sorted(day_hours.items()) if h >= threshold]
 
 
+def _gap_is_nonworking_only(prev_end: date, next_start: date) -> bool:
+    """True when every calendar day strictly between the two dates is Sat/Sun.
+
+    Tempo does not log VACSICK on weekends, so Fri→Mon leave is one vacation.
+    A weekday in the gap (e.g. Mon sick + next Fri sick) stays two blocks.
+    """
+    d = prev_end + timedelta(days=1)
+    if d >= next_start:
+        return True  # adjacent or overlapping
+    while d < next_start:
+        if d.weekday() < 5:  # Mon–Fri
+            return False
+        d += timedelta(days=1)
+    return True
+
+
 def contiguous_leave_blocks(days: list[date]) -> list[tuple[date, date]]:
-    """Group leave days into contiguous calendar ranges (no gap-filling)."""
+    """Group leave days into ranges; weekend-only gaps do not split a vacation."""
     if not days:
         return []
     sorted_days = sorted(set(days))
     blocks: list[tuple[date, date]] = []
     start = end = sorted_days[0]
     for d in sorted_days[1:]:
-        if (d - end).days == 1:
+        if (d - end).days == 1 or _gap_is_nonworking_only(end, d):
             end = d
         else:
             blocks.append((start, end))
@@ -133,12 +149,12 @@ def apply_leave_from_days(
     *,
     reference_date: date | None = None,
 ) -> bool:
-    """Apply VACSICK leave using contiguous blocks only (not min/max of all days).
+    """Apply VACSICK leave using contiguous blocks (weekend gaps allowed).
 
     Never touches status=out. Never clears leave when leave_days is empty.
     Sets leave_from/leave_until to the block containing reference_date, or the
-    next upcoming block when between/absent — never bridges a gap (e.g. Mon + Fri
-    sick days must not imply Mon–Fri vacation).
+    next upcoming block when between/absent — never bridges a weekday gap
+    (e.g. Mon sick + next Fri sick must not imply one continuous vacation).
     """
     if not leave_days:
         return False

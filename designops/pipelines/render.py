@@ -51,6 +51,9 @@ def render_digest(
                         existing["done"] = done
                     if nxt and not (existing.get("next") or "").strip():
                         existing["next"] = nxt
+                    note = (row.get("agent_note") or "").strip()
+                    if note and not (existing.get("agent_note") or "").strip():
+                        existing["agent_note"] = note
                     existing["untracked"] = existing.get("untracked") or untracked
                     break
             continue
@@ -61,11 +64,44 @@ def render_digest(
                 "done": done,
                 "next": nxt,
                 "untracked": untracked,
+                "agent_note": (row.get("agent_note") or "").strip() or None,
             }
         )
     for g in project_groups:
         g.pop("_seen", None)
         g["untracked"] = any(p.get("untracked") for p in g["people"])
+        g["heads_ups"] = []
+
+    # Nest heads-ups under the matching project (not a top-level section).
+    for h in digest.get("heads_ups") or []:
+        if not isinstance(h, dict):
+            continue
+        text = (h.get("text") or "").strip()
+        if not text:
+            continue
+        row = {
+            "text": text,
+            "evidence": (h.get("evidence") or "").strip() or None,
+            "who": (h.get("who") or "").strip() or None,
+            "project": (h.get("project") or "").strip() or None,
+        }
+        proj = (row["project"] or "").strip() or "Unassigned"
+        target = by_project.get(proj)
+        if target is None:
+            for name, g in by_project.items():
+                if name.lower() == proj.lower():
+                    target = g
+                    break
+        if target is None:
+            target = {
+                "project": proj,
+                "people": [],
+                "untracked": False,
+                "heads_ups": [],
+            }
+            by_project[proj] = target
+            project_groups.append(target)
+        target["heads_ups"].append(row)
 
     plans = list(digest.get("todays_plans") or [])
     # Main body uses status[].next; only show leftover plans (e.g. upcoming leave).
@@ -75,12 +111,15 @@ def render_digest(
     ]
 
     no_report = list(digest.get("no_report") or [])
+    on_leave = [r for r in no_report if r.get("status") == "on_leave"]
+    on_leave_names = {r.get("name") for r in on_leave if r.get("name")}
     return template.render(
         digest=digest,
         project_groups=project_groups,
         leave_plans=leave_plans,
         other_plans=other_plans,
-        on_leave=[r for r in no_report if r.get("status") == "on_leave"],
+        on_leave=on_leave,
+        on_leave_names=on_leave_names,
         no_daily=[r for r in no_report if r.get("status") != "on_leave"],
         report_date_label=report_date.strftime("%A, %-d %b %Y"),
         sample=sample,

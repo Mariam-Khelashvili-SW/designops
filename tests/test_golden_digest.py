@@ -45,6 +45,8 @@ def test_golden_json_counts_match_spec(expected):
     assert len(expected["no_report"]) == 4
     assert len(expected["needs_review"]) == 2
     assert expected["open_questions"] == []
+    assert expected.get("escalations") == []
+    assert expected.get("heads_ups") == []
     # Tier-1: every review item has a working link
     assert all(r.get("link") for r in expected["needs_review"])
 
@@ -61,15 +63,18 @@ def test_golden_json_counts_match_spec(expected):
 def test_render_dom_structure(expected):
     html = render_digest(expected, REPORT_DATE, sample=True)
     assert "Daily Pulse" in html
-    assert "need review" in html
+    assert "needs you" in html
     assert "By project" in html
     assert "Needs attention" in html
     assert "Other plans" in html  # cross-project Club Portal line
-    assert "No report" in html
+    assert "Out &amp; quiet" in html
     # Quiet-day rule: empty open_questions → no standalone questions section
     assert "Open questions" not in html
-    assert _count(html, "nrname") == 4
+    for nr in expected["no_report"]:
+        assert nr["name"] in html
     assert "SAMPLE" not in html
+    assert "V2 PREVIEW" not in html
+    assert "not sent • UX/UI" not in html
     assert ">5<" in html
     assert "display:grid" not in html and "display:flex" not in html
 
@@ -99,8 +104,9 @@ def test_quiet_day_omits_empty_sections():
     assert "Done" in html
     assert "Next" in html
     assert "Needs attention" not in html
-    # No-report section omitted when the list is empty
-    assert html.count("No report") == 1  # KPI label only
+    assert "Out &amp; quiet" not in html
+    # KPI still shows the no-report count label
+    assert html.count("no report") == 1
 
 
 def test_render_groups_by_project_with_done_next():

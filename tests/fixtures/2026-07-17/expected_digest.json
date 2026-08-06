@@ -78,6 +78,16 @@
     }
   ],
   "open_questions": [],
+  "escalations": [],
+  "heads_ups": [],
+  "signals": {
+    "R1_leave_x_assignment": {"findings": [], "checked": "recorded golden fixture"},
+    "R2_client_wait_x_leave": {"findings": [], "checked": "recorded golden fixture"},
+    "R3_launch_proximity": {"findings": [], "checked": "recorded golden fixture"},
+    "R4_repeated_next": {"findings": [], "checked": "recorded golden fixture"},
+    "R5_report_language": {"findings": [], "checked": "recorded golden fixture"},
+    "R6_rework": {"findings": [], "checked": "recorded golden fixture"}
+  },
   "todays_plans": [
     {
       "person": "Dorota Umiastowska",

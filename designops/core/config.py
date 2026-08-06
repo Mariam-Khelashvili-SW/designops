@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     # digests when many mentioned accounts; keep modest to avoid 409 storms.
     fw_export_concurrency: int = Field(default=8, alias="FW_EXPORT_CONCURRENCY")
     fw_export_poll_interval_s: float = Field(default=2.0, alias="FW_EXPORT_POLL_INTERVAL_S")
+    # TEMPORARY: daily uses CRO + direct Jira only (no Fairwind mention exports).
+    # Set DAILY_SKIP_FAIRWIND=0 to re-enable Pass B Fairwind pulls.
+    daily_skip_fairwind: bool = Field(default=True, alias="DAILY_SKIP_FAIRWIND")
 
     # Anthropic
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
