@@ -22,8 +22,30 @@ def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 
+def _check_response(resp: httpx.Response, *, what: str) -> None:
+    """Raise before JSON parse for auth / redirect / HTTP errors."""
+    if resp.status_code in (301, 302, 303, 307, 308):
+        loc = resp.headers.get("location") or "(no Location)"
+        raise TranscriptApiError(
+            f"{what}: HTTP {resp.status_code} redirect to {loc}. "
+            "TRANSCRIPT_API_BASE_URL is hitting a login/session gate — "
+            "use the transcript-processor origin that serves /api/transcripts "
+            "(token auth, no browser session), and ensure that build bypasses "
+            "session for /api/transcripts*."
+        )
+    if resp.status_code == 401:
+        raise TranscriptApiError(
+            f"{what}: Unauthorized — check TRANSCRIPT_API_TOKEN scope (TRANSCRIPTS or CALENDAR)"
+        )
+    if resp.status_code == 404:
+        raise TranscriptApiError(f"{what}: not found (HTTP 404)")
+    if resp.status_code >= 400:
+        raise TranscriptApiError(f"{what}: HTTP {resp.status_code}: {resp.text[:300]}")
+
+
 def _parse_json_response(resp: httpx.Response, *, what: str) -> Any:
     """Parse JSON with a clear error when the body is empty or HTML (common on prod misconfig)."""
+    _check_response(resp, what=what)
     text = (resp.text or "").strip()
     if not text:
         raise TranscriptApiError(
@@ -77,14 +99,10 @@ def list_transcripts(
 
     url = f"{s.transcript_api_base_url.rstrip('/')}/api/transcripts?{urlencode(params)}"
     try:
-        with httpx.Client(timeout=timeout_s) as client:
+        with httpx.Client(timeout=timeout_s, follow_redirects=False) as client:
             resp = client.get(url, headers=_headers(s.transcript_api_token))
     except httpx.HTTPError as e:
         raise TranscriptApiError(f"transcripts API request failed: {e}") from e
-    if resp.status_code == 401:
-        raise TranscriptApiError("Unauthorized — check TRANSCRIPT_API_TOKEN scope (TRANSCRIPTS)")
-    if resp.status_code >= 400:
-        raise TranscriptApiError(f"transcripts API {resp.status_code}: {resp.text[:300]}")
     data = _parse_json_response(resp, what="transcripts list")
     if not isinstance(data, dict) or "items" not in data:
         raise TranscriptApiError("Unexpected transcripts API response shape")
@@ -107,16 +125,10 @@ def get_transcript(
 
     url = f"{s.transcript_api_base_url.rstrip('/')}/api/transcripts/{tid}"
     try:
-        with httpx.Client(timeout=timeout_s) as client:
+        with httpx.Client(timeout=timeout_s, follow_redirects=False) as client:
             resp = client.get(url, headers=_headers(s.transcript_api_token))
     except httpx.HTTPError as e:
         raise TranscriptApiError(f"get transcript request failed: {e}") from e
-    if resp.status_code == 404:
-        raise TranscriptApiError(f"Transcript not found: {tid}")
-    if resp.status_code == 401:
-        raise TranscriptApiError("Unauthorized — check TRANSCRIPT_API_TOKEN scope (TRANSCRIPTS)")
-    if resp.status_code >= 400:
-        raise TranscriptApiError(f"transcripts API {resp.status_code}: {resp.text[:300]}")
     data = _parse_json_response(resp, what=f"get transcript {tid}")
     item = data.get("item") if isinstance(data, dict) else None
     if not isinstance(item, dict):
