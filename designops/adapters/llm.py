@@ -87,12 +87,20 @@ def parse_digest_json(text: str) -> dict:
     if not t:
         raise ValueError("empty LLM response — nothing to parse")
     if t.startswith("```"):
-        t = t.split("```", 2)[1]
+        parts = t.split("```")
+        t = parts[1] if len(parts) > 1 else ""
         if t.lstrip().startswith("json"):
             t = t.lstrip()[4:]
         t = t.strip()
+    if not t:
+        raise ValueError("empty LLM response after stripping markdown fences")
     start = t.find("{")
     if start == -1:
         raise ValueError(f"no JSON object in LLM response: {t[:120]!r}")
-    obj, _ = json.JSONDecoder().raw_decode(t[start:])
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(t[start:])
+    except json.JSONDecodeError as e:
+        raise ValueError(f"invalid JSON from LLM ({e}): {t[start:start + 160]!r}") from e
+    if not isinstance(obj, dict):
+        raise ValueError(f"LLM JSON was {type(obj).__name__}, expected object")
     return obj

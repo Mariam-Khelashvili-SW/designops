@@ -619,7 +619,10 @@ def _empty_extraction() -> dict:
 
 def _llm_json(system: str, user: str, client: LLMClient) -> tuple[dict, LLMResult]:
     result = client.synthesize(system=system, user_content=user, max_tokens=8000)
-    return parse_digest_json(result.text), result
+    try:
+        return parse_digest_json(result.text), result
+    except ValueError as e:
+        raise RuntimeError(f"LLM returned unparseable JSON: {e}") from e
 
 
 # ─── Orchestration ────────────────────────────────────────────────────────────

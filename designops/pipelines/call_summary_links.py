@@ -369,8 +369,31 @@ def apply_jira_fairwind_to_link_map(
     """Fill remaining placeholders using the call's single Jira project.
 
     Fairwind account → jira keys, then pick **one** key from the meeting title.
-    Returns (updated link_map, reviewer_notes).
+    Returns (updated link_map, reviewer_notes). Failures are non-fatal.
     """
+    try:
+        return _apply_jira_fairwind_to_link_map(
+            link_map,
+            session=session,
+            project_name=project_name,
+            artifacts=artifacts,
+            meeting_title=meeting_title,
+            jira_client=jira_client,
+        )
+    except Exception as e:  # noqa: BLE001 — never fail draft generation on link lookup
+        log.warning("Jira/Fairwind link resolve skipped: %s", e)
+        return dict(link_map), [f"Link lookup skipped: {e}"]
+
+
+def _apply_jira_fairwind_to_link_map(
+    link_map: dict[str, str],
+    *,
+    session: Session,
+    project_name: str,
+    artifacts: list[dict],
+    meeting_title: str = "",
+    jira_client: Any | None = None,
+) -> tuple[dict[str, str], list[str]]:
     out = dict(link_map)
     notes: list[str] = []
     unresolved = [

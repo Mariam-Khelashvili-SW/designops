@@ -538,7 +538,7 @@ def call_summary_generate(
             )
         except Exception as e:  # noqa: BLE001
             log.exception("call-summary generate failed transcript=%s", transcript_id)
-            _call_summary_failed[transcript_id] = str(e)[:200]
+            _call_summary_failed[transcript_id] = str(e)[:400]
             # Keep pending until the page handler surfaces the error (same as success).
         # On success, leave _call_summary_pending until the page handler sees the
         # draft and redirects — otherwise refresh / tab switch loses Generating.
