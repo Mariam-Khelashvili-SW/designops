@@ -82,7 +82,16 @@
 
   .proj-edit{border-top:1px solid #eceef3;background:linear-gradient(180deg,#f7f8fb 0%,#f3f4f8 100%);padding:14px}
   .proj-edit-grid{display:grid;grid-template-columns:140px 1fr;gap:12px}
-  .proj-edit-grid .jira-row{grid-column:1 / -1}
+  .proj-edit-grid .jira-row,
+  .proj-edit-grid .figma-row{grid-column:1 / -1}
+  .proj-edit .field textarea{
+    width:100%;min-height:72px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;
+    font:inherit;font-size:13px;line-height:1.4;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  .proj-edit .field textarea:focus{outline:none;border-color:#9aa3d9;box-shadow:0 0 0 3px rgba(63,74,175,.12)}
+  .proj-side .figma-n{
+    font-size:11px;font-weight:700;color:#0f5f56;background:#e5f6f2;padding:4px 8px;border-radius:7px;
+  }
   .jira-verify{
     display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;
   }
@@ -109,6 +118,8 @@
   .jira-match .fit .pct.lo{background:#fdecea;color:#b4451f}
   .jira-match .fit .detail{font-size:11px;color:var(--mut)}
   .jira-status{font-size:12px;color:var(--mut);margin-top:6px;line-height:1.4}
+  .figma-status{font-size:12px;color:var(--mut);margin-top:6px;line-height:1.4}
+  .figma-url{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;word-break:break-all}
   @media (max-width:720px){
     .proj-sum{grid-template-columns:36px 1fr}
     .proj-side{grid-column:2;justify-content:flex-start}
@@ -199,9 +210,10 @@
     {% set initials = (t.canonical_name.split() | map('first') | join(''))[:2] | upper %}
     {% set needs_est = t.signed_design_estimate_h is none %}
     {% set needs_jira = not t.jira_project_key %}
+    {% set figma_n = (t.figma_urls or []) | length %}
     <details class="proj{% if needs_est or needs_jira %} needs-est{% endif %}"
              id="proj-{{ t.id }}"
-             data-search="{{ (t.canonical_name ~ ' ' ~ (t.jira_project_key or '') ~ ' ' ~ (t.display_subtitle or '')) | lower }}">
+             data-search="{{ (t.canonical_name ~ ' ' ~ (t.jira_project_key or '') ~ ' ' ~ (t.display_subtitle or '') ~ ' ' ~ ((t.figma_urls or []) | join(' '))) | lower }}">
       <summary class="proj-sum">
         <div class="proj-av{% if needs_est or needs_jira %} warn{% endif %}">{{ initials }}</div>
         <div class="proj-main">
@@ -213,6 +225,9 @@
           <div class="proj-sub">{{ t.display_subtitle or 'No subtitle yet — opens on the health brief as the project name only.' }}</div>
         </div>
         <div class="proj-side">
+          {% if figma_n %}
+          <span class="figma-n">{{ figma_n }} Figma</span>
+          {% endif %}
           {% if t.jira_project_key %}
           <span class="jira">{{ t.jira_project_key }}</span>
           {% else %}
@@ -265,6 +280,25 @@
               </p>
               <div class="jira-matches" id="jira-matches-{{ t.id }}">
                 <h4>Jira keys — ranked by design-ticket match</h4>
+                <div class="jira-match-list"></div>
+              </div>
+            </div>
+            <div class="field figma-row">
+              <label>Figma file URLs</label>
+              <div class="jira-verify" style="margin-bottom:8px">
+                <button class="btn sm ghost figma-fetch-btn" type="button"
+                        data-project-id="{{ t.id }}"
+                        {% if not jira_ready and not fairwind_ready %}disabled title="Configure Jira or Fairwind"{% endif %}>
+                  Fetch from Fairwind / Jira
+                </button>
+              </div>
+              <textarea name="figma_urls" id="figma-urls-{{ t.id }}" rows="3"
+                        placeholder="One URL per line (or comma-separated)&#10;https://www.figma.com/design/…">{% if t.figma_urls %}{{ t.figma_urls | join('\n') }}{% endif %}</textarea>
+              <p class="figma-status" id="figma-status-{{ t.id }}">
+                Scans Jira tickets and the Fairwind export corpus for figma.com links. Shows last updated when Figma auth can read metadata.
+              </p>
+              <div class="jira-matches" id="figma-matches-{{ t.id }}">
+                <h4>Figma files found</h4>
                 <div class="jira-match-list"></div>
               </div>
             </div>
@@ -751,6 +785,110 @@ function filterTracked() {
         if (status) status.textContent = 'Could not link: ' + (err && err.message ? err.message : err);
         if (keyInput) keyInput.value = key;
       });
+  });
+
+  function mergeFigmaUrls(textarea, urls) {
+    var cur = (textarea.value || '').split(/[\n,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    var seen = {};
+    cur.forEach(function (u) { seen[u] = true; });
+    (urls || []).forEach(function (u) {
+      if (u && !seen[u]) { cur.push(u); seen[u] = true; }
+    });
+    textarea.value = cur.join('\n');
+  }
+
+  list.addEventListener('click', function (e) {
+    var btn = e.target.closest('.figma-fetch-btn');
+    if (!btn) return;
+    e.preventDefault();
+    var pid = btn.getAttribute('data-project-id');
+    var status = document.getElementById('figma-status-' + pid);
+    var panel = document.getElementById('figma-matches-' + pid);
+    var ta = document.getElementById('figma-urls-' + pid);
+    var prev = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Fetching…';
+    if (status) status.innerHTML = '<span class="spin"></span> Scanning Fairwind corpus + Jira for figma.com links…';
+    if (panel) { panel.classList.remove('open'); panel.querySelector('.jira-match-list').innerHTML = ''; }
+    fetch('/weekly-health/projects/' + encodeURIComponent(pid) + '/fetch-figma', {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' }
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error((data && data.detail) || 'Fetch failed');
+          return data;
+        });
+      })
+      .then(function (data) {
+        var rows = data.urls || [];
+        var keys = (data.keys_searched || []).join(', ') || '—';
+        function fmtDate(iso) {
+          if (!iso) return '';
+          try {
+            var d = new Date(iso);
+            if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+            return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+          } catch (e) { return String(iso).slice(0, 10); }
+        }
+        if (!rows.length) {
+          if (status) {
+            status.textContent = 'No Figma URLs found (keys: ' + keys + ')' +
+              (data.errors && data.errors.length ? ' · ' + data.errors.join('; ') : '') +
+              '. Paste URLs manually if needed.';
+          }
+          return;
+        }
+        var fresh = rows.filter(function (r) { return !r.already_saved; }).map(function (r) { return r.url; });
+        if (ta && fresh.length) mergeFigmaUrls(ta, fresh);
+        if (status) {
+          status.textContent = 'Found ' + rows.length + ' Figma file' + (rows.length === 1 ? '' : 's') +
+            (keys !== '—' ? ' · keys ' + keys : '') +
+            (fresh.length ? ' — added ' + fresh.length + ' new to the list. Save to keep.' : ' — all already listed.');
+        }
+        if (!panel) return;
+        var box = panel.querySelector('.jira-match-list');
+        box.innerHTML = rows.map(function (r, i) {
+          var badge = r.already_saved
+            ? '<span class="pct mid">saved</span>'
+            : '<span class="pct hi">new</span>';
+          var src = r.source_label || r.source || '';
+          var updated = fmtDate(r.last_touched_at);
+          var title = r.figma_name ? esc(r.figma_name) + ' · ' : '';
+          return '<div class="jira-match' + (i === 0 ? ' best' : '') + '">' +
+            '<div><div class="n figma-url">' + title + esc(r.url) + '</div>' +
+            '<div class="fit">' + badge +
+            (src ? '<span class="pct mid">' + esc(src) + '</span>' : '') +
+            (updated ? '<span class="pct hi">updated ' + esc(updated) + '</span>' : '') +
+            '<span class="detail">' + esc(r.issue_key || '') +
+            (r.summary ? ' · ' + esc(r.summary) : '') +
+            '</span></div></div>' +
+            '<button type="button" class="btn sm figma-add" data-url="' + esc(r.url) +
+            '" data-project-id="' + esc(pid) + '"' + (r.already_saved ? ' disabled' : '') + '>' +
+            (r.already_saved ? 'Listed' : 'Add') + '</button>' +
+            '</div>';
+        }).join('');
+        panel.classList.add('open');
+      })
+      .catch(function (err) {
+        if (status) status.textContent = 'Fetch failed: ' + (err && err.message ? err.message : err);
+      })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = prev;
+      });
+  });
+
+  list.addEventListener('click', function (e) {
+    var add = e.target.closest('.figma-add');
+    if (!add || add.disabled) return;
+    e.preventDefault();
+    var pid = add.getAttribute('data-project-id');
+    var url = add.getAttribute('data-url');
+    var ta = document.getElementById('figma-urls-' + pid);
+    if (ta && url) mergeFigmaUrls(ta, [url]);
+    add.disabled = true;
+    add.textContent = 'Listed';
   });
 })();
 </script>

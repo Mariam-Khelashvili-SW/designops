@@ -207,6 +207,7 @@ def test_enforce_intelligence_and_attach_notes():
         ],
     )
     assert "4th run" in digest["status"][0]["agent_note"]
+    assert digest["status"][0]["agent_notes"][0]["evidence"] == "— run-log"
 
 
 def test_build_user_content_includes_leave_and_prior_next():
@@ -347,8 +348,9 @@ def test_render_intelligence_no_v2_preview_banner():
     # No standalone top Heads-up section heading before By project
     top = html.split("By project")[0]
     assert "<h2>Heads-up</h2>" not in top
-    assert "⚙" in html
+    assert "Agent note" in html
     assert "4th run" in html
+    assert "Heads-up" in html
     assert "V2 PREVIEW" not in html
     assert "not sent • UX/UI" not in html
     assert "SAMPLE / DRY-RUN" not in html

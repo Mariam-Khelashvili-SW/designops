@@ -19,10 +19,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from designops.adapters import google_oauth
+from designops.adapters import figma_oauth, google_oauth
 from designops.adapters.delivery import send_digest
 from designops.adapters.fairwind import FairwindClient, FairwindError
 from designops.core.config import get_settings
+from designops.core.identity import effective_status
 from designops.core.db import get_db
 from designops.core.enums import PersonStatus, SendMode
 from designops.core.models import (
@@ -1205,9 +1206,12 @@ def weekly_health_update_project(
     signed_design_estimate_h: str = Form(""),
     display_subtitle: str = Form(""),
     jira_project_key: str = Form(""),
+    figma_urls: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    """Edit weekly-health fields on a tracked project (estimate + subtitle + Jira)."""
+    """Edit weekly-health fields on a tracked project (estimate + subtitle + Jira + Figma)."""
+    from designops.adapters.figma import FigmaError, parse_figma_url_list
+
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
@@ -1222,6 +1226,10 @@ def weekly_health_update_project(
     project.display_subtitle = (display_subtitle or "").strip() or None
     key = (jira_project_key or "").strip().upper() or None
     project.jira_project_key = key
+    try:
+        project.figma_urls = parse_figma_url_list(figma_urls)
+    except FigmaError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     db.add(project)
     return RedirectResponse(
         f"/weekly-health?flash=project_saved&name={quote(project.canonical_name)}",
@@ -1302,6 +1310,115 @@ async def weekly_health_set_jira(
             "key": key,
             "name": project.canonical_name,
             "redirect": f"/weekly-health?flash=jira_linked&name={quote(project.canonical_name)}",
+        }
+    )
+
+
+@app.post("/weekly-health/projects/{project_id}/fetch-figma")
+def weekly_health_fetch_figma(project_id: str, db: Session = Depends(get_db)):
+    """Find Figma file URLs via Jira Cloud + Fairwind corpus; enrich with last updated."""
+    from designops.adapters import figma as figma_api
+    from designops.adapters.jira import JiraClient
+    from designops.pipelines.call_summary_links import (
+        harvest_figma_urls_from_fairwind,
+        harvest_figma_urls_from_jira,
+        merge_figma_url_hits,
+    )
+
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    s = get_settings()
+    if not s.jira_configured and not s.fairwind_configured:
+        raise HTTPException(
+            status_code=400,
+            detail="Configure Jira and/or Fairwind credentials to fetch Figma links",
+        )
+
+    keys: list[str] = []
+    sources: list[str] = []
+    errors: list[str] = []
+    if project.jira_project_key:
+        keys.append(project.jira_project_key)
+        sources.append("project_key")
+
+    account = None
+    if project.fairwind_account_id:
+        account = (
+            db.query(Account)
+            .filter_by(fairwind_account_id=project.fairwind_account_id)
+            .one_or_none()
+        )
+    if account and account.jira_project_keys:
+        for k in account.jira_project_keys:
+            if k and str(k).upper() not in keys:
+                keys.append(str(k).upper())
+        sources.append("fairwind_account")
+
+    # If still no keys, try the same candidate resolver as Verify Jira
+    if not keys and (s.jira_configured or s.fairwind_configured):
+        matches, cand_sources = _jira_candidates_for_project(db, project)
+        sources.extend(cand_sources)
+        for m in matches[:5]:
+            k = (m.get("key") or "").strip().upper()
+            if k and k not in keys:
+                keys.append(k)
+        if matches:
+            sources.append("jira_candidates")
+
+    jira_hits: list[dict] = []
+    fw_hits: list[dict] = []
+
+    if s.jira_configured and keys:
+        try:
+            result = harvest_figma_urls_from_jira(keys, client=JiraClient(s))
+            jira_hits = result.get("urls") or []
+            errors.extend(result.get("errors") or [])
+            sources.append("jira_search")
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"jira: {e}")
+    elif s.jira_configured and not keys:
+        errors.append("jira: no project key to search")
+
+    if project.fairwind_account_id and s.fairwind_configured:
+        try:
+            fw = harvest_figma_urls_from_fairwind(
+                project.fairwind_account_id,
+                jira_keys=keys or None,
+            )
+            fw_hits = fw.get("urls") or []
+            errors.extend(fw.get("errors") or [])
+            sources.append("fairwind_corpus")
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"fairwind: {e}")
+    elif not project.fairwind_account_id:
+        errors.append("fairwind: project has no Fairwind account link")
+
+    urls = merge_figma_url_hits(jira_hits, fw_hits)
+    if not urls and not keys and not project.fairwind_account_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No Jira key or Fairwind account — link one first",
+        )
+
+    existing = {u.split("?")[0].rstrip("/") for u in (project.figma_urls or [])}
+    urls = figma_api.enrich_urls_with_meta(urls, settings=s)
+    for row in urls:
+        row["already_saved"] = row.get("url") in existing
+        # Convenience single source label for the UI
+        srcs = row.get("sources") or ([row["source"]] if row.get("source") else [])
+        row["source_label"] = "+".join(srcs)
+
+    return JSONResponse(
+        {
+            "project_id": str(project.id),
+            "name": project.canonical_name,
+            "keys_searched": keys,
+            "sources": sources,
+            "errors": errors,
+            "urls": urls,
+            "existing": list(project.figma_urls or []),
+            "figma_meta_ready": figma_api.is_ready(s),
         }
     )
 
@@ -1521,6 +1638,165 @@ def google_cro_disconnect():
     return RedirectResponse("/config?google_cro=disconnected", status_code=302)
 
 
+# --- Figma OAuth (Connect Figma for file comments) ---------------------------
+@app.get("/settings/figma/connect")
+def figma_connect():
+    if not figma_oauth.oauth_app_configured():
+        return RedirectResponse("/config?figma=notconfigured", status_code=302)
+    try:
+        url = figma_oauth.build_auth_url(state=figma_oauth.STATE)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(
+            f"/config?figma=error&msg={quote(str(e))}", status_code=302
+        )
+    return RedirectResponse(url, status_code=302)
+
+
+@app.get("/oauth/figma/callback")
+def figma_callback(code: str = "", error: str = "", state: str = ""):
+    dest = "/config"
+    if error or not code:
+        return RedirectResponse(
+            f"{dest}?figma=error&msg={quote(error or 'no code')}", status_code=302
+        )
+    if (state or "").strip() and (state or "").strip() != figma_oauth.STATE:
+        return RedirectResponse(
+            f"{dest}?figma=error&msg={quote('invalid state')}", status_code=302
+        )
+    try:
+        figma_oauth.exchange_code(code, settings=get_settings())
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(
+            f"{dest}?figma=error&msg={quote(f'{type(e).__name__}: {e}')}",
+            status_code=302,
+        )
+    return RedirectResponse(f"{dest}?figma=connected", status_code=302)
+
+
+@app.post("/settings/figma/disconnect")
+def figma_disconnect():
+    figma_oauth.disconnect(get_settings())
+    return RedirectResponse("/config?figma=disconnected", status_code=302)
+
+
+@app.post("/settings/figma/pat")
+def figma_save_pat(figma_access_token: str = Form("")):
+    """Save a Figma personal access token from Config (Postgres, not .env)."""
+    from designops.adapters import figma as figma_api
+
+    tok = (figma_access_token or "").strip()
+    if not tok:
+        return RedirectResponse(
+            "/config?figma_pat=error&msg=" + quote("paste a token first"),
+            status_code=302,
+        )
+    try:
+        figma_api.save_pat(tok)
+    except figma_api.FigmaError as e:
+        return RedirectResponse(
+            f"/config?figma_pat=error&msg={quote(str(e))}", status_code=302
+        )
+    return RedirectResponse("/config?figma_pat=saved", status_code=302)
+
+
+@app.post("/settings/figma/pat/clear")
+def figma_clear_pat():
+    from designops.adapters import figma as figma_api
+
+    figma_api.clear_pat()
+    return RedirectResponse("/config?figma_pat=cleared", status_code=302)
+
+
+@app.post("/settings/figma/oauth-app")
+def figma_save_oauth_app(
+    figma_client_id: str = Form(""),
+    figma_client_secret: str = Form(""),
+    figma_redirect_uri: str = Form(""),
+):
+    """Save Figma OAuth app credentials from Config (Postgres, not .env)."""
+    existing = figma_oauth.get_oauth_app()
+    cid = (figma_client_id or "").strip() or (existing.get("client_id") or "")
+    secret = (figma_client_secret or "").strip() or (existing.get("client_secret") or "")
+    redir = (figma_redirect_uri or "").strip()
+    try:
+        figma_oauth.save_oauth_app(cid, secret, redir)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(
+            f"/config?figma_app=error&msg={quote(str(e))}", status_code=302
+        )
+    return RedirectResponse("/config?figma_app=saved", status_code=302)
+
+
+@app.post("/settings/figma/oauth-app/clear")
+def figma_clear_oauth_app():
+    figma_oauth.clear_oauth_app()
+    return RedirectResponse("/config?figma_app=cleared", status_code=302)
+
+
+@app.get("/api/figma/comments")
+def api_figma_comments(
+    url: str = "",
+    file_key: str = "",
+    unresolved_only: bool = False,
+    as_md: bool = True,
+    limit: int | None = None,
+):
+    """Fetch Figma file comments (JSON). Prefers OAuth, falls back to PAT.
+
+    Optional ``limit`` returns only the newest N comments in ``comments``
+    (useful for Config smoke-tests).
+    """
+    from designops.adapters import figma as figma_api
+
+    target = (url or file_key or "").strip()
+    if not target:
+        raise HTTPException(400, "pass url= or file_key=")
+    if not figma_api.is_ready():
+        raise HTTPException(
+            503,
+            "Figma not ready — Connect Figma or save a personal access token on Config",
+        )
+    if limit is not None and limit < 1:
+        raise HTTPException(400, "limit must be >= 1")
+    try:
+        return figma_api.fetch_file_comments(
+            target,
+            unresolved_only=unresolved_only,
+            as_md=as_md,
+            limit=limit,
+        )
+    except figma_api.FigmaError as e:
+        raise HTTPException(502, str(e)) from e
+
+
+@app.post("/settings/figma/probe")
+def figma_probe(figma_url: str = Form("")):
+    """Config UI smoke-test: fetch comments for a pasted Figma URL."""
+    from designops.adapters import figma as figma_api
+
+    target = (figma_url or "").strip()
+    if not target:
+        return RedirectResponse("/config?figma_probe=error&msg=empty", status_code=302)
+    if not figma_api.is_ready():
+        return RedirectResponse(
+            "/config?figma_probe=error&msg="
+            + quote("not ready — Connect Figma or save a personal access token on Config"),
+            status_code=302,
+        )
+    try:
+        result = figma_api.fetch_file_comments(target, unresolved_only=False)
+    except figma_api.FigmaError as e:
+        return RedirectResponse(
+            f"/config?figma_probe=error&msg={quote(str(e)[:200])}", status_code=302
+        )
+    q = (
+        f"figma_probe=ok&file_key={quote(result['file_key'])}"
+        f"&total={result['total']}&unresolved={result['unresolved_roots']}"
+        f"&threads={result['thread_count']}&mode={quote(result['auth_mode'] or '')}"
+    )
+    return RedirectResponse(f"/config?{q}", status_code=302)
+
+
 @app.get("/runs/{run_id}/digest", response_class=HTMLResponse)
 def run_digest(run_id: str, db: Session = Depends(get_db)):
     art = (
@@ -1704,6 +1980,18 @@ def _apply_person_form(
 @app.get("/config", response_class=HTMLResponse)
 def config_screen(request: Request, db: Session = Depends(get_db)):
     people = db.query(Person).order_by(Person.status, Person.full_name).all()
+    today = date.today()
+    for p in people:
+        # List / stats use today; edit form still binds to stored status + dates.
+        p.display_status = effective_status(
+            p.status, p.leave_until, today, leave_from=p.leave_from
+        )
+        p.leave_upcoming = (
+            p.status == PersonStatus.ON_LEAVE
+            and p.display_status == PersonStatus.ACTIVE
+            and bool(p.leave_from and p.leave_from > today)
+        )
+    people.sort(key=lambda p: (p.display_status, (p.full_name or "").lower()))
     projects = db.query(Project).order_by(Project.canonical_name).all()
     s = get_settings()
     cro_msgs: list[dict] = []
@@ -1717,7 +2005,14 @@ def config_screen(request: Request, db: Session = Depends(get_db)):
             cro_err = f"{type(e).__name__}: {e}"
     google_flash = request.query_params.get("google")
     google_cro_flash = request.query_params.get("google_cro")
+    figma_flash = request.query_params.get("figma")
+    figma_probe = request.query_params.get("figma_probe")
+    figma_pat_flash = request.query_params.get("figma_pat")
+    figma_app_flash = request.query_params.get("figma_app")
     msg = request.query_params.get("msg")
+    from designops.adapters import figma as figma_api
+
+    app_hint = figma_oauth.oauth_app_hint()
     return templates.TemplateResponse(
         "config.html",
         {
@@ -1728,9 +2023,31 @@ def config_screen(request: Request, db: Session = Depends(get_db)):
             "flash": request.query_params.get("flash"),
             "google_flash": google_flash,
             "google_cro_flash": google_cro_flash,
+            "figma_flash": figma_flash,
+            "figma_probe": figma_probe,
+            "figma_pat_flash": figma_pat_flash,
+            "figma_app_flash": figma_app_flash,
             "google_msg": msg if google_flash else None,
             "google_cro_msg": msg if google_cro_flash else None,
-            "verify_msg": msg if not google_flash and not google_cro_flash else None,
+            "figma_msg": msg if figma_flash else None,
+            "figma_probe_msg": msg if figma_probe else None,
+            "figma_pat_msg": msg if figma_pat_flash else None,
+            "figma_app_msg": msg if figma_app_flash else None,
+            "figma_probe_file_key": request.query_params.get("file_key"),
+            "figma_probe_total": request.query_params.get("total"),
+            "figma_probe_unresolved": request.query_params.get("unresolved"),
+            "figma_probe_threads": request.query_params.get("threads"),
+            "figma_probe_mode": request.query_params.get("mode"),
+            "verify_msg": (
+                msg
+                if not google_flash
+                and not google_cro_flash
+                and not figma_flash
+                and not figma_probe
+                and not figma_pat_flash
+                and not figma_app_flash
+                else None
+            ),
             "verify_person": request.query_params.get("person"),
             "statuses": [s.value for s in PersonStatus],
             "google_configured": s.google_oauth_configured,
@@ -1743,6 +2060,16 @@ def config_screen(request: Request, db: Session = Depends(get_db)):
             "cro_email": google_oauth.connected_cro_email(s),
             "cro_messages": cro_msgs,
             "cro_error": cro_err,
+            "figma_oauth_configured": figma_oauth.oauth_app_configured(),
+            "figma_client_id_hint": app_hint.get("client_id_hint"),
+            "figma_client_secret_hint": app_hint.get("client_secret_hint"),
+            "figma_pat_configured": figma_api.pat_configured(),
+            "figma_pat_hint": figma_api.pat_hint(),
+            "figma_connected": figma_oauth.is_connected(s),
+            "figma_label": figma_oauth.connected_label(s),
+            "figma_auth_mode": figma_api.auth_mode(s),
+            "figma_ready": figma_api.is_ready(s),
+            "figma_redirect_uri": app_hint.get("redirect_uri"),
         },
     )
 

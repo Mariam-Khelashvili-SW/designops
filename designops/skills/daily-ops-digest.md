@@ -83,7 +83,7 @@ Project A
   Person 1
     Done: …
     Next: …
-    ⚙ agent_note (optional)
+    Agent note (optional)
   Person 2
     Done: …
     Next: …
@@ -164,7 +164,7 @@ and may **only verbalize findings that exist in the locked Pass A `signals` JSON
 |------|---------|----------|------------------|
 | **Escalation** | Not stopped, but Olga should see it and may need to act | yes | Top of email (one Escalations block) |
 | **Heads-up** | Work coming / context worth knowing; no action needed | no | Under the matching **project**, **below** that project's Done/Next reports |
-| **⚙ Agent note** | Inference on a person×project row (repetition, rework) | no | Directly under that person's Done/Next |
+| **Agent note** | Inference on a person×project row (repetition, rework) | no | Directly under that person's Done/Next |
 
 Hard rules for every intelligence artifact:
 
@@ -180,6 +180,23 @@ Hard rules for every intelligence artifact:
   one artifact type. R2/R3 heads-ups must be *different* facts from any R1/R5 escalation
   (e.g. leave×coverage is Escalation only; client-wait×leave is Heads-up only when it is
   not already covered by that escalation).
+
+### Voice (heads-ups & agent notes)
+
+Write like a short sticky note to a colleague — scannable, human, not a system log.
+
+- **One short sentence** (two max). Lead with the fact; put the count or date after.
+- Same register for heads-ups and agent notes: plain prose, easy to skim.
+- Put the source in `evidence` only — do **not** append long attribution chains in the body.
+- Prefer line breaks in meaning over packing leave, coverage, rework, and dates into one clause.
+- Avoid robotic filler: "observed", "detected", "per run-log correlation", "pipeline",
+  "signal", "finding", "n=", "commencing", "no status change detected".
+
+**Good agent note:** `'Finish HP' has been Next for 4 runs (since 14 Jul).`
+**Bad agent note:** `Observed recurrence of Next item 'Finish HP' across consecutive pipeline runs (n=4) commencing 14 Jul per run-log correlation — no status change detected.`
+
+**Good heads-up:** `Wireframes are with the client; feedback will sit until Predrag is back unless someone else picks it up.`
+**Bad heads-up:** `Client-facing wait × leave: wireframe review package transmitted; sender leave window intersects expected feedback SLA — queueing risk unless reassigned.`
 
 ### Signal rules (each MUST be evaluated every run)
 
@@ -200,18 +217,20 @@ coverage gaps; R2 is informational under the project only).
 Report mentioning go-live / launch / phase-N preparation → one-line Heads-up under that
 project (not in the top Escalations list).
 
-**R4 — Repeated Next → ⚙ Agent note.**
-Same Next item ≥3 consecutive runs (fuzzy match vs run-log) → note under that entry with
-the count. Do not editorialize ("stalled", "behind").
+**R4 — Repeated Next → Agent note.**
+Same Next item ≥3 consecutive runs (fuzzy match vs run-log) → one short note under that
+entry with the count (e.g. `'Finish HP' has been Next for 4 runs (since 14 Jul).`).
+Do not editorialize ("stalled", "behind").
 
 **R5 — Blocker/Escalation language in reports → classify.**
 Scan for stop/risk phrasing ("waiting on", "can't", "blocked", "no tickets", "didn't have
 time because", "deprioritized", "again"). Description stays verbatim; only the label is
 the agent's. Prefer `needs_review` when a real ticket link exists; else `escalations`.
 
-**R6 — Rework recurrence → ⚙ Agent note.**
-Same element reworked across runs in the team's own wording → rework note with count.
-Source from dailies + run-log only — never by mining client email for every change.
+**R6 — Rework recurrence → Agent note.**
+Same element reworked across runs in the team's own wording → short rework note with
+count (e.g. `PLP has come back for tweaks across 3 runs.`). Source from dailies + run-log
+only — never by mining client email for every change.
 
 ### Pass A output — `signals` JSON ONLY
 
@@ -282,7 +301,7 @@ feedback queues until return.
 
 **R3 near-miss:** Vague "next week" with no launch/go-live wording → no finding.
 
-**R4 hit:** "'Finish HP' has been Next since {date} — 4th run. — run-log"
+**R4 hit:** text `'Finish HP' has been Next for 4 runs (since 14 Jul).` + evidence `— run-log`
 
 **R4 near-miss:** Same Next only twice → no finding.
 
@@ -291,7 +310,7 @@ if a real link exists).
 
 **R5 near-miss:** Routine progress with no stop language → no finding.
 
-**R6 hit:** "adjusting the PLP again" across runs → agent_note with count.
+**R6 hit:** text `PLP has come back for tweaks across 3 runs.` + evidence `— dailies × run-log`
 
 **R6 near-miss:** First-time tweak with no "again"/recurrence → no finding.
 

@@ -54,10 +54,19 @@ def render_digest(
                     note = (row.get("agent_note") or "").strip()
                     if note and not (existing.get("agent_note") or "").strip():
                         existing["agent_note"] = note
+                    incoming_notes = row.get("agent_notes")
+                    if incoming_notes and not existing.get("agent_notes"):
+                        existing["agent_notes"] = list(incoming_notes)
+                    elif note and not existing.get("agent_notes"):
+                        existing["agent_notes"] = [{"text": note, "evidence": None}]
                     existing["untracked"] = existing.get("untracked") or untracked
                     break
             continue
         g["_seen"].add(key)
+        notes_list = row.get("agent_notes")
+        if not notes_list:
+            single = (row.get("agent_note") or "").strip()
+            notes_list = [{"text": single, "evidence": None}] if single else []
         g["people"].append(
             {
                 "person": person,
@@ -65,6 +74,7 @@ def render_digest(
                 "next": nxt,
                 "untracked": untracked,
                 "agent_note": (row.get("agent_note") or "").strip() or None,
+                "agent_notes": notes_list,
             }
         )
     for g in project_groups:

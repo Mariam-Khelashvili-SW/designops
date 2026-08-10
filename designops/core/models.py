@@ -34,8 +34,9 @@ def _uuid() -> uuid.UUID:
 
 class AppState(Base):
     """Small key→JSON store for runtime state that must survive redeploys but isn't a
-    domain entity — e.g. the Google OAuth refresh token (so a container restart doesn't
-    drop the Gmail connection). NOT for app secrets, which stay in env."""
+    domain entity — e.g. Google / Figma OAuth refresh tokens and the Figma personal
+    access token pasted on Config. App *client* secrets (OAuth client id/secret)
+    stay in env; user-facing tokens live here."""
 
     __tablename__ = "app_state"
 
@@ -100,6 +101,8 @@ class Project(Base):
     estimate_basis: Mapped[str | None] = mapped_column(String, nullable=True)
     agreement_summary: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     jira_scope: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Figma file URLs for the project (Tracked projects UI — multiple allowed).
+    figma_urls: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

@@ -539,3 +539,210 @@ def scrub_tracking_params(url: str) -> str:
     if "figma.com" in url and "node-id=" not in url:
         return url.split("?")[0]
     return url
+
+
+def _clean_figma_url(url: str) -> str | None:
+    u = (url or "").strip()
+    if not u or not FIGMA_URL_RE.match(u):
+        return None
+    return u.split("?")[0].split("#")[0].rstrip("/")
+
+
+def harvest_figma_urls_from_jira(
+    jira_keys: list[str],
+    *,
+    client: Any | None = None,
+    max_issues_per_key: int = 40,
+) -> dict[str, Any]:
+    """Scan Jira issues for figma.com links under the given project keys.
+
+    Returns ``{urls: [{url, issue_key, summary, source}], keys_searched, errors}``.
+    Fairwind is used upstream only to discover keys; links themselves live in Jira.
+    """
+    from designops.adapters.jira import JiraClient
+
+    keys = []
+    seen_k: set[str] = set()
+    for k in jira_keys or []:
+        kk = (k or "").strip().upper()
+        if kk and kk not in seen_k:
+            seen_k.add(kk)
+            keys.append(kk)
+
+    out: list[dict[str, str]] = []
+    seen_url: set[str] = set()
+    errors: list[str] = []
+    if not keys:
+        return {"urls": out, "keys_searched": keys, "errors": ["no Jira project key"]}
+
+    jc = client or JiraClient(get_settings())
+    for key in keys:
+        jql = (
+            f"project = {key} AND "
+            f'(summary ~ "figma" OR summary ~ "wireframe" OR summary ~ "UI design" '
+            f'OR summary ~ "Design and UI" OR text ~ "figma.com") '
+            f"ORDER BY updated DESC"
+        )
+        try:
+            issues = jc.search_jql(
+                jql,
+                max_results=min(50, max_issues_per_key),
+                limit=max_issues_per_key,
+                fields=["summary", "description"],
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("Figma harvest failed for %s: %s", key, e)
+            errors.append(f"{key}: {e}")
+            continue
+        for issue in issues:
+            ikey = str(issue.get("key") or "")
+            fields = issue.get("fields") or {}
+            summary = str(fields.get("summary") or "")
+            _text, urls = extract_urls_from_adf(fields.get("description"))
+            # Bare figma URLs sometimes appear only in the summary
+            for m in FIGMA_URL_RE.findall(summary):
+                urls.append(m)
+            for raw_u in urls:
+                cleaned = _clean_figma_url(raw_u)
+                if not cleaned or cleaned in seen_url:
+                    continue
+                seen_url.add(cleaned)
+                out.append(
+                    {
+                        "url": cleaned,
+                        "issue_key": ikey,
+                        "summary": summary[:120],
+                        "jira_project": key,
+                        "source": "jira",
+                    }
+                )
+    return {"urls": out, "keys_searched": keys, "errors": errors}
+
+
+def harvest_figma_urls_from_fairwind(
+    fairwind_account_id: str,
+    *,
+    jira_keys: list[str] | None = None,
+    corpus_dir: str | None = None,
+) -> dict[str, Any]:
+    """Scan cached Fairwind export corpus (Jira JSON) for figma.com links.
+
+    Uses already-downloaded ``var/corpus/{account_id}/**/json/jira`` files — no new
+    Fairwind export. Optional ``jira_keys`` filters to those project keys.
+    """
+    from pathlib import Path
+
+    import json
+
+    from designops.core.config import get_settings as _gs
+
+    aid = (fairwind_account_id or "").strip()
+    out: list[dict[str, str]] = []
+    errors: list[str] = []
+    if not aid:
+        return {"urls": out, "keys_searched": [], "errors": ["no Fairwind account id"]}
+
+    key_filter = {k.strip().upper() for k in (jira_keys or []) if (k or "").strip()}
+    root = Path(corpus_dir or _gs().corpus_store_dir) / aid
+    if not root.is_dir():
+        return {
+            "urls": out,
+            "keys_searched": sorted(key_filter),
+            "errors": [f"no Fairwind corpus for account {aid}"],
+        }
+
+    seen_url: set[str] = set()
+    files_scanned = 0
+    for path in root.rglob("*.json"):
+        # Prefer issue files under json/jira; skip projects.json aggregates
+        parts = {p.lower() for p in path.parts}
+        if "jira" not in parts:
+            continue
+        if path.name == "projects.json":
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        records: list[dict]
+        if isinstance(data, list):
+            records = [r for r in data if isinstance(r, dict)]
+        elif isinstance(data, dict):
+            if data.get("key") or data.get("summary") or data.get("description_text"):
+                records = [data]
+            else:
+                records = [
+                    r
+                    for r in (data.get("issues") or data.get("items") or [])
+                    if isinstance(r, dict)
+                ]
+        else:
+            continue
+
+        for issue in records:
+            files_scanned += 1
+            pk = str(issue.get("project_key") or "").upper()
+            ikey = str(issue.get("key") or "")
+            if key_filter:
+                # Prefer project_key; fall back to issue key prefix (PAARS-123 → PAARS)
+                prefix = ikey.split("-", 1)[0].upper() if ikey else ""
+                if pk and pk not in key_filter and prefix not in key_filter:
+                    continue
+            summary = str(issue.get("summary") or issue.get("title") or "")
+            blob = "\n".join(
+                str(issue.get(f) or "")
+                for f in ("description_text", "description", "body", "summary", "title")
+            )
+            urls = list(FIGMA_URL_RE.findall(blob))
+            for raw_u in urls:
+                cleaned = _clean_figma_url(raw_u)
+                if not cleaned or cleaned in seen_url:
+                    continue
+                seen_url.add(cleaned)
+                out.append(
+                    {
+                        "url": cleaned,
+                        "issue_key": ikey,
+                        "summary": summary[:120],
+                        "jira_project": pk or (ikey.split("-", 1)[0] if ikey else ""),
+                        "source": "fairwind",
+                    }
+                )
+
+    if files_scanned == 0 and not out:
+        errors.append(f"no Jira issues in Fairwind corpus for {aid}")
+    return {
+        "urls": out,
+        "keys_searched": sorted(key_filter),
+        "errors": errors,
+        "files_scanned": files_scanned,
+    }
+
+
+def merge_figma_url_hits(*batches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Dedupe by URL; combine sources when the same file appears in Jira + Fairwind."""
+    by_url: dict[str, dict[str, Any]] = {}
+    for batch in batches:
+        for row in batch or []:
+            url = (row.get("url") or "").strip()
+            if not url:
+                continue
+            if url not in by_url:
+                by_url[url] = dict(row)
+                src = row.get("source") or "unknown"
+                by_url[url]["sources"] = [src] if isinstance(src, str) else list(src or [])
+                continue
+            cur = by_url[url]
+            src = row.get("source")
+            sources = list(cur.get("sources") or [])
+            if src and src not in sources:
+                sources.append(src)
+            cur["sources"] = sources
+            # Prefer a non-empty issue key / summary from either side
+            if not cur.get("issue_key") and row.get("issue_key"):
+                cur["issue_key"] = row["issue_key"]
+            if not cur.get("summary") and row.get("summary"):
+                cur["summary"] = row["summary"]
+            if not cur.get("jira_project") and row.get("jira_project"):
+                cur["jira_project"] = row["jira_project"]
+    return list(by_url.values())

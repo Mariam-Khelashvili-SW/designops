@@ -126,10 +126,10 @@
   }
 </style>
 
-{% set active_n = people | selectattr('status', 'equalto', 'active') | list | length %}
-{% set leave_n = people | selectattr('status', 'equalto', 'on_leave') | list | length %}
-{% set out_n = people | selectattr('status', 'equalto', 'out') | list | length %}
-{% set unverified_n = people | rejectattr('identity_verified') | rejectattr('status', 'equalto', 'out') | list | length %}
+{% set active_n = people | selectattr('display_status', 'equalto', 'active') | list | length %}
+{% set leave_n = people | selectattr('display_status', 'equalto', 'on_leave') | list | length %}
+{% set out_n = people | selectattr('display_status', 'equalto', 'out') | list | length %}
+{% set unverified_n = people | rejectattr('identity_verified') | rejectattr('display_status', 'equalto', 'out') | list | length %}
 
 {% if google_flash == 'connected' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Google connected{% if google_email %} as <b>{{ google_email }}</b>{% endif %}. Reports can now be emailed.</div>
 {% elif google_flash == 'disconnected' %}<div class="banner" style="background:#eef0f3;border:1px solid #dfe2e7;color:#5b6470">Google disconnected.</div>
@@ -141,6 +141,30 @@
 {% elif google_cro_flash == 'disconnected' %}<div class="banner" style="background:#eef0f3;border:1px solid #dfe2e7;color:#5b6470">CRO mailbox disconnected.</div>
 {% elif google_cro_flash == 'error' %}<div class="banner warn">CRO mailbox connection failed: {{ google_cro_msg or 'unknown error' }}</div>
 {% elif google_cro_flash == 'notconfigured' %}<div class="banner warn">Google OAuth isn't set up yet — add <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code> first.</div>
+{% endif %}
+{% if figma_flash == 'connected' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Figma connected{% if figma_label %} as <b>{{ figma_label }}</b>{% endif %}. Comments &amp; file metadata use OAuth (preferred).</div>
+{% elif figma_flash == 'disconnected' %}<div class="banner" style="background:#eef0f3;border:1px solid #dfe2e7;color:#5b6470">Figma OAuth disconnected{% if figma_pat_configured %} — personal access token still available{% endif %}.</div>
+{% elif figma_flash == 'error' %}<div class="banner warn">Figma connection failed: {{ figma_msg or 'unknown error' }}</div>
+{% elif figma_flash == 'notconfigured' %}<div class="banner warn">Figma OAuth app isn't configured yet — save <b>Client ID</b> and <b>Client secret</b> on this page first, then Connect.</div>
+{% endif %}
+{% if figma_app_flash == 'saved' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Figma OAuth app credentials saved (database, not <code>.env</code>).</div>
+{% elif figma_app_flash == 'cleared' %}<div class="banner" style="background:#eef0f3;border:1px solid #dfe2e7;color:#5b6470">Figma OAuth app credentials removed.</div>
+{% elif figma_app_flash == 'error' %}<div class="banner warn">Could not save Figma OAuth app: {{ figma_app_msg or 'unknown error' }}</div>
+{% endif %}
+{% if figma_pat_flash == 'saved' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Figma personal access token saved (stored in the database, not <code>.env</code>).</div>
+{% elif figma_pat_flash == 'cleared' %}<div class="banner" style="background:#eef0f3;border:1px solid #dfe2e7;color:#5b6470">Figma personal access token removed.</div>
+{% elif figma_pat_flash == 'error' %}<div class="banner warn">Could not save Figma token: {{ figma_pat_msg or 'unknown error' }}</div>
+{% endif %}
+{% if figma_probe == 'ok' %}
+<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">
+  ✓ Fetched comments for <code>{{ figma_probe_file_key }}</code>
+  · {{ figma_probe_total }} comments
+  · {{ figma_probe_threads }} threads
+  · {{ figma_probe_unresolved }} unresolved roots
+  · auth <code>{{ figma_probe_mode }}</code>
+</div>
+{% elif figma_probe == 'error' %}
+<div class="banner warn">Figma fetch failed: {{ figma_probe_msg or 'unknown error' }}</div>
 {% endif %}
 {% if flash == 'saved' %}
 <div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5c54">Saved.</div>
@@ -226,6 +250,154 @@
     <a class="btn" href="/settings/google/cro/connect">Connect CRO mailbox</a>
   {% else %}
     <p class="sub">Add <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code> to enable CRO mailbox connect.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <b>Figma</b>
+  <p class="hint" style="margin:4px 0 10px">
+    Used to read file comments and last-updated metadata for tracked projects
+    (Weekly health → Fetch from Fairwind / Jira, and the probe below).
+    Everything Figma-related is saved here in the database — nothing is read from
+    <code>.env</code>. Auth preference: <b>Connect Figma</b> when connected, otherwise
+    the personal access token.
+  </p>
+
+  <div style="margin-bottom:16px;padding:12px 14px;border:1px solid #e8eaf0;border-radius:10px;background:#fafbfd">
+    <b style="font-size:13px">1. OAuth app (for Connect Figma)</b>
+    <p class="hint" style="margin:6px 0 10px">
+      Create an app at
+      <a href="https://www.figma.com/developers/apps" target="_blank" rel="noopener">figma.com/developers/apps</a>,
+      publish it <b>private</b> for your team, and enable scopes
+      <code>file_comments:read</code>, <code>file_metadata:read</code>,
+      <code>current_user:read</code>.
+      Add the redirect URI below on the app’s OAuth credentials page (must match exactly).
+      Client ID + secret identify <em>this</em> DesignOps app to Figma; they are not a user token.
+    </p>
+    {% if figma_oauth_configured %}
+      <p class="sub" style="margin-bottom:8px">
+        <span class="pill ok">OAuth app saved</span>
+        {% if figma_client_id_hint %}id <code>{{ figma_client_id_hint }}</code>{% endif %}
+        {% if figma_client_secret_hint %} · secret <code>{{ figma_client_secret_hint }}</code>{% endif %}
+      </p>
+    {% endif %}
+    <form method="post" action="/settings/figma/oauth-app" class="figma-app-form">
+      <div style="display:grid;gap:10px;margin-bottom:10px">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#5b6470;display:block;margin-bottom:4px">Client ID</label>
+          <input type="text" name="figma_client_id" autocomplete="off"
+                 value=""
+                 placeholder="{% if figma_client_id_hint %}Saved {{ figma_client_id_hint }} — paste to replace{% else %}OAuth app Client ID{% endif %}"
+                 style="width:100%;padding:8px 10px;border:1px solid #dfe2e7;border-radius:8px;font:inherit"
+                 {% if not figma_oauth_configured %}required{% endif %}>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#5b6470;display:block;margin-bottom:4px">Client secret</label>
+          <input type="password" name="figma_client_secret" autocomplete="off"
+                 placeholder="{% if figma_client_secret_hint %}Leave blank to keep saved secret{% else %}OAuth app Client secret{% endif %}"
+                 style="width:100%;padding:8px 10px;border:1px solid #dfe2e7;border-radius:8px;font:inherit"
+                 {% if not figma_oauth_configured %}required{% endif %}>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#5b6470;display:block;margin-bottom:4px">Redirect URI</label>
+          <input type="url" name="figma_redirect_uri" autocomplete="off"
+                 value="{{ figma_redirect_uri }}"
+                 placeholder="http://localhost:8077/oauth/figma/callback"
+                 style="width:100%;padding:8px 10px;border:1px solid #dfe2e7;border-radius:8px;font:inherit;font-family:ui-monospace,Menlo,monospace;font-size:13px">
+          <p class="hint" style="margin:4px 0 0">Must be listed on the Figma app. Local default is fine for this machine; use your public HTTPS URL in production.</p>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn sm" type="submit">Save OAuth app</button>
+        {% if figma_oauth_configured %}
+        <button class="btn sm ghost" type="submit" form="figma-app-clear"
+                onclick="return confirm('Remove saved Figma OAuth app credentials?');">Clear</button>
+        {% endif %}
+      </div>
+    </form>
+    {% if figma_oauth_configured %}
+    <form id="figma-app-clear" method="post" action="/settings/figma/oauth-app/clear" hidden></form>
+    {% endif %}
+  </div>
+
+  <div style="margin-bottom:16px;padding:12px 14px;border:1px solid #e8eaf0;border-radius:10px;background:#fafbfd">
+    <b style="font-size:13px">2. Connect Figma (user grant)</b>
+    <p class="hint" style="margin:6px 0 10px">
+      After the OAuth app is saved, click Connect and Allow on Figma.
+      DesignOps then acts as that user for comments and file metadata.
+      You can Disconnect anytime; the personal access token below remains as fallback.
+    </p>
+    {% if figma_connected %}
+      <p class="sub" style="margin-bottom:8px">
+        <span class="pill ok">Figma connected</span>
+        {% if figma_label %}as <b>{{ figma_label }}</b>{% endif %}
+        · active auth <code>{{ figma_auth_mode }}</code>
+      </p>
+      <form method="post" action="/settings/figma/disconnect" style="display:inline">
+        <button class="btn ghost sm" type="submit">Disconnect</button>
+      </form>
+    {% elif figma_oauth_configured %}
+      <a class="btn" href="/settings/figma/connect">Connect Figma</a>
+    {% else %}
+      <p class="sub" style="margin:0">Save Client ID + secret above to enable Connect.</p>
+    {% endif %}
+  </div>
+
+  <div style="margin-bottom:16px;padding:12px 14px;border:1px solid #e8eaf0;border-radius:10px;background:#fafbfd">
+    <b style="font-size:13px">3. Personal access token (fallback)</b>
+    <p class="hint" style="margin:6px 0 10px">
+      Generate at Figma → Settings → Security → Personal access tokens
+      (max 90 days). Include scopes <code>file_comments:read</code> and
+      <code>file_metadata:read</code>. Enough for server-side comment fetch without
+      anyone clicking Connect. Stored in Postgres — not <code>.env</code>.
+    </p>
+    {% if figma_pat_configured %}
+      <p class="sub" style="margin-bottom:8px">
+        <span class="pill ok">Token saved</span>
+        {% if figma_pat_hint %}<code>{{ figma_pat_hint }}</code>{% endif %}
+        {% if figma_auth_mode == 'pat' %} · currently in use{% elif figma_connected %} · OAuth is preferred while connected{% endif %}
+      </p>
+    {% endif %}
+    <form method="post" action="/settings/figma/pat" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input type="password" name="figma_access_token" autocomplete="off"
+             placeholder="{% if figma_pat_configured %}Paste a new token to replace…{% else %}Paste personal access token…{% endif %}"
+             style="flex:1;min-width:220px;padding:8px 10px;border:1px solid #dfe2e7;border-radius:8px;font:inherit"
+             required>
+      <button class="btn sm" type="submit">Save token</button>
+      {% if figma_pat_configured %}
+      <button class="btn sm ghost" type="submit" form="figma-pat-clear"
+              onclick="return confirm('Remove the saved Figma personal access token?');">Clear</button>
+      {% endif %}
+    </form>
+    {% if figma_pat_configured %}
+    <form id="figma-pat-clear" method="post" action="/settings/figma/pat/clear" hidden></form>
+    {% endif %}
+  </div>
+
+  {% if figma_ready %}
+  <div>
+    <b style="font-size:13px">Test comment fetch</b>
+    <p class="hint" style="margin:4px 0 8px">
+      Paste any Figma file URL you can access with the connected account / token.
+      Fetches the <b>last 15 comments for testing</b> (no page reload).
+    </p>
+    <form id="figma-probe-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input id="figma-probe-url" type="url" name="figma_url" placeholder="https://www.figma.com/design/…"
+             style="flex:1;min-width:220px;padding:8px 10px;border:1px solid #dfe2e7;border-radius:8px;font:inherit"
+             required>
+      <button class="btn sm" type="submit" id="figma-probe-btn">Fetch last 15 comments (testing)</button>
+    </form>
+    <div id="figma-probe-status" class="hint" style="margin:8px 0 0" aria-live="polite"></div>
+    <div id="figma-probe-results" style="display:none;margin-top:10px"></div>
+    <p class="hint" style="margin:6px 0 0">
+      API: <code>GET /api/figma/comments?url=…&amp;limit=15</code>
+      (<code>unresolved_only=true</code> optional).
+    </p>
+  </div>
+  {% else %}
+  <p class="sub" style="margin:0">
+    Save a personal access token or Connect Figma above to enable comment fetch.
+  </p>
   {% endif %}
 </div>
 
@@ -349,11 +521,11 @@
   {% for p in people %}
     {% set initials = (p.full_name.split() | map('first') | join('') )[:2] | upper %}
     {% set email0 = (p.emails[0] if p.emails else '') %}
-    <details class="person{% if p.status=='out' %} is-out{% endif %}"
-             data-search="{{ (p.full_name ~ ' ' ~ (p.emails | join(' ')) ~ ' ' ~ (p.role or '') ~ ' ' ~ p.status) | lower }}"
-             data-status="{{ p.status }}">
+    <details class="person{% if p.display_status=='out' %} is-out{% endif %}"
+             data-search="{{ (p.full_name ~ ' ' ~ (p.emails | join(' ')) ~ ' ' ~ (p.role or '') ~ ' ' ~ p.display_status ~ (' leave' if p.leave_upcoming else '')) | lower }}"
+             data-status="{{ p.display_status }}">
       <summary class="person-sum">
-        <div class="avatar{% if p.status=='out' %} out{% elif p.status=='on_leave' %} leave{% endif %}">{{ initials }}</div>
+        <div class="avatar{% if p.display_status=='out' %} out{% elif p.display_status=='on_leave' %} leave{% endif %}">{{ initials }}</div>
         <div class="person-main">
           <div class="person-name">
             {{ p.full_name }}
@@ -362,8 +534,10 @@
           <div class="person-meta">
             <span class="mono">{{ email0 or 'no email' }}</span>
             {% if p.emails | length > 1 %}<span class="dot">·</span><span>+{{ p.emails | length - 1 }} more</span>{% endif %}
-            {% if p.leave_until and p.status == 'on_leave' %}
-              <span class="dot">·</span><span>{% if p.leave_from %}{{ p.leave_from.strftime('%d %b') }}–{% endif %}back {{ p.leave_until.strftime('%d %b %Y') }}</span>
+            {% if p.display_status == 'on_leave' and (p.leave_from or p.leave_until) %}
+              <span class="dot">·</span><span>{% if p.leave_from %}{{ p.leave_from.strftime('%d %b') }}–{% endif %}{% if p.leave_until %}back {{ p.leave_until.strftime('%d %b %Y') }}{% else %}on leave{% endif %}</span>
+            {% elif p.leave_upcoming and p.leave_from %}
+              <span class="dot">·</span><span>leave from {{ p.leave_from.strftime('%d %b') }}{% if p.leave_until and p.leave_until != p.leave_from %}–{{ p.leave_until.strftime('%d %b') }}{% endif %}</span>
             {% endif %}
             {% if p.is_dedicated %}
               <span class="dot">·</span>
@@ -372,10 +546,10 @@
           </div>
         </div>
         <div class="person-side">
-          {% if p.status=='active' %}<span class="pill ok">Active</span>
-          {% elif p.status=='out' %}<span class="pill red">Out</span>
+          {% if p.display_status=='active' %}<span class="pill ok">Active</span>
+          {% elif p.display_status=='out' %}<span class="pill red">Out</span>
           {% else %}<span class="pill blue">On leave</span>{% endif %}
-          {% if p.status != 'out' %}
+          {% if p.display_status != 'out' %}
           <span class="pill src-pill person-jira-pill {% if p.jira_verified %}ok{% else %}flagged{% endif %}">Jira {% if p.jira_verified %}✓{% else %}✗{% endif %}</span>
           <span class="pill src-pill person-fw-pill {% if p.fairwind_verified %}ok{% else %}flagged{% endif %}">Fairwind {% if p.fairwind_verified %}✓{% else %}✗{% endif %}</span>
           {% endif %}
@@ -825,6 +999,125 @@
           btn.textContent = prev;
         });
     });
+  });
+})();
+
+(function () {
+  var form = document.getElementById('figma-probe-form');
+  if (!form) return;
+  var urlInput = document.getElementById('figma-probe-url');
+  var btn = document.getElementById('figma-probe-btn');
+  var statusEl = document.getElementById('figma-probe-status');
+  var resultsEl = document.getElementById('figma-probe-results');
+  var BTN_LABEL = 'Fetch last 15 comments (testing)';
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function fmtWhen(iso) {
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso).slice(0, 19);
+      return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    } catch (e) {
+      return String(iso).slice(0, 19);
+    }
+  }
+
+  function apiDetail(data) {
+    if (!data) return 'Request failed';
+    var d = data.detail;
+    if (typeof d === 'string') return d;
+    if (Array.isArray(d)) {
+      return d.map(function (x) { return (x && x.msg) || JSON.stringify(x); }).join('; ');
+    }
+    return 'Request failed';
+  }
+
+  function renderComments(data) {
+    var rows = data.comments || [];
+    var summary =
+      '✓ <code>' + esc(data.file_key) + '</code>' +
+      ' · showing ' + rows.length + ' of ' + (data.total || 0) + ' comments' +
+      ' · ' + (data.thread_count || 0) + ' threads' +
+      ' · ' + (data.unresolved_roots || 0) + ' unresolved roots' +
+      ' · auth <code>' + esc(data.auth_mode || '') + '</code>';
+    statusEl.innerHTML = summary;
+    statusEl.style.color = '#0f5f56';
+
+    if (!rows.length) {
+      resultsEl.style.display = 'block';
+      resultsEl.innerHTML = '<p class="sub" style="margin:0">No comments on this file.</p>';
+      return;
+    }
+
+    var html = '<div style="border:1px solid #dfe2e7;border-radius:8px;overflow:hidden">' +
+      rows.map(function (c, i) {
+        var badge = c.resolved
+          ? '<span class="pill mut">resolved</span>'
+          : '<span class="pill ok">open</span>';
+        var reply = c.parent_id
+          ? '<span class="pill mut">reply</span>'
+          : '';
+        return '<div style="padding:10px 12px;border-top:' + (i ? '1px solid #eef0f3' : 'none') + '">' +
+          '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:4px">' +
+          '<b style="font-size:13px">' + esc(c.user || 'Unknown') + '</b>' +
+          '<span class="hint">' + esc(fmtWhen(c.created_at)) + '</span>' +
+          badge + reply +
+          '</div>' +
+          '<div style="font-size:13px;white-space:pre-wrap;word-break:break-word">' +
+          esc(c.message || '(empty)') +
+          '</div></div>';
+      }).join('') +
+      '</div>';
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = html;
+  }
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var url = (urlInput.value || '').trim();
+    if (!url) {
+      statusEl.textContent = 'Paste a Figma file URL first.';
+      statusEl.style.color = '';
+      urlInput.focus();
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Fetching…';
+    statusEl.innerHTML = '<span class="spin"></span> Fetching last 15 comments for testing…';
+    statusEl.style.color = '';
+    resultsEl.style.display = 'none';
+    resultsEl.innerHTML = '';
+
+    var qs = 'url=' + encodeURIComponent(url) + '&limit=15';
+    fetch('/api/figma/comments?' + qs, { headers: { 'Accept': 'application/json' } })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error(apiDetail(data));
+          return data;
+        });
+      })
+      .then(renderComments)
+      .catch(function (err) {
+        statusEl.textContent = 'Figma fetch failed: ' + (err && err.message ? err.message : err);
+        statusEl.style.color = '#8a5a12';
+        resultsEl.style.display = 'none';
+        resultsEl.innerHTML = '';
+      })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = BTN_LABEL;
+      });
   });
 })();
 

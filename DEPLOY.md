@@ -26,7 +26,7 @@ Rotate the three secrets that passed through chat when you set them here.
 | `FW_RESOURCE` | `https://fairwind.scandiweb.com/api/v1` |
 | `ANTHROPIC_API_KEY` | Anthropic key (**rotate**) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth client (**rotate the secret**) |
-| `PUBLIC_APP_URL` | `https://<your-app>.up.railway.app` (used to build the OAuth callback) |
+| `PUBLIC_APP_URL` | `https://<your-app>.up.railway.app` (used to build the Google OAuth callback) |
 | `GOOGLE_REDIRECT_URI` | `https://<your-app>.up.railway.app/oauth/google/callback` (or omit and let the app derive it from `PUBLIC_APP_URL`) |
 | `TIMEZONE` | `Europe/Riga` |
 | `SETUP_OWNER_EMAIL` | your email |

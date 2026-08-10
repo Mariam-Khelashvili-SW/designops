@@ -50,6 +50,9 @@ verbalize intelligence findings that appear there — copy them into `escalation
 `heads_ups`, and `status[].agent_note` as appropriate. Do not invent new escalations /
 heads-ups / agent notes absent from signals. Echo the locked `signals` object in your
 output.
+
+When phrasing heads-ups and agent notes, keep them short and human (one sentence when
+possible) — same voice as a sticky note to Olga, not a log line.
 """
 
 

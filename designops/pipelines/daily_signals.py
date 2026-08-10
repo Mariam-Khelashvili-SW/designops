@@ -291,10 +291,14 @@ def _dedupe_heads_ups_against_escalations(
 
 
 def attach_agent_notes(status_rows: list[dict], agent_notes: list[dict]) -> None:
-    """Merge agent notes onto matching status person×project rows (in place)."""
+    """Merge agent notes onto matching status person×project rows (in place).
+
+    Sets `agent_notes` as a list of {text, evidence} (preferred for render) and
+    `agent_note` as a joined string for backward compatibility.
+    """
     if not agent_notes:
         return
-    by_key: dict[tuple[str, str], list[str]] = {}
+    by_key: dict[tuple[str, str], list[dict]] = {}
     for n in agent_notes:
         person = (n.get("person") or "").strip()
         if not person:
@@ -303,20 +307,36 @@ def attach_agent_notes(status_rows: list[dict], agent_notes: list[dict]) -> None
         text = (n.get("text") or "").strip()
         if not text:
             continue
-        by_key.setdefault((person.lower(), proj.lower()), []).append(text)
+        by_key.setdefault((person.lower(), proj.lower()), []).append(
+            {
+                "text": text,
+                "evidence": (n.get("evidence") or "").strip() or None,
+            }
+        )
 
     for row in status_rows:
         person = (row.get("person") or "").strip()
         proj = (row.get("project") or "").strip()
-        notes = by_key.get((person.lower(), proj.lower())) or []
+        notes = list(by_key.get((person.lower(), proj.lower())) or [])
         if not notes and proj:
             # Fall back to person-only notes.
-            notes = by_key.get((person.lower(), "")) or []
-        if notes:
-            existing = (row.get("agent_note") or "").strip()
-            merged = " · ".join(notes)
-            row["agent_note"] = f"{existing} · {merged}" if existing else merged
-
+            notes = list(by_key.get((person.lower(), "")) or [])
+        if not notes:
+            continue
+        existing = (row.get("agent_note") or "").strip()
+        if existing:
+            notes = [{"text": existing, "evidence": None}, *notes]
+        # Deduplicate identical text while preserving order.
+        seen: set[str] = set()
+        deduped: list[dict] = []
+        for note in notes:
+            key = (note.get("text") or "").strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(note)
+        row["agent_notes"] = deduped
+        row["agent_note"] = " · ".join(n["text"] for n in deduped)
 
 def fix_leave_duration_labels(
     digest: dict,
