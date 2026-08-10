@@ -66,15 +66,24 @@ VOICE & FRAME
 - Frame as confirmation of shared understanding — never as new commitments.
 - Sign off with the account owner's name only.
 
-STRUCTURE (house format — keep these sections, in this order; omit empty sections):
-  1. Opening: "Thank you for joining the call today. A quick summary of what we covered:"
-  2. **What we aligned on** — exact agreed change points (+ agreed next call if any)
-  3. **Pending items from scandiweb** — deliverables we owe
-  4. **Pending items from your side** — what the client owes
-  5. **Next steps** — only if not already covered by pending lists
-  6. Sign-off
+STRUCTURE (house format — keep this flow; omit empty sections):
+  1. Greeting: "Hello {Name}," (use client contact first name(s); [name] if unknown)
+  2. Thanks: "Thank you for the call earlier today!" or "...yesterday!" when date is clear;
+     otherwise "Thank you for the call!"
+  3. Sharing: "As promised we are sharing … for you to review." — artifacts / links from
+     the fact sheet (resolved links or [Figma link] / [link]). Omit if nothing to share.
+  4. Major alignment (OPTIONAL, rare): Only if there was a *big* decision that impacts many
+     templates, the visual direction, or the project as a whole. One short sentence, e.g.
+     "As agreed we will proceed with visual direction B for the designs."
+     Do NOT recap small tweaks, copy changes, or minor UI fixes. Prefer omit.
+  5. Client actions: "As next steps from your side, please:" + bullets (owner=client /
+     needs_client_approval). Omit section if empty.
+  6. Our actions: "From our side we will proceed with:" + bullets (owner=us). Omit if empty.
+  7. Next review: "For the next review session we suggest …" when next_meeting or a review
+     date exists; use [date] if agreed-in-principle but date missing. Omit if none.
+  8. Sign-off with account owner name only.
 
-NO DUPLICATION. Every item in exactly one section.
+NO DUPLICATION. Every item in exactly one section. Client-side bullets before our-side.
 
 HARD RULES
 - SENDABLE AS-IS. No meta-placeholders like "[CONFIRM: …]". Only allowed brackets:
@@ -83,7 +92,7 @@ HARD RULES
 - Use ONLY the fact sheet. Never invent prices, hours, budgets, or scope changes.
 - Subject: "<Project> — summary of our call, <date>".
 - Output JSON only: {"subject": "", "body": "", "reviewer_notes": []}.
-  Body is plain text with **section labels**; no HTML.
+  Body is plain text; use plain lines + "* " or "- " bullets; no HTML.
 """
 
 
@@ -550,10 +559,11 @@ def skeleton_composition(
     subject = f"{project_name} — summary of our call, {date_label or '[date]'}"
     body = "\n".join(
         [
-            "Thank you for joining the call today.",
-            "A quick summary of what we covered:",
+            "Hello [name],",
             "",
-            "**What we aligned on**",
+            "Thank you for the call!",
+            "",
+            "As next steps from your side, please:",
             "- Follow-up details to be confirmed ([date])",
             "",
             owner_name,
@@ -957,20 +967,35 @@ def generate_call_summary_draft(
     )
 
 
+def _call_date_yyyy_mm_dd(event_start_time: str | None) -> str:
+    raw = (event_start_time or "").strip()
+    return raw[:10] if len(raw) >= 10 else ""
+
+
 def list_matching_calls(
     session: Session,
     *,
     search: str = "",
+    account: str = "",
+    designer: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    draft: str = "",
     limit: int = 50,
     offset: int = 0,
-) -> tuple[list[dict], int]:
-    """Fetch slim transcripts for designer emails, filter to external, optional search."""
+) -> tuple[list[dict], int, dict]:
+    """Fetch slim transcripts for designer emails, filter to external, optional search/filters.
+
+    Returns (page, total, facets) where facets has sorted ``accounts`` and ``designers``
+    lists derived from the search-matched pool (before account/designer/date/draft filters).
+    """
     from designops.adapters.transcript_api import list_transcripts
 
+    empty_facets: dict = {"accounts": [], "designers": []}
     designers = resolve_designer_emails(session)
     emails = [str(d["email"]) for d in designers if d.get("email")]
     if not emails:
-        return [], 0
+        return [], 0, empty_facets
 
     designer_set = {e.lower() for e in emails}
     # Page through TP API; filter external + designer attendees; apply search; then slice
@@ -1006,11 +1031,11 @@ def list_matching_calls(
                     )
             if not designer_attendees:
                 continue
-            account = t.get("account") if isinstance(t.get("account"), dict) else {}
+            account_obj = t.get("account") if isinstance(t.get("account"), dict) else {}
             row = {
                 "id": t.get("id"),
                 "name": t.get("name") or "",
-                "account_name": (account or {}).get("name"),
+                "account_name": (account_obj or {}).get("name"),
                 "event_start_time": t.get("eventStartTime"),
                 "designer_attendees": designer_attendees,
             }
@@ -1034,9 +1059,65 @@ def list_matching_calls(
         if api_offset > 2000:  # safety cap
             break
 
-    total = len(collected)
-    page = collected[offset : offset + limit]
     draft_map = latest_draft_ids_by_transcript(session)
-    for row in page:
+    for row in collected:
         row["draft_id"] = draft_map.get(str(row.get("id") or ""))
-    return page, total
+
+    account_names = sorted(
+        {(r.get("account_name") or "").strip() or "UNASSIGNED" for r in collected},
+        key=lambda s: (s == "UNASSIGNED", s.lower()),
+    )
+    designer_opts: dict[str, str] = {}
+    for r in collected:
+        for d in r.get("designer_attendees") or []:
+            email = (d.get("email") or "").strip().lower()
+            if not email:
+                continue
+            label = (d.get("name") or "").strip() or email
+            # Prefer a real name over bare email if we see both
+            prev = designer_opts.get(email)
+            if not prev or ("@" in prev and "@" not in label):
+                designer_opts[email] = label
+    designer_facet = sorted(
+        [{"email": e, "label": designer_opts[e]} for e in designer_opts],
+        key=lambda x: (x["label"] or "").lower(),
+    )
+    facets = {"accounts": account_names, "designers": designer_facet}
+
+    account_f = (account or "").strip()
+    designer_f = (designer or "").strip().lower()
+    date_from_f = (date_from or "").strip()[:10]
+    date_to_f = (date_to or "").strip()[:10]
+    draft_f = (draft or "").strip().lower()
+    if draft_f not in ("", "yes", "no", "all"):
+        draft_f = ""
+    if draft_f == "all":
+        draft_f = ""
+
+    filtered: list[dict] = []
+    for row in collected:
+        acct = (row.get("account_name") or "").strip() or "UNASSIGNED"
+        if account_f and acct != account_f:
+            continue
+        if designer_f:
+            emails_names = [
+                ((d.get("email") or "").lower(), (d.get("name") or "").lower())
+                for d in (row.get("designer_attendees") or [])
+            ]
+            if not any(designer_f == e or designer_f in n for e, n in emails_names):
+                continue
+        day = _call_date_yyyy_mm_dd(row.get("event_start_time"))
+        if date_from_f and (not day or day < date_from_f):
+            continue
+        if date_to_f and (not day or day > date_to_f):
+            continue
+        has_draft = bool(row.get("draft_id"))
+        if draft_f == "yes" and not has_draft:
+            continue
+        if draft_f == "no" and has_draft:
+            continue
+        filtered.append(row)
+
+    total = len(filtered)
+    page = filtered[offset : offset + limit]
+    return page, total, facets

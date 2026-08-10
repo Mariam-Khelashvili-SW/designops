@@ -310,12 +310,18 @@ def _ingest_cro(report_date: date, settings) -> tuple[list[Document], dict]:
 
 def _leave_calendar_rows(roster_rows, report_date: date) -> list[dict]:
     """People with a leave window near the report day (for R1/R2)."""
+    from designops.pipelines.weekly_availability import (
+        leave_duration_label,
+        working_days_inclusive,
+    )
+
     rows = []
     for r in roster_rows:
         lf = getattr(r, "leave_from", None)
         lu = getattr(r, "leave_until", None)
         if not lf and not lu:
             continue
+        working_days = working_days_inclusive(lf, lu) if lf and lu else None
         rows.append(
             {
                 "full_name": r.full_name,
@@ -324,6 +330,10 @@ def _leave_calendar_rows(roster_rows, report_date: date) -> list[dict]:
                 ),
                 "leave_from": lf.isoformat() if lf else None,
                 "leave_until": lu.isoformat() if lu else None,
+                "working_days": working_days,
+                "duration_label": (
+                    leave_duration_label(working_days) if working_days else None
+                ),
             }
         )
     return rows

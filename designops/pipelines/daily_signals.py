@@ -31,6 +31,7 @@ _BLOCKLIST = (
 )
 
 _QUOTE_RE = re.compile(r'"[^"]*"|\'[^\']*\'|"[^"]*"')
+_LEAVE_WEEKS_PAREN_RE = re.compile(r"\(\s*\d+\+?\s*weeks?\s*\)", re.I)
 
 
 def empty_signals(*, checked: str = "no findings (fixture / quiet)") -> dict:
@@ -315,6 +316,61 @@ def attach_agent_notes(status_rows: list[dict], agent_notes: list[dict]) -> None
             existing = (row.get("agent_note") or "").strip()
             merged = " · ".join(notes)
             row["agent_note"] = f"{existing} · {merged}" if existing else merged
+
+
+def fix_leave_duration_labels(
+    digest: dict,
+    leave_calendar: list[dict] | None,
+) -> None:
+    """Replace LLM-invented '(N weeks)' labels with code-counted working days."""
+    if not leave_calendar:
+        return
+    from designops.pipelines.weekly_availability import leave_duration_label
+
+    by_name = {
+        (row.get("full_name") or "").strip(): row
+        for row in leave_calendar
+        if row.get("full_name")
+    }
+
+    def _calendar_row(text: str, who: str | None) -> dict | None:
+        name = (who or "").strip()
+        if name and name in by_name:
+            return by_name[name]
+        for full_name, row in by_name.items():
+            if full_name in (text or ""):
+                return row
+        return None
+
+    def _fix_field(text: str, who: str | None) -> str:
+        if not text or not _LEAVE_WEEKS_PAREN_RE.search(text):
+            return text
+        row = _calendar_row(text, who)
+        if not row:
+            return text
+        wd = row.get("working_days")
+        if not wd:
+            label = row.get("duration_label")
+        else:
+            label = leave_duration_label(int(wd))
+        if not label:
+            return text
+        return _LEAVE_WEEKS_PAREN_RE.sub(f"({label})", text, count=1)
+
+    for e in digest.get("escalations") or []:
+        if not isinstance(e, dict):
+            continue
+        who = e.get("who")
+        e["text"] = _fix_field(e.get("text") or "", who)
+        if e.get("why_ranked_here"):
+            e["why_ranked_here"] = _fix_field(e["why_ranked_here"], who)
+        if e.get("agent_note"):
+            e["agent_note"] = _fix_field(e["agent_note"], who)
+
+    for h in digest.get("heads_ups") or []:
+        if not isinstance(h, dict):
+            continue
+        h["text"] = _fix_field(h.get("text") or "", h.get("who"))
 
 
 def enforce_intelligence_artifacts(digest: dict) -> None:

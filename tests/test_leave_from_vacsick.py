@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -19,8 +19,12 @@ from designops.pipelines.leave_from_vacsick import (
     detect_leave_from_worklogs,
     hours_by_day,
     leave_days_from_hours,
+    leave_scan_touches_horizon,
+    leave_sync_max_until,
+    leave_sync_step_targets,
     leave_sync_until,
     pick_leave_window,
+    resolve_leave_sync_to,
     sync_leave_from_vacsick,
 )
 from designops.pipelines.weekly_availability import availability_marker
@@ -359,6 +363,146 @@ def test_leave_sync_until_extends_past_report_week():
     assert leave_sync_until(date(2026, 8, 3), date(2026, 8, 7)) == date(2026, 8, 30)
 
 
+def test_leave_sync_max_until_two_months():
+    mon = date(2026, 8, 3)
+    assert leave_sync_max_until(mon) == date(2026, 10, 1)
+    assert leave_sync_until(mon, mon + timedelta(days=4)) <= leave_sync_max_until(mon)
+
+
+def test_leave_scan_touches_horizon():
+    sync_to = date(2026, 8, 30)  # Sun — last working day Fri Aug 28
+    assert leave_scan_touches_horizon([date(2026, 8, 28)], sync_to) is True
+    assert leave_scan_touches_horizon([date(2026, 8, 27)], sync_to) is False
+    assert leave_scan_touches_horizon([], sync_to) is False
+
+
+def test_leave_sync_step_targets():
+    mon = date(2026, 8, 3)
+    targets = leave_sync_step_targets(mon, date(2026, 8, 7))
+    assert targets == [
+        date(2026, 8, 30),
+        date(2026, 9, 6),
+        date(2026, 9, 13),
+        leave_sync_max_until(mon),
+    ]
+
+
+def test_resolve_leave_sync_extends_when_vacation_fills_horizon():
+    """Vlad-like: one +1w step is enough when leave ends before the next horizon."""
+    mon = date(2026, 8, 3)
+    vlad = _person(
+        full_name="Vlad Shemetovets",
+        jira_account_id="acct-vlad",
+    )
+    initial_to = leave_sync_until(mon, date(2026, 8, 7))
+    full_logs = [
+        {
+            "account_id": "acct-vlad",
+            "started": date(2026, 8, d),
+            "hours": 8.0,
+            "issue_key": "VACSICK-1",
+        }
+        for d in (14, 17, 18, 19, 20, 21, 24, 25, 26, 27, 28)
+    ] + [
+        {
+            "account_id": "acct-vlad",
+            "started": date(2026, 8, 31),
+            "hours": 8.0,
+            "issue_key": "VACSICK-1",
+        },
+        {
+            "account_id": "acct-vlad",
+            "started": date(2026, 9, 1),
+            "hours": 8.0,
+            "issue_key": "VACSICK-1",
+        },
+        {
+            "account_id": "acct-vlad",
+            "started": date(2026, 9, 2),
+            "hours": 8.0,
+            "issue_key": "VACSICK-1",
+        },
+    ]
+    assert resolve_leave_sync_to(
+        [vlad], full_logs, week_monday=mon, week_friday=date(2026, 8, 7)
+    ) == date(2026, 9, 6)
+
+    # Leave ends before horizon — no extension
+    short_logs = full_logs[:5]
+    assert resolve_leave_sync_to(
+        [vlad], short_logs, week_monday=mon, week_friday=date(2026, 8, 7)
+    ) == initial_to
+
+
+def test_resolve_leave_sync_steps_to_two_months():
+    """After two +1w steps still touching horizon → jump to 2-month cap."""
+    mon = date(2026, 8, 3)
+    person = _person(jira_account_id="acct-long")
+    # Leave every weekday from Aug 14 through Sep 11 (fills each weekly horizon)
+    days = []
+    d = date(2026, 8, 14)
+    end = date(2026, 9, 11)
+    while d <= end:
+        if d.weekday() < 5:
+            days.append(
+                {
+                    "account_id": "acct-long",
+                    "started": d,
+                    "hours": 8.0,
+                    "issue_key": "VACSICK-1",
+                }
+            )
+        d += timedelta(days=1)
+    assert resolve_leave_sync_to(
+        [person], days, week_monday=mon, week_friday=date(2026, 8, 7)
+    ) == leave_sync_max_until(mon)
+
+
+def test_detect_leave_vlad_extended_vacation():
+    """Multi-week vacation past initial 4-week horizon is captured when scan extends."""
+    mon = date(2026, 8, 3)
+    sync_to = leave_sync_max_until(mon)
+    vlad = _person(
+        full_name="Vlad Shemetovets",
+        jira_account_id="acct-vlad",
+    )
+    worklogs = [
+        {
+            "account_id": "acct-vlad",
+            "started": date(2026, 8, d),
+            "hours": 8.0,
+            "issue_key": "VACSICK-1",
+        }
+        for d in (14, 17, 18, 19, 20, 21, 24, 25, 26, 27, 28)
+    ] + [
+        {
+            "account_id": "acct-vlad",
+            "started": date(2026, 9, d),
+            "hours": 8.0,
+            "issue_key": "VACSICK-1",
+        }
+        for d in (1, 2)
+    ] + [
+        {
+            "account_id": "acct-vlad",
+            "started": date(2026, 8, 31),
+            "hours": 8.0,
+            "issue_key": "VACSICK-1",
+        }
+    ]
+    dets = detect_leave_from_worklogs(
+        [vlad],
+        worklogs,
+        week_monday=mon,
+        week_friday=sync_to,
+        reference_date=date(2026, 8, 7),
+    )
+    assert len(dets) == 1
+    assert dets[0].leave_from == date(2026, 8, 14)
+    assert dets[0].leave_until == date(2026, 9, 2)
+    assert vlad.leave_until == date(2026, 9, 2)
+
+
 def test_sync_leave_noop_without_tempo_token(monkeypatch):
     from designops.core.config import Settings
 
@@ -378,6 +522,64 @@ def test_sync_leave_noop_without_tempo_token(monkeypatch):
 
 
 def test_sync_leave_uses_client(monkeypatch):
+    from designops.core.config import Settings
+
+    class FakeTempo:
+        def __init__(self):
+            self.calls: list[tuple[date, date]] = []
+
+        def list_worklogs(self, **kwargs):
+            to_d = kwargs["to_date"]
+            self.calls.append((kwargs["from_date"], to_d))
+            if to_d == date(2026, 8, 30):
+                days = [14, 17, 18, 19, 20, 21, 24, 25, 26, 27, 28]
+            else:
+                days = [14, 17, 18, 19, 20, 21, 24, 25, 26, 27, 28, 31]
+            logs = [
+                {
+                    "account_id": "acct-vlad",
+                    "started": date(2026, 8, d),
+                    "hours": 8.0,
+                    "issue_key": "VACSICK-1",
+                }
+                for d in days
+            ]
+            if to_d >= date(2026, 9, 6):
+                logs.extend(
+                    [
+                        {
+                            "account_id": "acct-vlad",
+                            "started": date(2026, 9, d),
+                            "hours": 8.0,
+                            "issue_key": "VACSICK-1",
+                        }
+                        for d in (1, 2)
+                    ]
+                )
+            return logs
+
+    s = Settings(
+        TEMPO_API_TOKEN="tok",
+        DATABASE_URL="postgresql+psycopg://x:x@localhost/x",
+    )
+    p = _person(jira_account_id="acct-vlad", full_name="Vlad Shemetovets")
+    fake = FakeTempo()
+    cov = sync_leave_from_vacsick(
+        [p],
+        week_monday=date(2026, 8, 3),
+        week_friday=date(2026, 8, 7),
+        settings=s,
+        client=fake,
+    )
+    assert cov["configured"] is True
+    assert cov["sync_extended"] is True
+    assert cov["sync_until"] == date(2026, 9, 6).isoformat()
+    assert len(fake.calls) == 2
+    assert fake.calls[1][1] == date(2026, 9, 6)
+    assert p.leave_until == date(2026, 9, 2)
+
+
+def test_sync_leave_uses_client_short_vacation(monkeypatch):
     from designops.core.config import Settings
 
     class FakeTempo:
@@ -405,6 +607,7 @@ def test_sync_leave_uses_client(monkeypatch):
     )
     assert cov["configured"] is True
     assert cov["fetched"] == 1
+    assert cov.get("sync_extended") is False
     assert cov["updated_names"] == ["Kirill Rogovets"]
     assert p.status == PersonStatus.ON_LEAVE
     assert p.leave_until == date(2026, 8, 4)

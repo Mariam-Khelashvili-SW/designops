@@ -127,29 +127,4 @@ def ensure_pipelines(session: Session) -> list[str]:
             session.add(wh)
             created.append("weekly-health:schedule")
 
-    if session.query(Pipeline).filter_by(key="call-summary").one_or_none() is None:
-        session.add(
-            Pipeline(
-                key="call-summary",
-                name="Call summary — client email drafts",
-                description=(
-                    "On-demand client confirmation email drafts from design calls "
-                    "(transcript-processor). Never sends — drafts stored for review."
-                ),
-                skill_path="designops/skills/call-summary.md",
-                schedule_cron=None,
-                timezone="Europe/Riga",
-                recipients=[],
-                send_mode="none",
-                enabled=False,
-                go_live=False,
-                config={
-                    "include_roles": ["Designer"],
-                    "manual_emails": [],
-                    "selected_person_ids": [],
-                },
-            )
-        )
-        created.append("call-summary")
-
     return created

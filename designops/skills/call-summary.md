@@ -12,11 +12,14 @@ house-format confirmation email. **Never send** — store draft for human review
 
 ## House format
 
-1. Thanks + "quick summary of what we covered"
-2. **What we aligned on** — exact agreed change points (+ next call if agreed)
-3. **Pending items from scandiweb**
-4. **Pending items from your side**
-5. **Next steps** only if not already covered
-6. Sign-off with owner name
+1. **Hello {Name},**
+2. Thank you for the call earlier today / yesterday
+3. As promised we are sharing … for you to review (artifacts / links)
+4. **Major alignment only (optional)** — big decisions that impact many templates or the
+   project (e.g. visual direction). Do **not** recap small changes
+5. As next steps from your side, please: (bullets)
+6. From our side we will proceed with: (bullets)
+7. For the next review session we suggest …
+8. Sign-off with owner name
 
-No item in more than one section.
+No item in more than one section. Prefer omit empty sections.

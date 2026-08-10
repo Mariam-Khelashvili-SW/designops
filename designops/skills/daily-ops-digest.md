@@ -187,7 +187,8 @@ Hard rules for every intelligence artifact:
 For every person whose approved leave starts within 3 working days: list their active
 projects from today's + prior dailies. For each project where they are the only reporter,
 or where dailies show live coordination ("handover", shared task), raise an Escalation —
-unless a report already states the coverage plan.
+unless a report already states the coverage plan. Use `duration_label` from the leave
+calendar for absence length (e.g. "14 working days") — never guess calendar weeks.
 
 **R2 — Client-facing wait × leave → Heads-up.**
 Report says something was sent to a client for review/feedback AND the sender goes on

@@ -16,6 +16,7 @@ from designops.pipelines.daily_signals import (
     attach_agent_notes,
     empty_signals,
     enforce_intelligence_artifacts,
+    fix_leave_duration_labels,
     materialize_intelligence,
     validate_signals,
 )
@@ -128,10 +129,12 @@ def build_user_content(
     chunks.append("## Leave calendar (approved leave windows)")
     if leave_calendar:
         for row in leave_calendar:
+            duration = row.get("duration_label") or ""
+            dur_part = f", {duration}" if duration else ""
             chunks.append(
                 f"- {row.get('full_name')}: "
                 f"{row.get('leave_from') or '?'} → {row.get('leave_until') or '?'} "
-                f"({row.get('status', 'on_leave')})"
+                f"({row.get('status', 'on_leave')}{dur_part})"
             )
     else:
         chunks.append("- (none on roster for this window)")
@@ -205,6 +208,7 @@ def synthesize(
         {k: v for k, v in h.items() if not k.startswith("_")} for h in heads_ups
     ]
     enforce_intelligence_artifacts(digest)
+    fix_leave_duration_labels(digest, leave_calendar)
     attach_agent_notes(digest.setdefault("status", []), agent_notes)
 
     _validate_shape(digest)

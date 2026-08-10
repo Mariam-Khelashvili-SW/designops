@@ -93,13 +93,76 @@
   </div>
 
   {% elif tab == 'calls' %}
-  <div style="padding:14px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-    <form method="get" action="/call-summary" style="display:flex;gap:8px;flex:1;min-width:200px">
+  <style>
+    .cs-calls-filters{padding:14px 16px;border-bottom:1px solid var(--line)}
+    .cs-calls-filters form{display:flex;flex-direction:column;gap:10px}
+    .cs-calls-filters .cs-filter-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+    .cs-calls-filters .cs-filter-grow{flex:1;min-width:180px}
+    .cs-calls-filters .cs-filter-field{min-width:140px}
+    .cs-calls-filters .cs-filter-field.date{min-width:128px}
+    .cs-calls-meta{font-size:12px;color:var(--mut);margin:0}
+    .cs-calls-wrap{overflow-x:auto}
+    .cs-calls-table th.cs-call-actions,
+    .cs-calls-table td.cs-call-actions{
+      position:sticky;right:0;z-index:1;
+      background:#fff;text-align:right;white-space:nowrap;min-width:11.5rem;
+      box-shadow:-6px 0 10px -8px rgba(16,24,40,.22);
+    }
+    .cs-calls-table thead th.cs-call-actions{background:#fff;z-index:2}
+  </style>
+  {% set calls_qs = calls_qs|default('tab=calls') %}
+  <div class="cs-calls-filters">
+    <form method="get" action="/call-summary">
       <input type="hidden" name="tab" value="calls" />
-      <input type="search" name="q" value="{{ q }}" placeholder="Search by call, account, or designer…" style="flex:1;min-width:180px" />
-      <button class="btn sm" type="submit">Search</button>
+      <div class="cs-filter-row">
+        <div class="cs-filter-grow">
+          <label for="cs-q">Search</label>
+          <input id="cs-q" type="search" name="q" value="{{ q }}" placeholder="Call, account, or designer…" style="width:100%" />
+        </div>
+        <div class="cs-filter-field">
+          <label for="cs-account">Account</label>
+          <select id="cs-account" name="account" style="width:100%;min-width:160px">
+            <option value="">All accounts</option>
+            {% for a in call_facets.accounts %}
+            <option value="{{ a }}" {% if filter_account == a %}selected{% endif %}>{{ a }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="cs-filter-field">
+          <label for="cs-designer">Designer</label>
+          <select id="cs-designer" name="designer" style="width:100%;min-width:160px">
+            <option value="">All designers</option>
+            {% for d in call_facets.designers %}
+            <option value="{{ d.email }}" {% if filter_designer == d.email %}selected{% endif %}>{{ d.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="cs-filter-field date">
+          <label for="cs-date-from">From</label>
+          <input id="cs-date-from" type="date" name="date_from" value="{{ filter_date_from }}" style="width:100%" />
+        </div>
+        <div class="cs-filter-field date">
+          <label for="cs-date-to">To</label>
+          <input id="cs-date-to" type="date" name="date_to" value="{{ filter_date_to }}" style="width:100%" />
+        </div>
+        <div class="cs-filter-field">
+          <label for="cs-draft">Draft</label>
+          <select id="cs-draft" name="draft" style="width:100%;min-width:120px">
+            <option value="" {% if not filter_draft %}selected{% endif %}>Any</option>
+            <option value="yes" {% if filter_draft == 'yes' %}selected{% endif %}>Has draft</option>
+            <option value="no" {% if filter_draft == 'no' %}selected{% endif %}>No draft</option>
+          </select>
+        </div>
+        <button class="btn sm" type="submit">Apply</button>
+        {% if q or filter_account or filter_designer or filter_date_from or filter_date_to or filter_draft %}
+        <a class="btn sm ghost" href="/call-summary?tab=calls">Clear</a>
+        {% endif %}
+      </div>
+      <p class="cs-calls-meta">
+        {{ calls_total }} matching call{% if calls_total != 1 %}s{% endif %}
+        · <strong>View</strong> appears once a draft exists; otherwise <strong>Generate</strong>
+      </p>
     </form>
-    <span style="font-size:12px;color:var(--mut)">{{ calls_total }} matching call{% if calls_total != 1 %}s{% endif %}{% if q %} for “{{ q }}”{% endif %}</span>
   </div>
   {% if designer_count == 0 %}
   <div style="padding:40px;text-align:center;color:var(--mut)">
@@ -108,13 +171,13 @@
   </div>
   {% elif not calls %}
   <div style="padding:40px;text-align:center;color:var(--mut)">
-    {% if q %}No calls match that search.{% else %}No external calls found with those designers.{% endif %}
+    {% if q or filter_account or filter_designer or filter_date_from or filter_date_to or filter_draft %}No calls match those filters.{% else %}No external calls found with those designers.{% endif %}
   </div>
   {% else %}
-  <div style="overflow-x:auto">
-    <table>
+  <div class="cs-calls-wrap">
+    <table class="cs-calls-table">
       <thead>
-        <tr><th>Date</th><th>Call</th><th>Account</th><th>Designers</th><th></th></tr>
+        <tr><th>Date</th><th>Call</th><th>Account</th><th>Designers</th><th class="cs-call-actions">Actions</th></tr>
       </thead>
       <tbody>
         {% for c in calls %}
@@ -125,7 +188,7 @@
           <td style="font-size:12px;color:var(--mut)">
             {% for d in c.designer_attendees %}{{ d.name or d.email }}{% if not loop.last %}, {% endif %}{% endfor %}
           </td>
-          <td class="cs-call-actions" style="white-space:nowrap;min-width:11.5rem;text-align:right">
+          <td class="cs-call-actions">
             {% if pending_busy and c.id in pending_ids %}
             <button class="btn sm busy" type="button" disabled style="min-width:6.5rem"><span class="spin"></span>Generating…</button>
             {% elif c.draft_id %}
@@ -164,8 +227,8 @@
   <div style="padding:10px 16px;display:flex;justify-content:space-between;font-size:13px;color:var(--mut);border-top:1px solid var(--line)">
     <span>Page {{ page }} of {{ total_pages }}</span>
     <span>
-      {% if page > 1 %}<a href="/call-summary?tab=calls&amp;page={{ page - 1 }}{% if q %}&amp;q={{ q }}{% endif %}">Previous</a>{% endif %}
-      {% if page < total_pages %} · <a href="/call-summary?tab=calls&amp;page={{ page + 1 }}{% if q %}&amp;q={{ q }}{% endif %}">Next</a>{% endif %}
+      {% if page > 1 %}<a href="/call-summary?{{ calls_qs }}&amp;page={{ page - 1 }}">Previous</a>{% endif %}
+      {% if page < total_pages %} · <a href="/call-summary?{{ calls_qs }}&amp;page={{ page + 1 }}">Next</a>{% endif %}
     </span>
   </div>
   {% endif %}

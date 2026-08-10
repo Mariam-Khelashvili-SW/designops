@@ -301,14 +301,27 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
         draft_id = str(viewed.id)
 
     q = (request.query_params.get("q") or "").strip()
+    filter_account = (request.query_params.get("account") or "").strip()
+    filter_designer = (request.query_params.get("designer") or "").strip()
+    filter_date_from = (request.query_params.get("date_from") or "").strip()
+    filter_date_to = (request.query_params.get("date_to") or "").strip()
+    filter_draft = (request.query_params.get("draft") or "").strip().lower()
+    if filter_draft not in ("", "yes", "no"):
+        filter_draft = ""
     page = max(1, int(request.query_params.get("page") or "1") or 1)
     calls: list = []
     calls_total = 0
+    call_facets: dict = {"accounts": [], "designers": []}
     if tab == "calls" and designers:
         try:
-            calls, calls_total = list_matching_calls(
+            calls, calls_total, call_facets = list_matching_calls(
                 db,
                 search=q,
+                account=filter_account,
+                designer=filter_designer,
+                date_from=filter_date_from,
+                date_to=filter_date_to,
+                draft=filter_draft,
                 limit=CALL_SUMMARY_PAGE_SIZE,
                 offset=(page - 1) * CALL_SUMMARY_PAGE_SIZE,
             )
@@ -334,7 +347,14 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
                     "designer_count": len(designers),
                     "calls": [],
                     "calls_total": 0,
+                    "call_facets": call_facets,
                     "q": q,
+                    "filter_account": filter_account,
+                    "filter_designer": filter_designer,
+                    "filter_date_from": filter_date_from,
+                    "filter_date_to": filter_date_to,
+                    "filter_draft": filter_draft,
+                    "calls_qs": "tab=calls",
                     "page": page,
                     "page_size": CALL_SUMMARY_PAGE_SIZE,
                     "total_pages": 1,
@@ -347,6 +367,22 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
             )
 
     total_pages = max(1, (calls_total + CALL_SUMMARY_PAGE_SIZE - 1) // CALL_SUMMARY_PAGE_SIZE)
+    from urllib.parse import urlencode as _urlencode
+
+    calls_filter_params: dict[str, str] = {"tab": "calls"}
+    if q:
+        calls_filter_params["q"] = q
+    if filter_account:
+        calls_filter_params["account"] = filter_account
+    if filter_designer:
+        calls_filter_params["designer"] = filter_designer
+    if filter_date_from:
+        calls_filter_params["date_from"] = filter_date_from
+    if filter_date_to:
+        calls_filter_params["date_to"] = filter_date_to
+    if filter_draft:
+        calls_filter_params["draft"] = filter_draft
+    calls_qs = _urlencode(calls_filter_params)
     flash = request.query_params.get("flash")
     flash_type = request.query_params.get("flash_type") or "ok"
     if pending_ids and not flash:
@@ -387,7 +423,14 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
             "designer_count": len(designers),
             "calls": calls,
             "calls_total": calls_total,
+            "call_facets": call_facets,
             "q": q,
+            "filter_account": filter_account,
+            "filter_designer": filter_designer,
+            "filter_date_from": filter_date_from,
+            "filter_date_to": filter_date_to,
+            "filter_draft": filter_draft,
+            "calls_qs": calls_qs,
             "page": page,
             "page_size": CALL_SUMMARY_PAGE_SIZE,
             "total_pages": total_pages,

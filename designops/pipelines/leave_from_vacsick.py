@@ -23,8 +23,11 @@ from designops.core.models import Person
 # One full day logged to VACSICK ⇒ that calendar day is leave.
 LEAVE_DAY_HOURS_THRESHOLD = 8.0
 
-# Tempo fetch window: report week plus ~4 weeks so multi-week vacations extend leave_until.
-LEAVE_SYNC_HORIZON_DAYS = 28
+# Tempo fetch window: report week plus ~4 weeks; extend in +1w steps, then 2-month cap.
+LEAVE_SYNC_INITIAL_HORIZON_DAYS = 28
+LEAVE_SYNC_STEP_DAYS = 7
+LEAVE_SYNC_WEEKLY_STEPS = 2  # two +1 week extensions before jumping to max
+LEAVE_SYNC_MAX_HORIZON_DAYS = 60  # 2 months — final cap when leave still fills horizon
 
 # Fallback when Jira cannot resolve Tempo issue ids.
 _LEAVE_DESC_MARKERS = (
@@ -256,11 +259,112 @@ def filter_vacsick_worklogs(
     return kept
 
 
+def leave_sync_max_until(week_monday: date) -> date:
+    """Hard cap: last calendar day we may scan (2 months from week Monday)."""
+    return week_monday + timedelta(days=LEAVE_SYNC_MAX_HORIZON_DAYS - 1)
+
+
 def leave_sync_until(week_monday: date, week_friday: date | None = None) -> date:
-    """Last calendar day to scan in Tempo for VACSICK (multi-week vacations)."""
+    """Initial Tempo scan end — report week plus ~4 weeks."""
     fri = week_friday or (week_monday + timedelta(days=4))
-    horizon_end = week_monday + timedelta(days=LEAVE_SYNC_HORIZON_DAYS - 1)
-    return max(fri, horizon_end)
+    horizon_end = week_monday + timedelta(days=LEAVE_SYNC_INITIAL_HORIZON_DAYS - 1)
+    return min(max(fri, horizon_end), leave_sync_max_until(week_monday))
+
+
+def last_working_day_on_or_before(d: date) -> date:
+    """Most recent Mon–Fri on or before ``d``."""
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def leave_scan_touches_horizon(leave_days: list[date], sync_to: date) -> bool:
+    """True when logged leave runs through the last working day in the scan window.
+
+    Signals that vacation may continue beyond ``sync_to`` — caller should extend
+    the Tempo fetch up to ``leave_sync_max_until``.
+    """
+    if not leave_days:
+        return False
+    horizon = last_working_day_on_or_before(sync_to)
+    return max(leave_days) >= horizon
+
+
+def _collect_leave_days_by_person(
+    people: list[Person],
+    worklogs: list[dict],
+    *,
+    week_monday: date,
+    sync_to: date,
+    threshold: float = LEAVE_DAY_HOURS_THRESHOLD,
+) -> dict[str, list[date]]:
+    """Per Jira account id: sorted leave days in [week_monday, sync_to]."""
+    out: dict[str, list[date]] = {}
+    for person in people:
+        aid = (person.jira_account_id or "").strip()
+        if not aid or person.status == PersonStatus.OUT:
+            continue
+        by_day = hours_by_day(
+            worklogs, account_id=aid, from_date=week_monday, to_date=sync_to
+        )
+        days = leave_days_from_hours(by_day, threshold=threshold)
+        if days:
+            out[aid] = days
+    return out
+
+
+def leave_sync_step_targets(
+    week_monday: date,
+    week_friday: date | None = None,
+) -> list[date]:
+    """Scan end dates: initial, +1w, +1w, then 2-month cap (deduped, ascending)."""
+    initial = leave_sync_until(week_monday, week_friday)
+    max_to = leave_sync_max_until(week_monday)
+    targets = [initial]
+    cursor = initial
+    for _ in range(LEAVE_SYNC_WEEKLY_STEPS):
+        nxt = min(cursor + timedelta(days=LEAVE_SYNC_STEP_DAYS), max_to)
+        if nxt <= cursor:
+            break
+        targets.append(nxt)
+        cursor = nxt
+    if cursor < max_to:
+        targets.append(max_to)
+    return targets
+
+
+def _any_leave_touches_horizon(
+    people: list[Person],
+    worklogs: list[dict],
+    *,
+    week_monday: date,
+    sync_to: date,
+) -> bool:
+    by_person = _collect_leave_days_by_person(
+        people, worklogs, week_monday=week_monday, sync_to=sync_to
+    )
+    return any(
+        leave_scan_touches_horizon(days, sync_to) for days in by_person.values()
+    )
+
+
+def resolve_leave_sync_to(
+    people: list[Person],
+    worklogs: list[dict],
+    *,
+    week_monday: date,
+    week_friday: date | None = None,
+) -> date:
+    """Pick Tempo scan end using stepped extension when leave fills each horizon."""
+    targets = leave_sync_step_targets(week_monday, week_friday)
+    sync_to = targets[0]
+    for next_to in targets[1:]:
+        if not _any_leave_touches_horizon(
+            people, worklogs, week_monday=week_monday, sync_to=sync_to
+        ):
+            break
+        sync_to = next_to
+    return sync_to
 
 
 def detect_leave_from_worklogs(
@@ -318,7 +422,6 @@ def sync_leave_from_vacsick(
     """
     s = settings or get_settings()
     fri = week_friday or (week_monday + timedelta(days=4))
-    sync_to = leave_sync_until(week_monday, fri)
     if not s.tempo_configured:
         return {
             "configured": False,
@@ -334,6 +437,9 @@ def sync_leave_from_vacsick(
         for p in people
         if p.jira_account_id and p.status != PersonStatus.OUT
     ]
+    targets = leave_sync_step_targets(week_monday, fri)
+    sync_to = targets[0]
+    initial_sync_to = sync_to
     # Do not pass project= — Tempo Cloud returns 400 for project=VACSICK.
     all_logs = tempo.list_worklogs(
         from_date=week_monday,
@@ -341,6 +447,19 @@ def sync_leave_from_vacsick(
         project=None,
         account_ids=account_ids or None,
     )
+    for next_to in targets[1:]:
+        if not _any_leave_touches_horizon(
+            people, all_logs, week_monday=week_monday, sync_to=sync_to
+        ):
+            break
+        sync_to = next_to
+        all_logs = tempo.list_worklogs(
+            from_date=week_monday,
+            to_date=sync_to,
+            project=None,
+            account_ids=account_ids or None,
+        )
+    sync_extended = sync_to > initial_sync_to
     issue_ids = [w.get("issue_id") for w in all_logs if w.get("issue_id")]
     issue_meta = resolve_issue_projects(issue_ids, settings=s)
     worklogs = filter_vacsick_worklogs(all_logs, issue_meta=issue_meta)
@@ -356,6 +475,7 @@ def sync_leave_from_vacsick(
         "fetched": len(worklogs),
         "fetched_all": len(all_logs),
         "sync_until": sync_to.isoformat(),
+        "sync_extended": sync_extended,
         "detections": [
             {
                 "name": d.full_name,

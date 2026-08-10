@@ -11,6 +11,7 @@ from designops.pipelines.daily_signals import (
     attach_agent_notes,
     empty_signals,
     enforce_intelligence_artifacts,
+    fix_leave_duration_labels,
     materialize_intelligence,
     validate_signals,
 )
@@ -352,3 +353,44 @@ def test_render_intelligence_no_v2_preview_banner():
     assert "not sent • UX/UI" not in html
     assert "SAMPLE / DRY-RUN" not in html
     assert "SAMPLE" not in html
+
+
+def test_working_days_vlad_leave_window():
+    from designops.pipelines.weekly_availability import (
+        leave_duration_label,
+        working_days_inclusive,
+    )
+
+    wd = working_days_inclusive(date(2026, 8, 14), date(2026, 9, 2))
+    assert wd == 14
+    assert leave_duration_label(wd) == "14 working days"
+
+
+def test_fix_leave_duration_labels_replaces_invented_weeks():
+    digest = {
+        "escalations": [
+            {
+                "text": (
+                    "Vlad Shemetovets is on leave 14 Aug → 2 Sep (3+ weeks) and is "
+                    "mid-flight on Northerner."
+                ),
+                "evidence": "— leave calendar",
+                "why_ranked_here": "long absence (14 Aug–2 Sep)",
+                "who": "Vlad Shemetovets",
+                "project": "Northerner",
+            }
+        ],
+        "heads_ups": [],
+    }
+    leave_calendar = [
+        {
+            "full_name": "Vlad Shemetovets",
+            "leave_from": "2026-08-14",
+            "leave_until": "2026-09-02",
+            "working_days": 14,
+            "duration_label": "14 working days",
+        }
+    ]
+    fix_leave_duration_labels(digest, leave_calendar)
+    assert "(14 working days)" in digest["escalations"][0]["text"]
+    assert "(3+ weeks)" not in digest["escalations"][0]["text"]

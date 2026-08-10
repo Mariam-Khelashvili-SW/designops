@@ -95,6 +95,31 @@ def week_friday(week_monday: date) -> date:
 LEAVE_HOURS_PER_DAY = 8.0
 
 
+def working_days_inclusive(start: date | None, end: date | None) -> int:
+    """Count Mon–Fri days in an inclusive leave range."""
+    if start is None or end is None or end < start:
+        return 0
+    n = 0
+    d = start
+    while d <= end:
+        if d.weekday() < 5:
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
+def leave_duration_label(working_days: int) -> str:
+    """Human label for a leave span — exact multiples of 5 → 'N weeks', else working days."""
+    if working_days <= 0:
+        return ""
+    if working_days == 1:
+        return "1 working day"
+    weeks, rem = divmod(working_days, 5)
+    if rem == 0:
+        return f"{weeks} weeks" if weeks != 1 else "1 week"
+    return f"{working_days} working days"
+
+
 def leave_overlap_in_week(
     *,
     week_monday: date,
