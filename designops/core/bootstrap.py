@@ -7,6 +7,24 @@ from sqlalchemy.orm import Session
 from designops.core.models import Pipeline
 
 
+def _normalize_weekday_cron(cron: str | None) -> str | None:
+    """Rewrite ambiguous ``1-5`` DOW to ``mon-fri``.
+
+    APScheduler numbers weekdays Mon=0…Sun=6, so crontab ``1-5`` means Tue–Sat.
+    Named ``mon-fri`` is unambiguous for weekday schedules.
+    """
+    raw = (cron or "").strip()
+    if not raw:
+        return cron
+    parts = raw.split()
+    if len(parts) < 5:
+        return cron
+    if parts[4].strip().lower() == "1-5":
+        parts[4] = "mon-fri"
+        return " ".join(parts)
+    return cron
+
+
 def ensure_pipelines(session: Session) -> list[str]:
     """Create missing pipeline rows (daily-digest, weekly-backlog, weekly-health).
 
@@ -22,7 +40,7 @@ def ensure_pipelines(session: Session) -> list[str]:
                 name="A1 — Daily Ops Digest",
                 description="Design-team daily ops digest for Olga Kimalana (Head of Design).",
                 skill_path="designops/skills/daily-ops-digest.md",
-                schedule_cron="0 11 * * 1-5",
+                schedule_cron="0 11 * * mon-fri",
                 timezone="Europe/Riga",
                 recipients=[],
                 send_mode="none",
@@ -33,7 +51,7 @@ def ensure_pipelines(session: Session) -> list[str]:
                 config={
                     "source_mode": "fairwind",
                     "min_coverage": 0.6,
-                    "ingest_cron": "0 6 * * 1-5",
+                    "ingest_cron": "0 6 * * mon-fri",
                     "carry_forward_blockers": False,
                 },
             )
@@ -43,10 +61,25 @@ def ensure_pipelines(session: Session) -> list[str]:
         # Promote delivery gate so schedule "Email recipients" + run-page Send work
         # (Generate remains send_mode=none). Same pattern as weekly pipelines.
         daily = session.query(Pipeline).filter_by(key="daily-digest").one()
+        changed = False
         if not daily.go_live:
             daily.go_live = True
-            session.add(daily)
+            changed = True
             created.append("daily-digest:go_live")
+        # APScheduler: numeric 1-5 = Tue–Sat — rewrite weekday schedules to mon-fri.
+        fixed = _normalize_weekday_cron(daily.schedule_cron)
+        if fixed and fixed != daily.schedule_cron:
+            daily.schedule_cron = fixed
+            changed = True
+            created.append("daily-digest:cron-mon-fri")
+        cfg = dict(daily.config or {})
+        ingest = _normalize_weekday_cron(cfg.get("ingest_cron"))
+        if ingest and ingest != cfg.get("ingest_cron"):
+            cfg["ingest_cron"] = ingest
+            daily.config = cfg
+            changed = True
+        if changed:
+            session.add(daily)
 
     if session.query(Pipeline).filter_by(key="weekly-backlog").one_or_none() is None:
         session.add(

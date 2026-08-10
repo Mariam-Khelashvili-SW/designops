@@ -17,7 +17,7 @@
 
 <div class="card">
   <h1 style="font-size:16px;margin-bottom:2px">Daily schedule</h1>
-  <p class="sub">Each working day, generate the previous day's report (2-day export window) and — if delivery is on — email it to the recipients. Runs on the in-app scheduler, so the server must be running.</p>
+  <p class="sub">Weekdays only: each run generates the <b>previous working day’s</b> report and — if delivery is on — emails it. Monday sends Friday’s report; Tuesday sends Monday’s; … Friday sends Thursday’s. No weekend sends.</p>
   {% if flash == 'schedule_saved' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Schedule saved{% if sched_next %} · next run {{ sched_next }}{% endif %}.</div>{% endif %}
   <form method="post" action="/daily-report/schedule" class="row" style="align-items:flex-end;gap:14px">
     <div><label>Time (Riga)</label><input type="time" name="sched_time" value="{{ sched_time }}"></div>
@@ -39,7 +39,7 @@
     <button class="btn" type="submit">Save</button>
   </form>
   <p class="sub" style="margin-top:8px">
-    {% if sched_enabled and sched_next %}⏰ Next run <b>{{ sched_next }}</b>{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
+    {% if sched_enabled and sched_next %}⏰ Next run <b>{{ sched_next }}</b>{% if sched_covers %} · covers <b>{{ sched_covers }}</b> report{% endif %}{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
     {% elif sched_enabled %}Enabled.{% else %}Off — nothing runs automatically.{% endif %}
     Emails leave only via this schedule (when Delivery = Email recipients) or the run-page Send button — manual Generate never emails.
     {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ <a href="/config">Connect Gmail in Config</a> to actually send.</span>{% endif %}

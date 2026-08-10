@@ -30,6 +30,17 @@ _RETRY_BASE_SEC = 45
 _RETRY_CAP_SEC = 300  # 5 min
 _PREWARM_LEAD_MINUTES = 30
 _DOW_NAMES = ("sun", "mon", "tue", "wed", "thu", "fri", "sat")
+_CRON_DOW_LABELS = {
+    "mon-fri": "Mon–Fri",
+    "*": "every day",
+    "mon": "Mondays",
+    "tue": "Tuesdays",
+    "wed": "Wednesdays",
+    "thu": "Thursdays",
+    "fri": "Fridays",
+    "sat": "Saturdays",
+    "sun": "Sundays",
+}
 
 
 def start_scheduler() -> None:
@@ -96,20 +107,26 @@ def _shift_dow(dow: str, days: int) -> str | None:
 
 def reschedule() -> None:
     """(Re)install cron jobs from every enabled pipeline row."""
+    from designops.core.bootstrap import _normalize_weekday_cron
     from designops.core.db import session_scope
     from designops.core.models import Pipeline
 
     with session_scope() as s:
         rows = s.query(Pipeline).all()
-        specs = [
-            {
-                "key": p.key,
-                "cron": p.schedule_cron,
-                "tz": p.timezone or "Europe/Riga",
-                "enabled": bool(p.enabled and p.schedule_cron),
-            }
-            for p in rows
-        ]
+        specs = []
+        for p in rows:
+            cron = _normalize_weekday_cron(p.schedule_cron) or p.schedule_cron
+            if cron and cron != p.schedule_cron:
+                p.schedule_cron = cron
+                s.add(p)
+            specs.append(
+                {
+                    "key": p.key,
+                    "cron": cron,
+                    "tz": p.timezone or "Europe/Riga",
+                    "enabled": bool(p.enabled and cron),
+                }
+            )
 
     known_ids = {
         j.id
@@ -246,6 +263,58 @@ def next_run_time(pipeline_key: str = "daily-digest") -> datetime | None:
     return min(candidates) if candidates else None
 
 
+def describe_schedule(cron: str | None, timezone: str = "Europe/Riga") -> str:
+    """Human-readable cron, e.g. '12:00 Riga · Mon–Fri'."""
+    raw = (cron or "").strip()
+    if not raw:
+        return "Not scheduled"
+    parts = raw.split()
+    if len(parts) < 5:
+        return raw
+    try:
+        minute, hour = int(parts[0]), int(parts[1])
+        time_s = f"{hour:02d}:{minute:02d}"
+    except ValueError:
+        return raw
+    dow = parts[4].strip().lower()
+    # APScheduler numeric DOW is Mon=0 — never label bare 1-5 as Mon–Fri.
+    if dow == "1-5":
+        days = "Tue–Sat (fix: use mon-fri)"
+    else:
+        days = _CRON_DOW_LABELS.get(dow, dow)
+    tz_label = (timezone or "Europe/Riga").split("/")[-1].replace("_", " ")
+    return f"{time_s} {tz_label} · {days}"
+
+
+def format_countdown(
+    next_run: datetime | None,
+    *,
+    now: datetime | None = None,
+) -> str | None:
+    """Short relative time until the next scheduled fire, e.g. 'in 2h 15m'."""
+    if next_run is None:
+        return None
+    tz = next_run.tzinfo or _TZ
+    now = now or datetime.now(tz)
+    if next_run.tzinfo is None:
+        next_run = next_run.replace(tzinfo=tz)
+    delta = next_run - now
+    secs = int(delta.total_seconds())
+    if secs <= 0:
+        return "due now"
+    days, rem = divmod(secs, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, _ = divmod(rem, 60)
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes or not parts:
+        parts.append(f"{minutes}m")
+    return "in " + " ".join(parts)
+
+
 def _log_jobs(label: str) -> None:
     jobs = _scheduler.get_jobs()
     print(
@@ -260,10 +329,31 @@ def _log_jobs(label: str) -> None:
 
 
 def _prev_working_day(today) -> datetime.date:
+    """Previous Mon–Fri day. Monday → Friday (weekend skipped)."""
     d = today - timedelta(days=1)
     while d.weekday() >= 5:  # Sat/Sun
         d -= timedelta(days=1)
     return d
+
+
+def scheduled_report_date(pipeline_key: str, fire_at: datetime | None) -> datetime.date | None:
+    """Which report date a scheduled fire will generate.
+
+    Daily digest always covers the previous working day — so Monday noon sends
+    Friday's report; Tuesday sends Monday's; Friday sends Thursday's.
+    """
+    if fire_at is None:
+        return None
+    day = fire_at.astimezone(_TZ).date() if fire_at.tzinfo else fire_at.date()
+    if pipeline_key == "daily-digest":
+        return _prev_working_day(day)
+    if pipeline_key == "weekly-backlog":
+        from designops.pipelines.weekly_availability import resolve_week_monday
+
+        return resolve_week_monday(day)
+    if pipeline_key == "weekly-health":
+        return day
+    return None
 
 
 def _delivery_succeeded(send_mode: str, delivery_status: str | None) -> bool:

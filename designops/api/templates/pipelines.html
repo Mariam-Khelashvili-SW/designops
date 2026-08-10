@@ -19,6 +19,41 @@
   <p class="sub">{{ p.description }}</p>
   <p class="sub">Skill: <code>{{ p.skill_path }}</code> · ingest <code>{{ p.config.get('ingest_cron','—') }}</code> · source <code>{{ p.config.get('source_mode','fairwind') }}</code></p>
 
+  <div style="margin-top:8px;padding:10px 12px;background:#f8f9fb;border:1px solid #eef0f3;border-radius:8px;font-size:13px">
+    <div style="display:flex;flex-wrap:wrap;gap:16px 24px">
+      <div>
+        <span style="color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em">Schedule</span><br>
+        {% if d.sched_active %}
+        <b>{{ d.sched_desc }}</b> <code style="font-size:11px;color:var(--mut)">{{ p.schedule_cron }}</code>
+        {% elif p.schedule_cron and not p.enabled %}
+        <span class="pill mut">disabled</span> · would run <b>{{ d.sched_desc }}</b>
+        {% else %}
+        <span class="mut">Not scheduled</span>
+        {% endif %}
+      </div>
+      <div>
+        <span style="color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em">On fire</span><br>
+        {{ d.sched_delivery }}
+      </div>
+      <div>
+        <span style="color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em">Next send</span><br>
+        {% if d.sched_active and d.sched_next %}
+        <b>{{ d.sched_next }}</b>
+        {% if d.sched_countdown %}<span style="color:var(--teal);font-weight:600"> · {{ d.sched_countdown }}</span>{% endif %}
+        {% if d.sched_covers %}<br><span class="mut">covers <b>{{ d.sched_covers }}</b> report</span>{% endif %}
+        {% elif d.sched_active %}
+        <span class="mut">Scheduler not running — restart the server</span>
+        {% else %}—{% endif %}
+      </div>
+    </div>
+    {% if d.sched_note %}
+    <p class="sub" style="margin:8px 0 0">{{ d.sched_note }}</p>
+    {% endif %}
+    {% if d.sched_active and d.sched_next %}
+    <p class="sub" style="margin:4px 0 0">Cron uses <code>{{ p.timezone or 'Europe/Riga' }}</code>. The in-app scheduler must be running (local dev server or deployed app).</p>
+    {% endif %}
+  </div>
+
   <form method="post" action="/pipelines/{{ p.key }}" class="row" style="margin-top:6px">
     <div><label>Synthesis schedule (cron)</label><input name="schedule_cron" value="{{ p.schedule_cron or '' }}" style="width:150px"></div>
     <div><label>Recipients (comma-sep)</label><input name="recipients" value="{{ p.recipients | join(', ') }}" style="width:230px"></div>
@@ -50,5 +85,7 @@
 {% endfor %}
 {% if pipelines | selectattr('last') | map(attribute='last') | selectattr('status', 'equalto', 'running') | list %}
 <script>setTimeout(function () { location.reload(); }, 4000);</script>
+{% elif pipelines | selectattr('sched_active') | selectattr('sched_next') | list %}
+<script>setTimeout(function () { location.reload(); }, 60000);</script>
 {% endif %}
 {% endblock %}

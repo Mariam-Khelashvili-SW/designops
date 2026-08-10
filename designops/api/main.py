@@ -105,7 +105,7 @@ def _prev_working_day(today: date) -> date:
 def _cron_to_fields(cron: str | None) -> tuple[str, str]:
     """cron 'M H * * D' -> ('HH:MM', 'weekdays'|'all') for the schedule form."""
     try:
-        m, h, _, _, dow = (cron or "0 12 * * 1-5").split()[:5]
+        m, h, _, _, dow = (cron or "0 12 * * mon-fri").split()[:5]
         return f"{int(h):02d}:{int(m):02d}", ("all" if dow == "*" else "weekdays")
     except (ValueError, TypeError):
         return "12:00", "weekdays"
@@ -137,6 +137,23 @@ def _cron_weekday(cron: str | None, *, default: str = "mon") -> str:
     return _CRON_DOW_ALIASES.get(raw, default)
 
 
+def _pipeline_schedule_delivery(p: Pipeline) -> str:
+    """What happens when the cron job fires."""
+    mode = (p.send_mode or SendMode.NONE.value).lower()
+    if mode == SendMode.NONE.value:
+        return "Generate only — no email"
+    if mode == SendMode.SEND.value:
+        if p.go_live:
+            rec = ", ".join(p.recipients) if p.recipients else "(no recipients set)"
+            return f"Generate + email to {rec}"
+        return "Generate only — go_live is off (email blocked)"
+    if mode == SendMode.SELF.value:
+        return "Generate + email to self (setup owner)"
+    if mode == SendMode.DRAFT.value:
+        return "Generate + save Gmail draft"
+    return f"Generate ({mode})"
+
+
 @app.get("/daily-report", response_class=HTMLResponse)
 def daily_report(request: Request, db: Session = Depends(get_db)):
     enabled = (
@@ -161,8 +178,10 @@ def daily_report(request: Request, db: Session = Depends(get_db)):
     s = get_settings()
     # schedule config from the pipeline row (cron -> HH:MM + weekdays/every-day)
     sched_time, sched_days = _cron_to_fields(pipeline.schedule_cron if pipeline else None)
-    from designops.api.scheduler import next_run_time
+    from designops.api.scheduler import next_run_time, scheduled_report_date
+
     nrt = next_run_time()
+    report_day = scheduled_report_date("daily-digest", nrt) if nrt else None
     return templates.TemplateResponse(
         "daily_report.html",
         {
@@ -176,6 +195,9 @@ def daily_report(request: Request, db: Session = Depends(get_db)):
             "sched_recipients": ", ".join(pipeline.recipients) if pipeline else "",
             "sched_send": (pipeline.send_mode if pipeline else "none"),
             "sched_next": nrt.strftime("%a %d %b %H:%M %Z") if nrt else None,
+            "sched_covers": (
+                report_day.strftime("%a %-d %b").replace(" 0", " ") if report_day else None
+            ),
             "can_send": google_oauth.is_connected() or s.smtp_configured,
             "flash": request.query_params.get("flash"),
         },
@@ -641,6 +663,13 @@ def daily_report_run(
 # --- Pipelines ----------------------------------------------------------------
 @app.get("/pipelines", response_class=HTMLResponse)
 def pipelines(request: Request, db: Session = Depends(get_db)):
+    from designops.api.scheduler import (
+        describe_schedule,
+        format_countdown,
+        next_run_time,
+        scheduled_report_date,
+    )
+
     rows = db.query(Pipeline).order_by(Pipeline.key).all()
     data = []
     for p in rows:
@@ -650,7 +679,31 @@ def pipelines(request: Request, db: Session = Depends(get_db)):
             .order_by(PipelineRun.started_at.desc())
             .first()
         )
-        data.append({"p": p, "last": last})
+        sched_active = bool(p.enabled and p.schedule_cron)
+        nrt = next_run_time(p.key) if sched_active else None
+        report_day = scheduled_report_date(p.key, nrt) if nrt else None
+        covers = None
+        if report_day is not None:
+            covers = report_day.strftime("%a %-d %b").replace(" 0", " ")
+        note = None
+        if p.key == "daily-digest":
+            note = (
+                "Weekdays only. Each run covers the previous working day — "
+                "Monday sends Friday’s report."
+            )
+        data.append(
+            {
+                "p": p,
+                "last": last,
+                "sched_active": sched_active,
+                "sched_desc": describe_schedule(p.schedule_cron, p.timezone),
+                "sched_next": nrt.strftime("%a %d %b %H:%M %Z") if nrt else None,
+                "sched_countdown": format_countdown(nrt),
+                "sched_covers": covers,
+                "sched_note": note,
+                "sched_delivery": _pipeline_schedule_delivery(p),
+            }
+        )
     return templates.TemplateResponse(
         "pipelines.html", {"request": request, "pipelines": data, "nav": "pipelines"}
     )
@@ -1312,7 +1365,7 @@ def daily_report_schedule(
         h, m = (int(x) for x in sched_time.split(":")[:2])
     except (ValueError, TypeError):
         h, m = 12, 0
-    p.schedule_cron = f"{m} {h} * * {'*' if days == 'all' else '1-5'}"
+    p.schedule_cron = f"{m} {h} * * {'*' if days == 'all' else 'mon-fri'}"
     p.recipients = [r.strip() for r in recipients.replace("\n", ",").split(",") if r.strip()]
     p.send_mode = send_mode if send_mode in ("none", "self", "draft", "send") else "none"
     p.enabled = enabled == "on"
