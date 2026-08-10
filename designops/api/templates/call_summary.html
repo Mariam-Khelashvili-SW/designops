@@ -382,7 +382,7 @@
         </div>
         <div class="cs-drafts-actions">
           <button type="button" class="btn sm ghost" id="cs-copy-subject" data-copy="{{ viewed.subject|e }}">Copy subject</button>
-          <button type="button" class="btn sm ghost" id="cs-copy-body" title="Copies bold/lists as HTML for Gmail and Docs">Copy body</button>
+          <button type="button" class="btn sm ghost" id="cs-copy-body" title="Copies formatted HTML (bold + bullets) for Gmail and Outlook">Copy body</button>
           {% if viewed.transcript_id %}
           <form method="post" action="/call-summary/generate" class="js-call-summary-generate">
             <input type="hidden" name="transcript_id" value="{{ viewed.transcript_id }}" />
@@ -401,7 +401,7 @@
         {% endif %}
 
         <div class="cs-email">
-          <div class="cs-email-label">Email body <span style="font-weight:500;text-transform:none;letter-spacing:0">· markdown rendered · not sent</span></div>
+          <div class="cs-email-label">Email body <span style="font-weight:500;text-transform:none;letter-spacing:0">· formatted preview · use Copy body for Gmail</span></div>
           <div class="cs-email-body" id="cs-body-html">{{ body_html | safe }}</div>
         </div>
 
