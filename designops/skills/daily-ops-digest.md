@@ -145,13 +145,92 @@ dates. **Never invent progress** for anyone on this list.
 
 ## KPIs (`at_a_glance`)
 
-`active · need_review · blocked · no_report`
+Four tiles — code derives counts from the rendered body after deduplication:
 
-- `active` = distinct designers with a daily (reported).
-- `need_review` = `len(needs_review) + len(escalations)` (code overwrites; linkless
-  review rows are dropped; escalations are counted).
-- `blocked` = how many remaining `needs_review` rows have `blocked: true`.
-- `no_report` = active designers with no daily (not on leave).
+| Tile | Definition |
+|------|------------|
+| `reported` | Distinct designers who submitted a daily today |
+| `need_you` | Count of Needs Olga items **after** deduplication (one decision per item) |
+| `waiting_on_input` | Projects whose status is `waiting on you` or `blocked on client` |
+| `no_report` | Roster members with no report and no approved leave |
+
+Legacy aliases `need_review`, `blocked`, `active` may still appear in JSON — code overwrites.
+
+## Output quality rules (C1–C10)
+
+### C1 — Needs Olga: one decision, not one person
+
+Key escalations on **issue type + date** (+ project when scoped). If two or more people
+share the same finding on the same date, emit **one** escalation and list affected people
+as sub-lines (`affected`: project, who, detail). Never repeat the justification once per
+person. Example: three designers out on 14 Aug with no cover → **one** item listing all three.
+
+### C2 — No duplicate note bodies
+
+Never emit two notes with the same body. If the same finding is supported by multiple
+sources, print the note once and list all sources on a single trailing source line.
+
+### C3 — One typed notes block per project
+
+Emit at most one notes block per project (via `project_notes` in Pass B, or
+`status[].agent_note` / `heads_ups` that code merges). Every note carries exactly one type:
+
+| Type | Meaning |
+|------|---------|
+| `Stalled` | Same Next repeated across runs, or a task that hasn't moved |
+| `Waiting` | Work parked on someone else's input — client, Olga, another team |
+| `Context` | Background worth knowing, no action implied |
+
+Do not create a second annotation section under any other heading (no separate
+"Beyond the dailies" block).
+
+### C4 — Leave badges on designer names
+
+Every designer in By project who starts leave within 7 working days gets an inline leave
+badge (`out 14 Aug` or `out 14 Aug → 2 Sep`). Needs Olga states the decision once; do not
+restate full leave prose per person in the alert box.
+
+### C5 — Olga's review queue
+
+Scan every Done and Next line for work handed to Olga for review, feedback, sign-off or a
+catch-up. Each hand-off becomes a Needs Olga item with `by_when`, and sets the project
+status to `waiting on you`. If the person goes on leave within 5 working days, say so in
+the item.
+
+### C6 — Project status: closed enum only
+
+The project status tag must be one of exactly:
+
+`on track` · `waiting on you` · `blocked on client` · `cover needed` · `internal`
+
+If none applies, output no tag. Never invent a status or assert a state the dailies do
+not state (e.g. do not claim something was sent unless a report says so).
+
+### C7 — Done / Next as lines
+
+Split each Done / Next at semicolons into separate lines. Maximum 3 lines per field — merge
+the least significant clauses into the last line. Keep the person's own wording; light
+trimming only. Coordination-only clauses ("call with X", "meeting with Y") merge into the
+end of an adjacent line unless the call produced a decision.
+
+### C8 — Counters match the body
+
+Each KPI tile must reflect what appears in the email body — if a project is blocked on
+client feedback, `waiting_on_input` must count it.
+
+### C9 — Silence collapses
+
+Group all same-status silent people into one row in Out & quiet. On the second consecutive
+silent day with no approved leave, raise a grouped Needs Olga item.
+
+### C10 — Source tags
+
+One source line per item or note, at the end, deduplicated, separated by ` · `. No inline
+source references inside the prose.
+
+## KPIs (`at_a_glance`) — legacy shape
+
+`active · need_review · blocked · no_report` — code maps to the four tiles above.
 
 ## Intelligence layer (Pass A then Pass B)
 
@@ -266,8 +345,8 @@ only — never by mining client email for every change.
 - Each finding: `kind` ∈ {`escalation`,`heads_up`,`agent_note`}, `text`, `evidence` (≥1
   `{quote, source}`), optional `who` / `project` / `agent_note` / `why_ranked_here`.
 - **`project` must be a single registry name** (e.g. `Acer` or `Sports Group Denmark`) —
-  never a compound (`Acer / Club Portal`). If leave spans two projects, emit **two**
-  findings (one per project), not one merged row.
+  never a compound (`Acer / Club Portal`). If leave spans two projects on the **same date**,
+  emit **one** escalation with multiple `affected` rows — not one finding per person.
 - Escalation findings need `why_ranked_here`. Max **5** escalations total across rules;
   rank by time-sensitivity. If more qualify, keep top 5 and note held count in text.
 
@@ -285,9 +364,9 @@ Do not use: "behind", "less advanced than", "struggling", "slow", "stalled", "at
 ### Few-shots (boundary)
 
 **R1 hit:** Dorota leave from tomorrow, mid-flight on Search UI / SRP, coordinating
-cart-flow handover with Arturs, no coverage plan in dailies → **two** Escalations (one
-for Acer, one for Sports Group Denmark / Club Portal if both apply) + agent notes — not
-one row with `project: "Acer / Club Portal"`.
+cart-flow handover with Arturs, no coverage plan in dailies → **one** Escalation with
+`affected` rows for each project — not one row per person and not
+`project: "Acer / Club Portal"`.
 
 **R1 near-miss:** Person on leave but project has a second active reporter and the report
 says "handover done" → **no** finding.
@@ -333,19 +412,22 @@ Growth-Pulse sections from the dailies.
 {
   "at_a_glance": {
     "active": 0,
-    "need_review": 0,
-    "blocked": 0,
+    "need_you": 0,
+    "waiting_on_input": 0,
     "no_report": 0
   },
   "signals": {},
   "escalations": [
     {
       "text": "",
-      "evidence": "— leave calendar × dailies",
+      "evidence": "leave calendar · daily reports 4 Aug",
       "why_ranked_here": "",
       "who": "",
       "project": "",
-      "agent_note": ""
+      "by_when": "Decide by Wed 5 Aug",
+      "affected": [
+        {"project": "Acer", "who": "Arturs Boroviks", "detail": "sole designer; out 14 Aug"}
+      ]
     }
   ],
   "heads_ups": [

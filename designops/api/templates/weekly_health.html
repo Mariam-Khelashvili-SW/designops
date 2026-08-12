@@ -295,7 +295,7 @@
               <textarea name="figma_urls" id="figma-urls-{{ t.id }}" rows="3"
                         placeholder="One URL per line (or comma-separated)&#10;https://www.figma.com/design/…">{% if t.figma_urls %}{{ t.figma_urls | join('\n') }}{% endif %}</textarea>
               <p class="figma-status" id="figma-status-{{ t.id }}">
-                Scans Jira tickets and the Fairwind export corpus for figma.com links. Shows last updated when Figma auth can read metadata.
+                Scans Jira tickets and the Fairwind export corpus for figma.com links. Shows last updated when Figma auth can read metadata. At generate time, linked files feed a Figma comments panel: unanswered questions and unfinished to-dos on our side, with items open more than a week shown in full.
               </p>
               <div class="jira-matches" id="figma-matches-{{ t.id }}">
                 <h4>Figma files found</h4>

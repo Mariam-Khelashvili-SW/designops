@@ -145,6 +145,13 @@ class Settings(BaseSettings):
     )
     transcript_api_token: str = Field(default="", alias="TRANSCRIPT_API_TOKEN")
 
+    # Notion — design intake page publishing
+    notion_api_token: str = Field(default="", alias="NOTION_API_TOKEN")
+    # Parent page ID (dev/sample) or database ID (production Design projects DB)
+    notion_parent_page_id: str = Field(default="", alias="NOTION_PARENT_PAGE_ID")
+    # When true, NOTION_PARENT_PAGE_ID is treated as a database_id
+    notion_parent_is_database: bool = Field(default=False, alias="NOTION_PARENT_IS_DATABASE")
+
     @property
     def fairwind_configured(self) -> bool:
         return bool(self.fw_client_id and self.fw_client_secret)
@@ -172,6 +179,10 @@ class Settings(BaseSettings):
     @property
     def transcript_api_configured(self) -> bool:
         return bool(self.transcript_api_base_url and self.transcript_api_token)
+
+    @property
+    def notion_configured(self) -> bool:
+        return bool(self.notion_api_token and self.notion_parent_page_id)
 
 
 @lru_cache

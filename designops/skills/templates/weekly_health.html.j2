@@ -1,6 +1,6 @@
 {#
-  A2 Weekly Project Health & Budget — locked to design-weekly-health-2026-07-17.html
-  Context: digest, as_of_label (snapshot date, e.g. "Tue 28 Jul 2026"), sample, coverage
+  A2 Weekly Project Health & Budget — v7 layout (Aug 2026)
+  Context: digest, as_of_label, sample, coverage
 #}<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,120 +8,114 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Design — Weekly Project Health &amp; Budget · {{ as_of_label }}</title>
 <style>
-  body{margin:0;padding:0;background:#f4f5f7;color:#1f2328;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
-  .wrap{max-width:760px;margin:0 auto;padding:24px 16px 56px}
-  .card{background:#fff;border:1px solid #e6e8ec;border-radius:14px;padding:22px 24px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
-  .eyebrow{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:#6b7280;font-weight:700;margin:0 0 4px}
-  h1{font-size:21px;line-height:1.25;margin:4px 0 6px;letter-spacing:-.01em;font-weight:700}
-  h1 .g{color:#12a594}
-  .sub{color:#6b7280;font-size:12.5px;margin:0 0 10px;line-height:1.45}
-  .sample{display:inline-block;margin:0 6px 4px 0;font-size:10.5px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #f5c66b;border-radius:6px;padding:3px 8px}
-  .pending{display:inline-block;margin:0 0 4px;font-size:10.5px;font-weight:700;color:#1d5fb0;background:#eef4fd;border:1px solid #cbddf7;border-radius:6px;padding:3px 8px}
+  body{margin:0;padding:0;background:#f0f1f4;color:#12141a;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:24px 16px 56px}
+  .card{background:#fff;border:1px solid #e9ebef;border-radius:14px;padding:22px 28px 24px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .eyebrow{font-size:11.5px;color:#9aa1ad;line-height:1.45;margin:0 0 16px}
+  h1{font-size:26px;line-height:1.15;margin:0 0 6px;font-weight:650;letter-spacing:-.02em}
+  .sub{color:#767e8d;font-size:14px;margin:0 0 10px;line-height:1.45;max-width:62ch}
+  .sample{display:inline-block;margin:0 6px 4px 0;font-size:10.5px;font-weight:700;color:#b06a06;background:#fdf4e3;border:1px solid #e0a63a;border-radius:6px;padding:3px 8px}
+  .pending{display:inline-block;margin:0 0 4px;font-size:10.5px;font-weight:700;color:#1f5ae0;background:#eaf1fd;border:1px solid #cbddf7;border-radius:6px;padding:3px 8px}
 
-  .glance{border:1px solid #d7f0ec;background:#f2fbf9;border-radius:11px;margin:14px 0 0;overflow:hidden;width:100%;border-collapse:separate;border-spacing:0}
-  .glance td.gg{padding:14px 10px;text-align:center;border-right:1px solid #dcefeb;width:33.33%;vertical-align:top}
+  .glance{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #e9ebef;border-radius:12px;overflow:hidden;margin:14px 0 0}
+  .glance td.gg{padding:16px 14px;text-align:center;border-right:1px solid #f2f3f6;width:25%;vertical-align:top}
   .glance td.gg:last-child{border-right:none}
-  .gg .n{font-size:22px;font-weight:800;color:#0f8a7e;line-height:1.1}
-  .gg .n.warn{color:#b45309}.gg .n.red{color:#c0392b}.gg .n.mut{color:#9aa2ad}
-  .gg .l{font-size:9.5px;color:#5b6673;margin-top:6px;text-transform:uppercase;letter-spacing:.03em;line-height:1.3}
+  .gg .n{font-size:24px;font-weight:670;line-height:1;letter-spacing:-.02em;color:#12141a;font-variant-numeric:tabular-nums}
+  .gg .n.hot{color:#c8342b}.gg .n.fig{color:#5a45b8}.gg .n.warn{color:#b06a06}
+  .gg .l{font-size:11px;color:#767e8d;margin-top:6px;line-height:1.3}
 
-  h2.sec{font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:#0f8a7e;font-weight:700;margin:28px 0 10px;padding:0 0 6px;border-bottom:1px solid #eef0f2}
+  .shead{margin:26px 0 12px;padding:0 2px}
+  .shead table{width:100%;border-collapse:collapse}
+  .shead h2{font-size:13px;margin:0;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#767e8d}
+  .shead .hint{font-size:11.5px;color:#9aa1ad;text-align:right;white-space:nowrap}
 
-  .proj{border:1px solid #e9ebee;border-radius:12px;padding:16px 16px 14px;margin:0 0 16px}
-  .phead{width:100%;border-collapse:collapse;margin:0 0 6px}
-  .phead td{padding:0 8px 0 0;vertical-align:middle}
-  .phead td:last-child{padding-right:0}
-  .phead td.tight{width:1%;white-space:nowrap}
-  .phead .rank{font-size:12px;font-weight:700;color:#9aa2ad;line-height:1.2;white-space:nowrap}
-  .phead .pn{font-weight:750;font-size:16px;line-height:1.25;color:#1f2328}
-  .phead .subttl{font-size:11px;color:#9aa2ad;line-height:1.3;text-align:right}
-  .rag{display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:3px 8px;border-radius:11px;line-height:1.2;vertical-align:middle}
-  .rag.r{color:#c0392b;background:#fdecea;border:1px solid #f3c0b8}
-  .rag.a{color:#b45309;background:#fff5e8;border:1px solid #f3d18a}
-  .rag.g{color:#0f8a7e;background:#eafaf6;border:1px solid #bfe9df}
-  .verdict{font-size:12.5px;color:#5b6673;margin:0 0 12px;line-height:1.45}
+  .proj{border:1px solid #e9ebef;border-radius:13px;padding:0;margin:0 0 16px;overflow:hidden}
+  .phead{padding:18px 22px 14px;border-bottom:1px solid #f2f3f6}
+  .ptop{width:100%;border-collapse:collapse}
+  .ptop td{padding:0 8px 0 0;vertical-align:middle}
+  .ptop td:last-child{padding-right:0;text-align:right}
+  .rank{width:21px;height:21px;border-radius:50%;background:#eef0f4;color:#767e8d;font-size:11px;font-weight:700;text-align:center;line-height:21px;display:inline-block}
+  .pn{font-weight:640;font-size:18px;line-height:1.25;color:#12141a;letter-spacing:-.015em}
+  .pn a{color:#12141a;text-decoration:none;border-bottom:1px solid #d5d9e0}
+  .code{font-size:11.5px;color:#9aa1ad;white-space:nowrap}
+  .pdesc{font-size:13.5px;color:#333947;margin:9px 0 0;line-height:1.5;max-width:76ch}
+  .calls{font-size:11.5px;color:#9aa1ad;margin:8px 0 0;line-height:1.4}
+  .calls b{color:#767e8d;font-weight:600}
 
-  .money{width:100%;border-collapse:separate;border-spacing:0;background:#e3ecea;border:1px solid #d7f0ec;border-radius:10px;overflow:hidden;margin:0 0 10px}
-  .money td.mc{background:#f7fdfc;padding:11px 12px;width:33.33%;vertical-align:top;border-right:1px solid #e3ecea}
-  .money td.mc:last-child{border-right:none}
-  .mc .l{font-size:8.5px;text-transform:uppercase;letter-spacing:.05em;color:#5b6673;font-weight:700;line-height:1.3}
-  .mc .v{font-size:16px;font-weight:800;color:#0f6f66;line-height:1.25;margin-top:4px;font-variant-numeric:tabular-nums}
-  .mc .v.mut{color:#8a94a1}
-  .mc .s{font-size:10.5px;color:#8a94a1;margin-top:3px;line-height:1.35}
-  .inv{margin:0 0 10px;font-size:11.5px;color:#5b6673;background:#f7f8fa;border:1px solid #eceef1;border-radius:8px;padding:8px 10px;line-height:1.4}
-  .inv b{color:#33404e}
+  .fin{width:100%;border-collapse:separate;border-spacing:0;border-bottom:1px solid #f2f3f6}
+  .fin td.fcell{padding:14px 18px 15px 22px;border-right:1px solid #f2f3f6;width:25%;vertical-align:top}
+  .fin td.fcell:last-child{border-right:none}
+  .fcell .lbl{font-size:10px;color:#9aa1ad;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px}
+  .fcell .val{font-size:16px;font-weight:650;color:#12141a;line-height:1.2;font-variant-numeric:tabular-nums}
+  .fcell .val.mut{color:#9aa1ad}
+  .fcell .note{font-size:11px;color:#767e8d;margin-top:3px;line-height:1.35}
+  .bar{height:4px;border-radius:3px;background:#eceef2;margin-top:8px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:3px;background:#0a6b45}
+  .bar i.warn{background:#e0a63a}
 
-  .donebar{margin:0 0 12px}
-  .donebar-meta{width:100%;border-collapse:collapse;margin:0 0 6px}
-  .donebar-meta td{padding:0;vertical-align:middle;font-size:11px;color:#5b6673}
-  .donebar-meta .lbl{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#5b6673}
-  .donebar-meta .val{font-weight:800;color:#0f6f66;font-variant-numeric:tabular-nums;text-align:right}
-  .donebar-track{width:100%;border-collapse:collapse;background:#e8eef0;border-radius:999px;overflow:hidden}
-  .donebar-track td{padding:0;height:8px;line-height:0;font-size:0}
-  .donebar-fill{background:#0f8a7e}
-  .donebar-rest{background:#e8eef0}
-
-  table.t{width:100%;border-collapse:collapse;font-size:12px;margin:0}
-  table.t th{text-align:left;font-size:8.5px;letter-spacing:.05em;text-transform:uppercase;color:#9aa2ad;font-weight:800;padding:6px 7px;border-bottom:1px solid #eceef1}
-  table.t td{padding:5px 7px;border-bottom:1px solid #f5f6f8;vertical-align:middle;line-height:1.35}
-  table.t td.k{font-weight:700;color:#4a5261;white-space:nowrap;font-size:11px}
-  table.t td.k a{color:#4a5261;text-decoration:none;font-weight:700}
-  table.t td.nm{color:#2b3038}
-  table.t td.n{text-align:right;font-variant-numeric:tabular-nums;color:#5b6673}
-  table.t td.p{text-align:right;font-variant-numeric:tabular-nums;font-weight:800;color:#5b6673}
-  table.t td.p.ok{color:#0f8a7e}
-  table.t td.p.watch{color:#9a8f16}
-  table.t td.p.warn{color:#d97706}
-  table.t td.p.bad{color:#dc2626}
-  table.t td.p.done{color:#0f8a7e}
-  table.t td.p.mut{color:#b6bcc4}
-  tr.grp td{background:#f4f8f7;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#0f8a7e;padding:7px 7px;border-bottom:1px solid #e3ecea}
+  table.t{width:100%;border-collapse:collapse;font-size:12.5px;margin:0}
+  table.t th{text-align:left;font-weight:600;color:#9aa1ad;font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;padding:10px 7px 7px;border-bottom:1px solid #e9ebef}
+  table.t td{padding:7px;border-bottom:1px solid #f2f3f6;vertical-align:middle;color:#333947;line-height:1.35}
+  table.t td.k{font-weight:550;color:#1f5ae0;white-space:nowrap;font-size:12px}
+  table.t td.k a{color:#1f5ae0;text-decoration:none;font-weight:550}
+  table.t td.nm{color:#333947}
+  table.t td.n{text-align:right;font-variant-numeric:tabular-nums;color:#333947}
+  table.t td.p{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:#333947}
+  table.t td.p.bad{color:#c8342b}
+  table.t td.p.mut{color:#9aa1ad}
+  tr.grp td{background:#fafbfc;color:#767e8d;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:7px}
   .grp-inner{width:100%;border-collapse:collapse}
-  .grp-inner td{padding:0;border:0;background:transparent;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#0f8a7e}
-  .grp-inner .cnt{text-align:right;color:#7a8492;font-weight:700;letter-spacing:0;text-transform:none;font-size:10px;white-space:nowrap}
-  tr.sub td{background:#fbfcfd;font-weight:700;color:#4a5261}
-  .st{font-size:9px;font-weight:700;padding:2px 6px;border-radius:11px;white-space:nowrap;display:inline-block;line-height:1.25}
-  .st.ip{color:#1d5fb0;background:#e8f0fb}
-  .st.ca{color:#b45309;background:#fff5e8}
-  .st.lt{color:#6b5a7d;background:#f2edf7}
-  .st.td{color:#7a8492;background:#eef0f3}
-  .st.dn{color:#0f8a7e;background:#eafaf6}
-  .st.new{color:#8a5a2b;background:#fbf0e4}
-  tr.tot td{background:#eef5f4;font-weight:800;color:#1f2328;border-top:2px solid #d7dce2;padding-top:7px;padding-bottom:7px}
-  .phead .pn a{color:#1f2328;text-decoration:none;border-bottom:1px solid #c5cbd3}
-  .phead .pn a:hover{border-bottom-color:#0f8a7e;color:#0f6f66}
-  .calls{font-size:11.5px;color:#5b6673;margin:0 0 10px;line-height:1.4}
-  .calls b{color:#33404e;font-weight:700}
-  .calls .mut{color:#9aa2ad}
-  table.t td.days{text-align:right;font-variant-numeric:tabular-nums;color:#5b6673;white-space:nowrap}
-  table.t td.days.amber{color:#d97706;font-weight:700}
-  table.t td.days.red{color:#dc2626;font-weight:800}
+  .grp-inner td{padding:0;border:0;background:transparent;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#767e8d}
+  .grp-inner .cnt{text-align:right;color:#9aa1ad;font-weight:600;letter-spacing:0;text-transform:none;font-size:10px}
+  tr.sub td{background:#fbfcfd;font-weight:600;color:#333947}
+  .st{font-size:10px;font-weight:650;padding:2px 7px;border-radius:20px;white-space:nowrap;display:inline-block;line-height:1.25;background:#eef0f4;color:#5a6270}
+  .st.ip{background:#eaf1fd;color:#25539e}
+  .st.ca{background:#fdf4e3;color:#b06a06}
+  .st.lt{background:#f3eef6;color:#6b4a80}
+  .st.dn{background:#e8f5ef;color:#0a6b45}
+  tr.tot td{background:#fcfcfd;font-weight:660;color:#12141a;border-top:1px solid #e9ebef;padding-top:8px}
+  table.t td.days{text-align:right;font-variant-numeric:tabular-nums;color:#333947;white-space:nowrap}
+  table.t td.days.amber{color:#b06a06;font-weight:700}
+  table.t td.days.red{color:#c8342b;font-weight:800}
+  .tw{padding:4px 22px 6px}
 
-  .line{width:100%;border-collapse:collapse;margin:12px 0 0;font-size:12.5px}
-  .line td{padding:0;vertical-align:top}
-  .line td.labcell{width:1%;white-space:nowrap;padding-right:10px;padding-top:1px}
-  .line .lab{display:inline-block;font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:3px 8px;border-radius:11px;line-height:1.3;text-align:center}
-  .line.health .lab{color:#5b6673;background:#eef0f3;border:1px solid #dfe3e8}
-  .line.health.flag .lab{color:#c0392b;background:#fdecea;border:1px solid #f3c0b8}
-  .line.time .lab{color:#1d5fb0;background:#e8f0fb;border:1px solid #c3d8f4}
-  .line .tx{color:#33404e;line-height:1.45}
-  .line .tx b{color:#1f2328}
-  .cov{font-size:10.5px;color:#a8836a;background:#fdf7ef;border:1px solid #f0e2cf;border-radius:7px;padding:7px 9px;margin-top:10px;line-height:1.4}
+  .figma{margin:14px 22px 20px;background:#f6f4fd;border:1px solid #e5e0f7;border-radius:9px;padding:14px 16px 15px}
+  .figma-hdr{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#5a45b8;margin:0 0 3px}
+  .figma-cnt{font-size:11.5px;color:#6a6484;margin:0 0 10px;line-height:1.4}
+  .figma-sec{font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#8b84a8;margin:12px 0 5px}
+  .figma-item{padding:8px 0;border-top:1px solid #e5e0f7}
+  .figma-item:first-of-type{border-top:none;padding-top:2px}
+  .figma-row{width:100%;border-collapse:collapse}
+  .figma-row td{vertical-align:top;padding:0}
+  .chip{min-width:48px;text-align:center;font-size:10px;font-weight:750;padding:3px 6px;border-radius:6px;letter-spacing:.01em;white-space:nowrap}
+  .chip.red{color:#fff;background:#d9453b}
+  .chip.amb{color:#fff;background:#c98a1f}
+  .chip.new{color:#6a6484;background:#ebe7f8}
+  .fwho{font-size:11px;color:#7a739a;margin-bottom:2px}
+  .fq{margin:0;font-size:12.8px;color:#25222f;line-height:1.5}
+  .fq a{color:#5a45b8;text-decoration:none;font-size:11px;font-weight:600;white-space:nowrap}
+  ul.fl{margin:2px 0 0;padding:0;list-style:none}
+  ul.fl li{font-size:12.4px;color:#3c3850;padding:2px 0 2px 11px;border-left:2px solid #ddd6f2;margin:0 0 3px;line-height:1.45}
+  .fnone{font-size:12.5px;color:#7a739a;margin:0;padding:2px 0}
+  .fwarn{font-size:11px;color:#b06a06;margin:8px 0 0;line-height:1.4}
 
-  .action{margin-top:4px;background:#fff8f1;border:1px solid #f3d7b3;border-radius:12px;padding:16px 18px}
-  .action .ah{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#b45309;font-weight:800;margin:0 0 4px}
-  .action .asub{font-size:11.5px;color:#9a7a4a;margin:0 0 12px;line-height:1.4}
-  .ai{width:100%;border-collapse:collapse;margin:0 0 10px;font-size:13px}
+  .action{margin-top:4px;background:#fff;border:1px solid #e9ebef;border-radius:13px;padding:20px 24px 22px}
+  .action .ah{font-size:18px;font-weight:640;margin:0 0 3px;color:#12141a;letter-spacing:-.015em}
+  .action .asub{font-size:12.5px;color:#767e8d;margin:0 0 14px;line-height:1.4}
+  .ai{width:100%;border-collapse:collapse;margin:0 0 10px;font-size:13.5px}
   .ai td{padding:0;vertical-align:top}
-  .ai td.numcell{width:28px;padding-right:8px}
-  .ai .num{display:block;width:20px;height:20px;line-height:20px;border-radius:50%;background:#b45309;color:#fff;font-size:11px;font-weight:800;text-align:center}
-  .ai .t{color:#2b3038;line-height:1.45}
-  .ai .pj{font-size:10px;font-weight:700;color:#9a7a4a;text-transform:uppercase;letter-spacing:.03em}
-  .ai .ev{display:block;font-size:10px;color:#9aa2ad;margin-top:2px}
-  .agent{color:#6b5a50;font-style:italic}
+  .ai td.numcell{width:34px;padding-right:10px;padding-top:1px}
+  .ai .num{display:block;width:22px;height:22px;line-height:22px;border-radius:50%;background:#c8342b;color:#fff;font-size:11px;font-weight:700;text-align:center}
+  .ai .num.low{background:#aeb4bf}
+  .ai .t{color:#333947;line-height:1.55}
+  .ai .pj{font-size:11px;color:#9aa1ad;margin-top:3px;display:block}
+  .ai .ev{display:block;font-size:11px;color:#9aa1ad;margin-top:2px}
+  .agent{color:#767e8d;font-style:italic}
 
-  footer{margin-top:22px;font-size:10.5px;line-height:1.55;color:#8a94a1;padding:14px 2px 0;border-top:1px solid #eef0f2}
-  footer b{color:#6b7280}
+  footer{margin-top:22px;font-size:11.5px;line-height:1.65;color:#767e8d;padding:14px 2px 0;border-top:1px solid #eef0f2}
+  footer b{color:#333947;font-weight:640}
+  footer p{margin:0 0 9px}
+  footer p:last-child{margin:0}
 </style>
 </head>
 <body>
@@ -133,9 +127,9 @@
 <div class="wrap">
 <div class="card">
 
-  <div class="eyebrow">Design team · weekly project health &amp; budget · for Olga</div>
-  <h1><span class="g">Weekly Project Health &amp; Budget</span> · {{ as_of_label }}</h1>
-  <p class="sub">Design-team tickets only — budget burn, health, and what needs your action. Worst-first.</p>
+  <div class="eyebrow">Design team · weekly project health &amp; budget · for Olga · {{ as_of_label }}</div>
+  <h1>Weekly Project Health &amp; Budget</h1>
+  <p class="sub">Design-team tickets only — the figures, what is waiting, and what needs your action.</p>
   {% if sample %}<span class="sample">SAMPLE / DRY-RUN — not sent</span>{% endif %}
   {% if g.reported is defined and g.total and g.reported < g.total %}
   <span class="pending">{{ g.reported }} of {{ g.total }} projects · {{ g.total - g.reported }} pending</span>
@@ -143,62 +137,56 @@
 
   <table role="presentation" class="glance" width="100%" cellpadding="0" cellspacing="0">
     <tr>
-      <td class="gg"><div class="n{% if (g.client_action or 0) > 0 %} warn{% endif %}">{{ g.client_action or 0 }}</div><div class="l">in client action</div></td>
-      <td class="gg"><div class="n{% if (g.over_est or 0) > 0 %} red{% endif %}">{{ g.over_est or 0 }}</div><div class="l">ticket at/over est</div></td>
-      <td class="gg"><div class="n{% if (g.action_items or 0) > 0 %} warn{% endif %}">{{ g.action_items or 0 }}</div><div class="l">action items</div></td>
+      <td class="gg"><div class="n{% if (g.client_action or 0) > 0 %} warn{% endif %}">{{ g.client_action or 0 }}</div><div class="l">tickets in client action</div></td>
+      <td class="gg"><div class="n{% if (g.over_est or 0) > 0 %} hot{% endif %}">{{ g.over_est or 0 }}</div><div class="l">tickets at / over estimate</div></td>
+      <td class="gg"><div class="n{% if (g.figma_overdue or 0) > 0 %} fig{% endif %}">{{ g.figma_overdue or 0 }}</div><div class="l">Figma items open &gt; 1 week</div></td>
+      <td class="gg"><div class="n{% if (g.action_items or 0) > 0 %} warn{% endif %}">{{ g.action_items or 0 }}</div><div class="l">action items for you</div></td>
     </tr>
   </table>
 
-  <h2 class="sec">Projects — worst first</h2>
+  <div class="shead">
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td><h2>Projects</h2></td>
+      <td class="hint">{{ digest.projects|length }} project{% if digest.projects|length != 1 %}s{% endif %} · design tickets only</td>
+    </tr></table>
+  </div>
 
   {% for p in digest.projects %}
   {% if p.pending %}
   <div class="proj">
-    <table role="presentation" class="phead" cellpadding="0" cellspacing="0"><tr>
-      <td class="tight"><span class="rank">{{ loop.index }} ·</span></td>
-      <td class="tight"><span class="pn">{% if p.jira_url %}<a href="{{ p.jira_url }}">{{ p.display_name }}</a>{% else %}{{ p.display_name }}{% endif %}</span></td>
-      <td class="tight"><span class="rag a">Pending</span></td>
-      <td class="subttl">{% if p.epic_url %}<a href="{{ p.epic_url }}" style="color:#9aa2ad">{{ p.epic_key }}</a>{% elif p.jira_project_url %}<a href="{{ p.jira_project_url }}" style="color:#9aa2ad">{{ p.jira_project_key }}</a>{% else %}{{ p.subtitle or '' }}{% endif %}</td>
-    </tr></table>
-    <div class="verdict">Not yet verified for this report — Jira key seeded; burn pull pending or empty.</div>
+    <div class="phead">
+      <table role="presentation" class="ptop" cellpadding="0" cellspacing="0"><tr>
+        <td style="width:1%;white-space:nowrap"><span class="rank">{{ loop.index }}</span></td>
+        <td><span class="pn">{% if p.jira_url %}<a href="{{ p.jira_url }}">{{ p.display_name }}</a>{% else %}{{ p.display_name }}{% endif %}</span></td>
+        <td><span class="code">{% if p.epic_key %}{{ p.epic_key }}{% elif p.jira_project_key %}{{ p.jira_project_key }}{% endif %}{% if p.subtitle %} · {{ p.subtitle }}{% endif %}</span></td>
+      </tr></table>
+      <p class="pdesc">Not yet verified for this report — Jira key seeded; burn pull pending or empty.</p>
+    </div>
   </div>
   {% else %}
   <div class="proj">
-    <table role="presentation" class="phead" cellpadding="0" cellspacing="0"><tr>
-      <td class="tight"><span class="rank">{{ loop.index }} ·</span></td>
-      <td class="tight"><span class="pn">{% if p.jira_url %}<a href="{{ p.jira_url }}">{{ p.display_name }}</a>{% else %}{{ p.display_name }}{% endif %}</span></td>
-      <td class="tight"><span class="rag {{ p.rag }}">{{ p.rag_label }}</span></td>
-      <td class="subttl">{% if p.epic_url %}<a href="{{ p.epic_url }}" style="color:#9aa2ad">{{ p.epic_key }}{% if p.subtitle %} · {{ p.subtitle }}{% endif %}</a>{% elif p.jira_project_url %}<a href="{{ p.jira_project_url }}" style="color:#9aa2ad">{{ p.jira_project_key }}{% if p.subtitle %} · {{ p.subtitle }}{% endif %}</a>{% else %}{{ p.subtitle or '' }}{% endif %}</td>
-    </tr></table>
-    {% if p.verdict %}<div class="verdict">{{ p.verdict }}</div>{% endif %}
-    <div class="calls{% if p.calls_muted %} mut{% endif %}"><div><b>Last call:</b> {{ p.last_call_display or 'n/a' }}{% if p.last_call_title and not p.calls_muted %} <span class="mut">({{ p.last_call_title[:60] }}{% if p.last_call_title|length > 60 %}…{% endif %})</span>{% endif %}</div><div><b>Next:</b> {{ p.next_call_display or 'n/a' }}{% if p.next_call_title and p.next_call_display and p.next_call_display != 'n/a' %} <span class="mut">({{ p.next_call_title[:60] }}{% if p.next_call_title|length > 60 %}…{% endif %})</span>{% endif %}</div></div>
+    <div class="phead">
+      <table role="presentation" class="ptop" cellpadding="0" cellspacing="0"><tr>
+        <td style="width:1%;white-space:nowrap"><span class="rank">{{ loop.index }}</span></td>
+        <td><span class="pn">{% if p.jira_url %}<a href="{{ p.jira_url }}">{{ p.display_name }}</a>{% else %}{{ p.display_name }}{% endif %}</span></td>
+        <td><span class="code">{% if p.epic_key %}{{ p.epic_key }}{% elif p.jira_project_key %}{{ p.jira_project_key }}{% endif %}{% if p.subtitle %} · {{ p.subtitle }}{% endif %}</span></td>
+      </tr></table>
+      {% if p.verdict %}<p class="pdesc">{{ p.verdict }}</p>{% endif %}
+      <p class="calls{% if p.calls_muted %} mut{% endif %}"><b>Last call</b> {{ p.last_call_display or 'n/a' }}{% if p.last_call_title and not p.calls_muted %} · {{ p.last_call_title[:60] }}{% if p.last_call_title|length > 60 %}…{% endif %}{% endif %} &nbsp;·&nbsp; <b>Next</b> {{ p.next_call_display or 'n/a' }}{% if p.next_call_title and p.next_call_display and p.next_call_display != 'n/a' %} · {{ p.next_call_title[:60] }}{% if p.next_call_title|length > 60 %}…{% endif %}{% endif %}</p>
+    </div>
 
-    <table role="presentation" class="money" width="100%" cellpadding="0" cellspacing="0">
-      <tr>
-        <td class="mc"><div class="l">Signed estimate</div><div class="v{% if p.signed_estimate_muted %} mut{% endif %}">{{ p.signed_estimate_display }}</div><div class="s">{{ p.signed_estimate_sub }}</div></td>
-        <td class="mc"><div class="l">Logged to date</div><div class="v">{{ nh(p.logged_h) }}h</div><div class="s">{{ p.logged_sub }}</div></td>
-        <td class="mc"><div class="l">Invoiced UX/UI</div><div class="v{% if p.invoiced_muted %} mut{% endif %}">{{ p.invoiced_label }}</div><div class="s">{{ p.invoiced_sub }}</div></td>
-      </tr>
-    </table>
-    {% if p.invoice_notes %}<div class="inv"><b>Billing note:</b> {{ p.invoice_notes }}</div>{% endif %}
-
-    {% if p.ticket_count %}
-    {# Bar = done estimate vs all scoped estimates; fall back to ticket count when no estimates. #}
+    {% set signed_pct = ((p.logged_h / p.signed_estimate_h * 100)|round|int) if p.signed_estimate_h and p.signed_estimate_h > 0 else none %}
     {% set done_w = p.done_est_pct if p.done_est_pct is not none else (p.done_pct or 0) %}
     {% if done_w < 0 %}{% set done_w = 0 %}{% elif done_w > 100 %}{% set done_w = 100 %}{% endif %}
-    <div class="donebar">
-      <table role="presentation" class="donebar-meta" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td class="lbl">Done tickets</td>
-        <td class="val">{{ p.done_count or 0 }}/{{ p.ticket_count }}{% if p.done_est_pct is not none %} · {{ nh(p.done_est_h) }}h of {{ nh(p.total_est) }}h est · {{ done_w }}%{% else %} · {{ done_w }}%{% endif %}</td>
-      </tr></table>
-      <table role="presentation" class="donebar-track" width="100%" cellpadding="0" cellspacing="0"><tr>
-        {% if done_w > 0 %}<td class="donebar-fill" width="{{ done_w }}%" bgcolor="#0f8a7e" style="background:#0f8a7e;height:8px;font-size:0;line-height:0;">&nbsp;</td>{% endif %}
-        {% if done_w < 100 %}<td class="donebar-rest" width="{{ 100 - done_w }}%" bgcolor="#e8eef0" style="background:#e8eef0;height:8px;font-size:0;line-height:0;">&nbsp;</td>{% endif %}
-      </tr></table>
-    </div>
-    {% endif %}
+    <table role="presentation" class="fin" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td class="fcell"><div class="lbl">Signed estimate</div><div class="val{% if p.signed_estimate_muted %} mut{% endif %}">{{ p.signed_estimate_display }}</div><div class="note">{{ p.signed_estimate_sub }}</div></td>
+      <td class="fcell"><div class="lbl">Logged to date</div><div class="val">{{ nh(p.logged_h) }}h</div><div class="note">{{ p.logged_sub }}</div>{% if signed_pct is not none %}<div class="bar"><i style="width:{{ signed_pct if signed_pct <= 100 else 100 }}%"></i></div>{% endif %}</td>
+      <td class="fcell"><div class="lbl">Invoiced UX/UI</div><div class="val{% if p.invoiced_muted %} mut{% endif %}">{{ p.invoiced_label }}</div><div class="note">{{ p.invoiced_sub }}</div></td>
+      <td class="fcell"><div class="lbl">Done tickets</div><div class="val">{{ p.done_count or 0 }} / {{ p.ticket_count or 0 }}</div><div class="note">{% if p.done_est_pct is not none %}{{ nh(p.done_est_h) }}h of {{ nh(p.total_est) }}h est · {{ done_w }}%{% elif p.ticket_count %}{{ done_w }}%{% else %}—{% endif %}</div>{% if p.ticket_count %}<div class="bar"><i{% if done_w < 20 %} class="warn"{% endif %} style="width:{{ done_w }}%"></i></div>{% endif %}</td>
+    </tr></table>
 
     {% if p.groups %}
+    <div class="tw">
     <table class="t">
       <thead><tr><th>Ticket</th><th>Name</th><th>Owner</th><th style="text-align:right">Est</th><th style="text-align:right">Logged</th><th style="text-align:right">%</th><th>Status</th><th style="text-align:right">Days</th></tr></thead>
       <tbody>
@@ -224,33 +212,104 @@
         <tr class="tot"><td class="k">TOTAL</td><td class="nm">{{ p.ticket_count }} design tickets{% if p.coverage_pct %} · {{ p.coverage_pct }}% of signed ticketed{% endif %}</td><td></td><td class="n">{{ nh(p.total_est) }}</td><td class="n">{{ nh(p.total_logged) }}</td><td class="p">{% if p.total_est %}{{ ((p.total_logged / p.total_est)*100)|round|int }}%{% else %}—{% endif %}</td><td></td><td></td></tr>
       </tbody>
     </table>
+    </div>
     {% endif %}
 
-    {% if p.health and p.health.text %}
-    <table role="presentation" class="line health{% if not p.health.clean %} flag{% endif %}" width="100%" cellpadding="0" cellspacing="0"><tr><td class="labcell"><span class="lab">Health</span></td><td class="tx">{{ p.health.text|safe }}</td></tr></table>
+    {% if p.figma %}
+    {% set fc = p.figma.counts or {} %}
+    <div class="figma">
+      <div class="figma-hdr">Figma comments</div>
+      {% if p.figma.fetch_error %}
+      <p class="fwarn"><b>Figma fetch failed:</b> {{ p.figma.fetch_error }} — refresh the token on <a href="/config">Config</a> (Figma PAT or Connect Figma).</p>
+      {% elif not p.figma.has_comments and not fc.still_open %}
+      <p class="fnone">No comments in the file.</p>
+      {% else %}
+      <p class="figma-cnt">
+        {{ fc.new_comments or 0 }} new{% if fc.new_from_client %} ({{ fc.new_from_client }} from client){% endif %}
+        · {{ fc.resolved_this_week or 0 }} resolved
+        {% if fc.still_open %} · {{ fc.still_open }} still open{% endif %}
+        {% if fc.overdue_items %} · {{ fc.overdue_items }} over a week{% endif %}
+      </p>
+
+      {% if p.figma.overdue %}
+      <p class="figma-sec">Open more than a week</p>
+      {% for item in p.figma.overdue %}
+      <div class="figma-item">
+        <table role="presentation" class="figma-row" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="width:56px;padding-right:11px">
+            {% set age = item.age_working_days or 0 %}
+            <span class="chip{% if age > 10 %} red{% else %} amb{% endif %}">{{ age }} d</span>
+          </td>
+          <td>
+            <div class="fwho">{{ item.who }}{% if item.to %} → {{ item.to }}{% endif %} · {{ item.date_label }}{% if item.kind == 'UNANSWERED' %} · no reply{% elif item.kind == 'NOT_FINISHED' %} · not done{% endif %}{% if item.quotes|length > 1 %} · {{ item.quotes|length }} items{% endif %}</div>
+            {% if item.quotes|length > 1 %}
+            <ul class="fl">
+              {% for q in item.quotes %}<li>{{ q }}</li>{% endfor %}
+            </ul>
+            {% else %}
+            <p class="fq">"{{ item.quote }}"{% if item.link %} <a href="{{ item.link }}">open pin ↗</a>{% endif %}</p>
+            {% endif %}
+            {% if item.quotes|length > 1 and item.link %}<p class="fq" style="margin-top:5px"><a href="{{ item.link }}">open pins ↗</a></p>{% endif %}
+          </td>
+        </tr></table>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      <p class="figma-sec">Raised this week, still open</p>
+      {% if p.figma.this_week %}
+      {% for item in p.figma.this_week %}
+      <div class="figma-item">
+        <table role="presentation" class="figma-row" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="width:56px;padding-right:11px"><span class="chip new">new</span></td>
+          <td>
+            <div class="fwho">{{ item.who }} · {{ item.date_label }}{% if item.quotes|length > 1 %} · {{ item.quotes|length }} items{% endif %}</div>
+            {% if item.quotes|length > 1 %}
+            <ul class="fl">{% for q in item.quotes %}<li>{{ q }}</li>{% endfor %}</ul>
+            {% else %}
+            <p class="fq">"{{ item.quote }}"{% if item.link %} <a href="{{ item.link }}">open pin ↗</a>{% endif %}</p>
+            {% endif %}
+          </td>
+        </tr></table>
+      </div>
+      {% endfor %}
+      {% else %}
+      <p class="fnone">Nothing{% if fc.new_comments %} — everything raised this week was replied to or closed{% endif %}.</p>
+      {% endif %}
+
+      {% if p.figma.unclassified_handles %}
+      <p class="fwarn"><b>Unclassified Figma handles:</b> {{ p.figma.unclassified_handles | join(', ') }} — add to figma_roster.json before production.</p>
+      {% endif %}
+      {% endif %}
+    </div>
     {% endif %}
-    {% if p.coverage_note %}<div class="cov"><b>Coverage caveat.</b> {{ p.coverage_note }}</div>{% endif %}
+
+    {% if p.coverage_note %}<div style="margin:0 22px 14px;font-size:11px;color:#767e8d"><b>Coverage caveat.</b> {{ p.coverage_note }}</div>{% endif %}
   </div>
   {% endif %}
   {% endfor %}
 
   {% if actions %}
-  <h2 class="sec">Where your action is needed</h2>
+  <div class="shead"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td><h2>Where your action is needed</h2></td><td class="hint">most time-sensitive first</td></tr></table></div>
   <div class="action">
-    <div class="ah">For Olga — {{ actions|length }} item{% if actions|length != 1 %}s{% endif %}</div>
-    <div class="asub">Most time-sensitive first, each tagged with its project.</div>
+    <div class="ah">{{ actions|length }} item{% if actions|length != 1 %}s{% endif %} for Olga</div>
+    <div class="asub">Each tagged with its project and source.</div>
     {% for a in actions %}
     {% set parts = a.text.split('. ', 1) %}
-    <table role="presentation" class="ai" width="100%" cellpadding="0" cellspacing="0"><tr><td class="numcell"><span class="num">{{ loop.index }}</span></td><td class="t">{% if parts|length > 1 %}<b>{{ parts[0] }}.</b> {{ parts[1] }}{% else %}<b>{{ a.text }}</b>{% endif %}{% if a.agent_note %} <span class="agent">{{ a.agent_note }}</span>{% endif %}{% if a.project %} <span class="pj">· {{ a.project }}</span>{% endif %}{% if a.evidence %}<span class="ev">Source: {{ a.evidence }}</span>{% endif %}</td></tr></table>
+    <table role="presentation" class="ai" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td class="numcell"><span class="num{% if loop.index > 6 %} low{% endif %}">{{ loop.index }}</span></td>
+      <td class="t">{% if parts|length > 1 %}<b>{{ parts[0] }}.</b> {{ parts[1] }}{% else %}<b>{{ a.text }}</b>{% endif %}{% if a.agent_note %} <span class="agent">{{ a.agent_note }}</span>{% endif %}{% if a.project or a.evidence %}<span class="pj">{% if a.project %}· {{ a.project }}{% endif %}{% if a.evidence %} · {{ a.evidence }}{% endif %}</span>{% endif %}</td>
+    </tr></table>
     {% endfor %}
   </div>
   {% endif %}
 
   <footer>
-    <b>Scope:</b> tickets with Jira component DESIGN/UX/CRO-UX <i>or</i> a design-roster assignee. Epics and time-log bucket tickets excluded; dev/QA/BA/SEO/growth excluded. <b>Logged</b> = all-time Jira aggregate rollup. <b>Days</b> = calendar days under the current status (last status change, or ticket created if never changed; amber ≥7, red ≥14). <b>Last/Next call</b> from Transcript calendar (client email domains × design roster + Olga). Ageing in <b>working days</b> as of {{ as_of_label }}. ⚙ = agent inference, hedged.
-    {% if sample %} <b>Sample / dry-run — not sent.</b>{% endif %}
-    {% if coverage.get('jira_incomplete') %} <b>⚠ Jira incomplete</b> — treat burn as partial.{% endif %}
-    {% if coverage.get('invoice_incomplete') %} <b>⚠ Fairwind invoices incomplete</b> — some invoiced UX/UI tiles may be missing.{% endif %}
+    <p><b>Scope.</b> Tickets with Jira component DESIGN/UX/CRO-UX <i>or</i> a design-roster assignee. Epics and time-log bucket tickets excluded; dev/QA/BA/SEO/growth excluded. <b>Logged</b> = all-time Jira aggregate rollup. <b>Days</b> = calendar days under the current status (last status change, or ticket created if never changed; amber ≥7, red ≥14). <b>Last/Next call</b> from Transcript calendar (client email domains × design roster + Olga). Ageing in <b>working days</b> as of {{ as_of_label }}.</p>
+    <p><b>Figma comments.</b> Thread-level rollup of the Figma comments API for each project's linked file. Reports only what is unanswered or unfinished on our side; resolved threads are treated as done. Anything open more than a week is shown in full until it is closed. Items raised in the current week are listed but not counted as overdue. Internal vs client is resolved from <code>designops/config/figma_roster.json</code>.</p>
+    {% if sample %}<p><b>Sample / dry-run — not sent.</b></p>{% endif %}
+    {% if coverage.get('jira_incomplete') %}<p><b>⚠ Jira incomplete</b> — treat burn as partial.</p>{% endif %}
+    {% if coverage.get('invoice_incomplete') %}<p><b>⚠ Fairwind invoices incomplete</b> — some invoiced UX/UI tiles may be missing.</p>{% endif %}
   </footer>
 
 </div>

@@ -160,4 +160,24 @@ def ensure_pipelines(session: Session) -> list[str]:
             session.add(wh)
             created.append("weekly-health:schedule")
 
+    if session.query(Pipeline).filter_by(key="design-intake").one_or_none() is None:
+        session.add(
+            Pipeline(
+                key="design-intake",
+                name="Design Intake Generator",
+                description=(
+                    "Paste handover email → generate designer intake page → publish to Notion."
+                ),
+                skill_path="designops/skills/design-intake.md",
+                schedule_cron=None,
+                timezone="Europe/Riga",
+                recipients=[],
+                send_mode="none",
+                enabled=True,
+                go_live=False,
+                config={},
+            )
+        )
+        created.append("design-intake")
+
     return created

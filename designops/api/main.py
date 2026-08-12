@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -31,6 +31,7 @@ from designops.core.models import (
     Artifact,
     CallSummaryDraft,
     Flag,
+    IntakeDraft,
     Person,
     Pipeline,
     PipelineRun,
@@ -616,31 +617,338 @@ def call_summary_generate(
     )
 
 
+# --- Design intake ------------------------------------------------------------
+
+_intake_pending: dict[str, float] = {}
+_intake_failed: dict[str, str] = {}
+_intake_completed: dict[str, str] = {}  # job_id → draft_id
+
+
+@app.get("/intake", response_class=HTMLResponse)
+def intake_page(request: Request, db: Session = Depends(get_db)):
+    from designops.pipelines.intake import render_preview_html
+
+    s = get_settings()
+    tab = (request.query_params.get("tab") or "input").strip().lower()
+    if tab not in ("input", "drafts", "published"):
+        tab = "input"
+
+    url_pending = (request.query_params.get("pending") or "").strip()
+    try:
+        url_pending_since = float(request.query_params.get("pending_since") or "0")
+    except ValueError:
+        url_pending_since = 0.0
+
+    completed_redirect: RedirectResponse | None = None
+    for job_id, _started in list(_intake_pending.items()):
+        err = _intake_failed.pop(job_id, None)
+        if err:
+            _intake_pending.pop(job_id, None)
+            completed_redirect = RedirectResponse(
+                f"/intake?tab={tab}&flash={quote(err)}&flash_type=error",
+                status_code=303,
+            )
+            continue
+        done_draft = _intake_completed.pop(job_id, None)
+        if done_draft:
+            _intake_pending.pop(job_id, None)
+            completed_redirect = RedirectResponse(
+                f"/intake?tab=drafts&draft_id={done_draft}&flash=Draft+generated",
+                status_code=303,
+            )
+    if url_pending and url_pending in _intake_failed:
+        err = _intake_failed.pop(url_pending)
+        return RedirectResponse(
+            f"/intake?tab={tab}&flash={quote(err)}&flash_type=error",
+            status_code=303,
+        )
+    if completed_redirect is not None:
+        return completed_redirect
+
+    pending_ids = set(_intake_pending.keys())
+    pending_job = None
+    pending_since = None
+    if pending_ids:
+        pending_job, pending_since = max(
+            ((j, _intake_pending[j]) for j in pending_ids),
+            key=lambda kv: kv[1],
+        )
+
+    flash = request.query_params.get("flash")
+    flash_type = request.query_params.get("flash_type") or "ok"
+    draft_id = (request.query_params.get("draft_id") or "").strip()
+
+    drafts = (
+        db.query(IntakeDraft)
+        .filter(IntakeDraft.status.in_(["draft", "error"]))
+        .order_by(IntakeDraft.generated_at.desc())
+        .limit(50)
+        .all()
+    )
+    published = (
+        db.query(IntakeDraft)
+        .filter_by(status="published")
+        .order_by(IntakeDraft.published_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    viewed = None
+    preview_html = ""
+    if draft_id:
+        try:
+            viewed = db.get(IntakeDraft, __import__("uuid").UUID(draft_id))
+        except Exception:  # noqa: BLE001
+            viewed = None
+    if tab == "drafts" and not viewed and drafts:
+        viewed = drafts[0]
+    if viewed and viewed.sections_json:
+        preview_html = render_preview_html(viewed.sections_json)
+
+    return templates.TemplateResponse(
+        "intake.html",
+        {
+            "request": request,
+            "nav": "intake",
+            "tab": tab,
+            "flash": flash,
+            "flash_type": flash_type,
+            "anthropic_ready": s.anthropic_configured,
+            "notion_ready": s.notion_configured,
+            "drafts": drafts,
+            "published": published,
+            "viewed": viewed,
+            "preview_html": preview_html,
+            "pending_job": pending_job,
+            "pending_since": pending_since,
+            "pending_busy": bool(pending_ids),
+        },
+    )
+
+
+@app.get("/intake/pending-status")
+def intake_pending_status(request: Request, db: Session = Depends(get_db)):
+    job_id = (request.query_params.get("pending") or "").strip()
+    tab = (request.query_params.get("tab") or "input").strip()
+    try:
+        since = float(request.query_params.get("pending_since") or "0")
+    except ValueError:
+        since = 0.0
+
+    if not job_id:
+        return JSONResponse({"status": "idle"})
+
+    err = _intake_failed.get(job_id)
+    if err:
+        _intake_failed.pop(job_id, None)
+        _intake_pending.pop(job_id, None)
+        return JSONResponse(
+            {
+                "status": "error",
+                "error": err,
+                "redirect": f"/intake?tab={tab}&flash={quote(err)}&flash_type=error",
+            }
+        )
+
+    started = _intake_pending.get(job_id)
+    if started is None:
+        done = _intake_completed.get(job_id)
+        if done:
+            _intake_completed.pop(job_id, None)
+            return JSONResponse(
+                {
+                    "status": "ready",
+                    "draft_id": done,
+                    "redirect": f"/intake?tab=drafts&draft_id={done}&flash=Draft+generated",
+                }
+            )
+        return JSONResponse({"status": "idle"})
+
+    done = _intake_completed.get(job_id)
+    if done:
+        _intake_pending.pop(job_id, None)
+        _intake_completed.pop(job_id, None)
+        return JSONResponse(
+            {
+                "status": "ready",
+                "draft_id": done,
+                "redirect": f"/intake?tab=drafts&draft_id={done}&flash=Draft+generated",
+            }
+        )
+
+    return JSONResponse({"status": "pending", "pending": job_id, "pending_since": started})
+
+
+@app.post("/intake/generate")
+async def intake_generate(
+    request: Request,
+    pasted_input: str = Form(""),
+    estimate_link: str = Form(""),
+    proposal_link: str = Form(""),
+    estimate_rows: str = Form(""),
+    corrections: str = Form(""),
+    draft_id: str = Form(""),
+    return_tab: str = Form("input"),
+    files: list[UploadFile] = File(default=[]),
+):
+    import time as _time
+    import uuid as _uuid
+
+    from designops.pipelines.intake import parse_spreadsheet
+
+    tab = (return_tab or "input").strip().lower()
+    if tab not in ("input", "drafts", "published"):
+        tab = "input"
+
+    if not (pasted_input or "").strip():
+        return RedirectResponse(
+            f"/intake?tab={tab}&flash=Email+content+is+required&flash_type=error",
+            status_code=303,
+        )
+    if _intake_pending:
+        return RedirectResponse(
+            f"/intake?tab={tab}&flash=Already+generating&flash_type=error",
+            status_code=303,
+        )
+
+    uploaded: list[dict[str, str]] = []
+    for f in files:
+        if not f.filename:
+            continue
+        content = await f.read()
+        if not content:
+            continue
+        try:
+            extracted = parse_spreadsheet(f.filename, content)
+        except ValueError as e:
+            return RedirectResponse(
+                f"/intake?tab={tab}&flash={quote(str(e))}&flash_type=error",
+                status_code=303,
+            )
+        uploaded.append({"filename": f.filename, "extracted_text": extracted})
+
+    job_id = str(_uuid.uuid4())
+    started = _time.time()
+    _intake_pending[job_id] = started
+    _intake_failed.pop(job_id, None)
+
+    regen_id = (draft_id or "").strip() or None
+    regen_uuid = None
+    if regen_id:
+        try:
+            regen_uuid = _uuid.UUID(regen_id)
+        except ValueError:
+            regen_uuid = None
+
+    def _bg(job_id: str, regen: _uuid.UUID | None) -> None:
+        from designops.core.db import session_scope
+        from designops.pipelines.intake import generate_intake_draft
+        import logging
+
+        log = logging.getLogger("designops.intake")
+        try:
+            with session_scope() as s:
+                result = generate_intake_draft(
+                    s,
+                    pasted_input=pasted_input,
+                    estimate_link=estimate_link,
+                    proposal_link=proposal_link,
+                    estimate_rows=estimate_rows,
+                    corrections=corrections,
+                    uploaded_files=uploaded,
+                    draft_id=regen,
+                )
+            log.info("intake draft ready id=%s error=%s", result.draft_id, result.error)
+            _intake_completed[job_id] = str(result.draft_id)
+        except Exception as e:  # noqa: BLE001
+            log.exception("intake generate failed")
+            _intake_failed[job_id] = str(e)[:400]
+
+    threading.Thread(target=_bg, args=(job_id, regen_uuid), daemon=True).start()
+    return RedirectResponse(
+        f"/intake?tab={tab}&pending={quote(job_id)}&pending_since={started:.3f}",
+        status_code=303,
+    )
+
+
+@app.post("/intake/publish")
+def intake_publish(
+    draft_id: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    import uuid as _uuid
+
+    from designops.pipelines.intake import publish_intake_draft
+
+    s = get_settings()
+    if not s.notion_configured:
+        return RedirectResponse(
+            "/intake?tab=drafts&flash=Notion+not+configured&flash_type=error",
+            status_code=303,
+        )
+    try:
+        did = _uuid.UUID(draft_id)
+    except ValueError:
+        return RedirectResponse(
+            "/intake?tab=drafts&flash=Invalid+draft&flash_type=error",
+            status_code=303,
+        )
+    try:
+        result = publish_intake_draft(db, did)
+    except Exception as e:  # noqa: BLE001
+        return RedirectResponse(
+            f"/intake?tab=drafts&draft_id={draft_id}&flash={quote(str(e)[:200])}&flash_type=error",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/intake?tab=published&draft_id={result.draft_id}&flash=Published+to+Notion",
+        status_code=303,
+    )
+
+
 def _bg_execute_run(run_id: str, reuse_ingest: bool) -> None:
     """Background worker for *manual* Generate buttons.
 
     Always forces send_mode=none — Delivery on the schedule card applies only to
     the cron job. Email a finished run from the run page if needed.
-    execute_run sets a terminal status even on failure, so the UI never sticks on running.
+    Wraps the call in a top-level try/except so that if the thread crashes for
+    any reason (including uvicorn reload killing the process), the run is marked
+    as failed rather than stuck in 'running' forever.
     """
     from designops.core.db import session_scope
     from designops.pipelines.daily_digest import execute_run as execute_daily
     from designops.pipelines.weekly_backlog import execute_run as execute_weekly
     from designops.pipelines.weekly_health import execute_run as execute_weekly_health
 
-    with session_scope() as s:
-        run = s.get(PipelineRun, run_id)
-        if run is None:
-            return
-        pipe = s.get(Pipeline, run.pipeline_id)
-        # Manual generate: never auto-email (scheduled runs call execute_* directly).
-        kw = {"reuse_ingest": reuse_ingest, "send_mode_override": SendMode.NONE.value}
-        if pipe and pipe.key == WEEKLY_KEY:
-            execute_weekly(s, run, **kw)
-        elif pipe and pipe.key == WEEKLY_HEALTH_KEY:
-            execute_weekly_health(s, run, **kw)
-        else:
-            execute_daily(s, run, **kw)
+    try:
+        with session_scope() as s:
+            run = s.get(PipelineRun, run_id)
+            if run is None:
+                return
+            pipe = s.get(Pipeline, run.pipeline_id)
+            kw = {"reuse_ingest": reuse_ingest, "send_mode_override": SendMode.NONE.value}
+            if pipe and pipe.key == WEEKLY_KEY:
+                execute_weekly(s, run, **kw)
+            elif pipe and pipe.key == WEEKLY_HEALTH_KEY:
+                execute_weekly_health(s, run, **kw)
+            else:
+                execute_daily(s, run, **kw)
+    except Exception:
+        import logging, traceback
+        logging.getLogger(__name__).error(
+            "bg run %s crashed: %s", run_id, traceback.format_exc()
+        )
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            with session_scope() as s2:
+                r = s2.get(PipelineRun, run_id)
+                if r and r.status == "running":
+                    r.status = "failed"
+                    r.error = traceback.format_exc()[-500:]
+                    r.finished_at = _dt.now(_tz.utc)
+                    s2.commit()
+        except Exception:
+            pass
 
 
 @app.post("/daily-report/run")

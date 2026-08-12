@@ -61,6 +61,9 @@ def test_golden_json_counts_match_spec(expected):
 
 
 def test_render_dom_structure(expected):
+    from designops.pipelines.digest_postprocess import postprocess_digest
+
+    postprocess_digest(expected, report_date=REPORT_DATE)
     html = render_digest(expected, REPORT_DATE, sample=True)
     assert "Daily Pulse" in html
     assert "needs you" in html

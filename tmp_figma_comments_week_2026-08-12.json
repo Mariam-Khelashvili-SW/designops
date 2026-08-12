@@ -1,0 +1,73 @@
+{
+  "generated_at": "2026-08-12T14:05:53.636981+00:00",
+  "as_of": "2026-08-12",
+  "comms_from": "2026-08-05",
+  "note": "Raw Figma GET /v1/files/{key}/comments per linked file on weekly-health projects.",
+  "projects": [
+    {
+      "project": "Acer",
+      "figma_urls": [
+        "https://www.figma.com/design/PIFBALBKLpgNWInQTEr7pZ/SW_EXT_UX-UI_Acer--Design---Hyva-"
+      ],
+      "files": [],
+      "errors": [
+        {
+          "url": "https://www.figma.com/design/PIFBALBKLpgNWInQTEr7pZ/SW_EXT_UX-UI_Acer--Design---Hyva-",
+          "error": "Figma 403: Token expired"
+        }
+      ]
+    },
+    {
+      "project": "Hoitolatukku",
+      "figma_urls": [
+        "https://www.figma.com/design/IXloLCaF9e7B7bBYjZ2dbB/SW_EXT_Hoitolatukku"
+      ],
+      "files": [],
+      "errors": [
+        {
+          "url": "https://www.figma.com/design/IXloLCaF9e7B7bBYjZ2dbB/SW_EXT_Hoitolatukku",
+          "error": "Figma 403: Token expired"
+        }
+      ]
+    },
+    {
+      "project": "Sports Group Denmark",
+      "figma_urls": [
+        "https://www.figma.com/design/fA2bj1XNF1JiohrbdC6iqh/SW_EXT_SportsShop_B2B"
+      ],
+      "files": [],
+      "errors": [
+        {
+          "url": "https://www.figma.com/design/fA2bj1XNF1JiohrbdC6iqh/SW_EXT_SportsShop_B2B",
+          "error": "Figma 403: Token expired"
+        }
+      ]
+    },
+    {
+      "project": "Tobis UAB",
+      "figma_urls": [
+        "https://www.figma.com/design/T11Jdlt8BUEUwTXC8TxwzH/SW_EXT_UX_Tobis_-Hyva-"
+      ],
+      "files": [],
+      "errors": [
+        {
+          "url": "https://www.figma.com/design/T11Jdlt8BUEUwTXC8TxwzH/SW_EXT_UX_Tobis_-Hyva-",
+          "error": "Figma 403: Token expired"
+        }
+      ]
+    },
+    {
+      "project": "University of Michigan",
+      "figma_urls": [
+        "https://www.figma.com/design/3HtatKcplgFEfE7CTjauSS/SW_INT-EXT_UX-UI_University-of-Michigan"
+      ],
+      "files": [],
+      "errors": [
+        {
+          "url": "https://www.figma.com/design/3HtatKcplgFEfE7CTjauSS/SW_INT-EXT_UX-UI_University-of-Michigan",
+          "error": "Figma 403: Token expired"
+        }
+      ]
+    }
+  ]
+}

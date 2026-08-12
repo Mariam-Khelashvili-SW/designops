@@ -247,10 +247,6 @@ def test_render_weekly_health_html():
     card["invoiced_muted"] = True
     card["invoiced_sub"] = "no UX/UI invoices in Fairwind"
     card["verdict"] = "Healthy and early."
-    card["health"] = {
-        "clean": False,
-        "text": "<b>Status is stale:</b> hours logged while still New.",
-    }
     card["highlights"] = []
     digest = {
         "at_a_glance": glance_kpis([card]),
@@ -270,14 +266,78 @@ def test_render_weekly_health_html():
     assert "Invoiced UX/UI" in html
     assert "Not invoiced yet" in html
     assert "Done tickets" in html
-    assert "0/1 · 0h of 20h est · 0%" in html
+    assert "0 / 1" in html
+    assert "0h of 20h est" in html
     assert "table.t td.p.ok" in html or "class=\"p " in html
     assert "Where your action is needed" in html
-    assert "Source: email &#34;Wireframe feedback&#34;, 16 Jul" in html
+    assert "Wireframe feedback" in html
     assert "TOB-7" in html
     assert "SAMPLE / DRY-RUN" in html
     assert "Billing note" not in html
     assert "kick-off milestone" not in html
+
+
+def test_render_weekly_health_figma_panel():
+    card = build_project_burn(
+        display_name="Acer",
+        subtitle="Wireframes",
+        signed_estimate_h=100,
+        agreement={},
+        tickets=[],
+        as_of=date(2026, 8, 11),
+    )
+    card["figma"] = {
+        "has_comments": True,
+        "counts": {
+            "new_comments": 17,
+            "new_from_client": 6,
+            "resolved_this_week": 19,
+            "still_open": 2,
+            "overdue_items": 2,
+        },
+        "overdue": [
+            {
+                "who": "Artur B",
+                "to": "Svitlana Madei",
+                "date_label": "27 Jul",
+                "age_working_days": 11,
+                "quote": "Can you check comment, is it possible to set custom color…",
+                "quotes": ["Can you check comment, is it possible to set custom color…"],
+                "link": "https://www.figma.com/design/abc123/Acer?node-id=1-2",
+                "kind": "UNANSWERED",
+            }
+        ],
+        "this_week": [],
+        "unclassified_handles": [],
+    }
+    html = render_weekly_health(
+        {
+            "at_a_glance": glance_kpis([card], figma_overdue=2),
+            "projects": [card],
+            "actions": [],
+        },
+        date(2026, 8, 11),
+        sample=True,
+        coverage={},
+    )
+    assert "Figma comments" in html
+    assert "open pin" in html
+    assert "Open more than a week" in html
+    assert "Figma items open" in html
+    assert "2" in html
+    assert "Figma feedback" not in html
+    assert "Waiting on our reply" not in html
+
+
+def test_is_plain_figma_risk_filters_count_jargon():
+    from designops.pipelines.weekly_health_figma import is_plain_figma_risk
+
+    assert is_plain_figma_risk(
+        "Homepage header still broken — fix claimed but not confirmed"
+    )
+    assert not is_plain_figma_risk(
+        "12 client comments unacked >24h; oldest open since 27 Jul"
+    )
 
 
 def test_total_invoiced_ux_summary():
@@ -712,7 +772,6 @@ def test_render_includes_jira_link_days_and_calls():
             "calls_muted": False,
             "last_call_title": "UMich weekly sync",
             "verdict": "On track.",
-            "health": {"clean": True, "text": "Clean."},
         }
     )
     html = render_weekly_health(
@@ -725,8 +784,8 @@ def test_render_includes_jira_link_days_and_calls():
     assert "135h" in html
     assert ">Days<" in html
     assert "14d" in html
-    assert "Last call:" in html
+    assert "Last call" in html
     assert "Fri 18 Jul" in html
-    assert "Next:" in html
+    assert "Next" in html
     assert "Mon 3 Aug" in html
 

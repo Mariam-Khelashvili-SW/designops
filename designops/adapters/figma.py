@@ -230,13 +230,24 @@ def _user_label(user: Any) -> str | None:
     return user.get("handle") or user.get("email") or user.get("id")
 
 
+def _user_email(user: Any) -> str | None:
+    if not isinstance(user, dict):
+        return None
+    email = user.get("email")
+    if isinstance(email, str) and "@" in email:
+        return email.strip().lower()
+    return None
+
+
 def normalize_comment(raw: dict[str, Any]) -> dict[str, Any]:
     """Flatten a Figma Comment into a stable dict for pipelines / UI."""
     resolved_at = raw.get("resolved_at")
+    user = raw.get("user")
     return {
         "id": str(raw.get("id") or ""),
         "message": str(raw.get("message") or ""),
-        "user": _user_label(raw.get("user")),
+        "user": _user_label(user),
+        "user_email": _user_email(user),
         "created_at": raw.get("created_at"),
         "resolved_at": resolved_at,
         "resolved": bool(resolved_at),

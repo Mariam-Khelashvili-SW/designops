@@ -299,3 +299,37 @@ class CallSummaryDraft(Base):
     input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cost_usd: Mapped[float] = mapped_column(Numeric(10, 4), default=0, nullable=False)
+
+
+class IntakeDraft(Base):
+    """Design intake page draft from pasted handover email (never auto-published).
+
+    Runner reviews preview, then explicitly publishes to Notion.
+    """
+
+    __tablename__ = "intake_draft"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    pasted_input: Mapped[str] = mapped_column(Text, nullable=False)
+    estimate_link: Mapped[str | None] = mapped_column(String, nullable=True)
+    proposal_link: Mapped[str | None] = mapped_column(String, nullable=True)
+    estimate_rows: Mapped[str | None] = mapped_column(Text, nullable=True)
+    corrections: Mapped[str | None] = mapped_column(Text, nullable=True)
+    uploaded_files: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    sections_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    intake_report: Mapped[str | None] = mapped_column(Text, nullable=True)
+    flags: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    notion_page_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    notion_page_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # status ∈ {draft, published, error}
+    status: Mapped[str] = mapped_column(String, default="draft", nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    runner: Mapped[str | None] = mapped_column(String, nullable=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cost_usd: Mapped[float] = mapped_column(Numeric(10, 4), default=0, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

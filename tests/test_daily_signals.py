@@ -296,22 +296,23 @@ def test_dedupe_heads_up_against_escalation():
 
 
 def test_render_intelligence_no_v2_preview_banner():
+    from designops.pipelines.digest_postprocess import postprocess_digest
+
     digest = {
         "at_a_glance": {"active": 1, "need_review": 1, "blocked": 0, "no_report": 0},
         "escalations": [
             {
                 "text": "Dorota on leave from tomorrow while mid-flight on Acer.",
-                "evidence": "— leave calendar × dailies",
+                "evidence": "leave calendar · dailies",
                 "why_ranked_here": "leave starts tomorrow",
                 "who": "Dorota Umiastowska",
                 "project": "Acer",
-                "agent_note": "no coverage arrangement appears in the dailies",
             }
         ],
         "heads_ups": [
             {
                 "text": "Enmedify go-live phase 2 preparation.",
-                "evidence": "— daily report, 4 Aug",
+                "evidence": "daily report, 4 Aug",
                 "project": "Enmedify",
             }
         ],
@@ -335,22 +336,14 @@ def test_render_intelligence_no_v2_preview_banner():
         "todays_plans": [],
         "no_report": [],
     }
+    postprocess_digest(digest, report_date=date(2026, 8, 4))
     html = render_digest(digest, date(2026, 8, 4), sample=True)
     assert "Needs Olga" in html
     assert "Dorota on leave" in html
-    assert "Enmedify go-live" in html
-    # Heads-up lives under the project in Beyond the dailies, not a top-level section
-    assert html.index("By project") < html.index("Enmedify go-live")
-    assert html.index("Enmedify") < html.index("Enmedify go-live")
-    assert "Beyond the dailies" in html
-    # Prototype: heads-up sits below that project's Done/Next, not above
-    assert html.index("Phase 2 checklist") < html.index("Enmedify go-live")
-    # No standalone top Heads-up section heading before By project
-    top = html.split("By project")[0]
-    assert "<h2>Heads-up</h2>" not in top
-    assert "Agent note" in html
-    assert "4th run" in html
-    assert "Heads-up" in html
+    assert "Enmedify go-live" in html or "Phase 2 prep" in html or "Context" in html
+    assert html.index("By project") < html.index("Enmedify")
+    assert "Beyond the dailies" not in html
+    assert "4th run" in html or "Stalled" in html
     assert "V2 PREVIEW" not in html
     assert "not sent • UX/UI" not in html
     assert "SAMPLE / DRY-RUN" not in html

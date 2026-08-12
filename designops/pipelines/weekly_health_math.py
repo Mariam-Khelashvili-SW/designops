@@ -471,18 +471,6 @@ def build_project_burn(
     if signed_estimate_h and signed_estimate_h > 0 and total_est > 0:
         coverage_pct = round(total_est / signed_estimate_h * 100)
 
-    # Status heuristic (code) — LLM may refine via health.clean.
-    # Badge shows warning words, not colour names: At risk / Watch / On track.
-    if over_est >= 2 or len(aged) >= 3:
-        rag = "r"
-        rag_label = "At risk"
-    elif over_est >= 1 or in_client >= 3 or len(aged) >= 1:
-        rag = "a"
-        rag_label = "Watch"
-    else:
-        rag = "g"
-        rag_label = "On track"
-
     # Invoice tile is filled only from Fairwind in the orchestrator — never from seeds.
     signed_sub = (
         "signed design hours"
@@ -522,17 +510,14 @@ def build_project_burn(
         "aged_client_action": aged,
         "groups": groups,
         "tickets": enriched,
-        "rag": rag,
-        "rag_label": rag_label,
         "pending": False,
         # Filled by LLM
         "verdict": "",
-        "health": {"clean": True, "text": ""},
         "highlights": [],
     }
 
 
-def glance_kpis(projects: list[dict]) -> dict:
+def glance_kpis(projects: list[dict], *, figma_overdue: int = 0) -> dict:
     reported = [p for p in projects if not p.get("pending")]
     total = len(projects)
     return {
@@ -540,19 +525,22 @@ def glance_kpis(projects: list[dict]) -> dict:
         "total": total,
         "client_action": sum(p.get("client_action_count") or 0 for p in reported),
         "over_est": sum(p.get("over_est_count") or 0 for p in reported),
-        "action_items": sum(len(p.get("highlights") or []) for p in reported),
+        "figma_overdue": int(figma_overdue or 0),
+        "action_items": 0,
     }
 
 
-def rag_sort_key(project: dict) -> tuple:
-    rag_rank = {"r": 0, "a": 1, "g": 2}
+def project_sort_key(project: dict) -> tuple:
+    """Stable order — pending last, then project name (no risk rating)."""
     return (
         1 if project.get("pending") else 0,
-        rag_rank.get(project.get("rag"), 9),
-        -int(project.get("over_est_count") or 0),
-        -int(project.get("client_action_count") or 0),
         (project.get("display_name") or "").lower(),
     )
+
+
+def rag_sort_key(project: dict) -> tuple:
+    """Deprecated alias — kept for imports; use project_sort_key."""
+    return project_sort_key(project)
 
 
 def doc_to_ticket(doc) -> dict:

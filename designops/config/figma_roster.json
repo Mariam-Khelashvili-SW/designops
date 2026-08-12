@@ -1,0 +1,15 @@
+{
+  "handles": {
+    "Olga Kimalana": { "side": "internal", "role": "design lead" },
+    "Artur B": { "side": "internal", "role": "designer" },
+    "Arturs Boroviks": { "side": "internal", "role": "designer" },
+    "Kateryna Chelpan": { "side": "internal", "role": "BA" },
+    "Kirill Rogovets": { "side": "internal", "role": "designer" },
+    "Tamari Giunashvili": { "side": "internal", "role": "designer" },
+    "Dorota Umiastowska": { "side": "internal", "role": "designer" },
+    "Predrag Gavrilovikj": { "side": "internal", "role": "designer" },
+    "Svitlana Madei": { "side": "internal", "role": "designer" },
+    "Maarja": { "side": "internal", "role": "designer" },
+    "Alessio": { "side": "client", "role": "client stakeholder" }
+  }
+}

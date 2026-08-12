@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Design Intake — Design Ops{% endblock %}
+{% block body %}
+<h1>Design Intake</h1>
+<p class="sub">Paste handover email content → generate intake page → review → publish to Notion.</p>
+
+{% if flash %}
+<div class="banner {% if flash_type=='error' %}warn{% else %}ok{% endif %}" style="{% if flash_type!='error' %}background:#e5f6f2;border:1px solid #9fd9cc;color:#0f5c54{% endif %}">{{ flash }}{% if pending_job %} <span class="spin"></span>{% endif %}</div>
+{% endif %}
+
+{% if pending_job and pending_since %}
+<script>
+(function () {
+  var jobId = {{ pending_job|tojson }};
+  var since = {{ pending_since|tojson }};
+  var tab = {{ tab|tojson }};
+  function poll() {
+    fetch('/intake/pending-status?pending=' + encodeURIComponent(jobId) + '&pending_since=' + encodeURIComponent(since) + '&tab=' + encodeURIComponent(tab), {
+      headers: { 'Accept': 'application/json' },
+      credentials: 'same-origin'
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (!data || data.status === 'pending') {
+        setTimeout(poll, 3000);
+        return;
+      }
+      if (data.redirect) {
+        window.location.replace(data.redirect);
+        return;
+      }
+      if (data.status === 'error') {
+        window.location.replace('/intake?tab=' + encodeURIComponent(tab) + '&flash=' + encodeURIComponent(data.error || 'Generation failed') + '&flash_type=error');
+        return;
+      }
+      setTimeout(poll, 3000);
+    }).catch(function () { setTimeout(poll, 4000); });
+  }
+  setTimeout(poll, 3000);
+})();
+</script>
+{% endif %}
+
+{% if not anthropic_ready %}
+<div class="banner warn">ANTHROPIC_API_KEY is not set — generation will fail.</div>
+{% endif %}
+{% if not notion_ready %}
+<div class="banner warn">Notion is not configured (NOTION_API_TOKEN / NOTION_PARENT_PAGE_ID).</div>
+{% endif %}
+
+<style>
+  .intake-tabs{display:flex;gap:0;border-bottom:1px solid var(--line)}
+  .intake-tabs a{padding:10px 16px;text-decoration:none;font-size:13px;font-weight:600;border-bottom:2px solid transparent}
+  .intake-tabs a.on{color:var(--ink);border-color:var(--teal)}
+  .intake-tabs a:not(.on){color:var(--mut)}
+  .intake-layout{display:grid;grid-template-columns:1fr 340px;gap:16px}
+  @media(max-width:900px){.intake-layout{grid-template-columns:1fr}}
+  .intake-preview h2{font-size:16px;margin:18px 0 8px}
+  .intake-preview table{font-size:12px;margin-bottom:12px}
+  .intake-callout{border-radius:8px;padding:10px 14px;margin:10px 0;font-size:13px}
+  .intake-callout-props{background:#f0f4ff;border:1px solid #c5d0f5}
+  .intake-callout-blue{background:#e8f0fb;border:1px solid #b8cff5}
+  .intake-callout-yellow{background:#fff8ec;border:1px solid #f5c66b}
+  .intake-callout-gray{background:#f4f5f7;border:1px solid #dde0e7;color:var(--mut)}
+  .intake-personas{display:flex;gap:12px;flex-wrap:wrap}
+  .intake-persona{flex:1;min-width:200px;background:#f0f4ff;border-radius:8px;padding:12px;border:1px solid #c5d0f5}
+  .intake-report{background:#fafbfc;border:1px solid var(--line);border-radius:8px;padding:14px;font-size:13px;white-space:pre-wrap;max-height:70vh;overflow:auto}
+  .intake-draft-list{max-height:420px;overflow:auto}
+  .intake-draft-item{display:block;padding:8px 12px;border-bottom:1px solid #f1f2f4;text-decoration:none;color:inherit;font-size:13px}
+  .intake-draft-item.on{background:#eef0fb;font-weight:600}
+  .intake-draft-item:hover{background:#f8f9fb}
+  textarea.intake-email{width:100%;min-height:220px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px}
+</style>
+
+<div class="card" style="padding:0;overflow:hidden">
+  <div class="intake-tabs">
+    <a href="/intake?tab=input" class="{% if tab=='input' %}on{% endif %}">Input</a>
+    <a href="/intake?tab=drafts" class="{% if tab=='drafts' %}on{% endif %}">Drafts ({{ drafts|length }})</a>
+    <a href="/intake?tab=published" class="{% if tab=='published' %}on{% endif %}">Published ({{ published|length }})</a>
+  </div>
+
+  {% if tab == 'input' %}
+  <div style="padding:18px 20px">
+    <form method="post" action="/intake/generate" enctype="multipart/form-data">
+      <input type="hidden" name="return_tab" value="input" />
+      <div style="margin-bottom:14px">
+        <label>Handover email content <span style="color:var(--red)">*</span></label>
+        <textarea class="intake-email" name="pasted_input" required placeholder="Paste the full handover email body here…"></textarea>
+      </div>
+      <div class="row" style="margin-bottom:14px">
+        <div style="flex:1;min-width:200px">
+          <label>Estimate link (optional)</label>
+          <input name="estimate_link" style="width:100%" placeholder="https://…" />
+        </div>
+        <div style="flex:1;min-width:200px">
+          <label>Proposal link (optional)</label>
+          <input name="proposal_link" style="width:100%" placeholder="https://…" />
+        </div>
+      </div>
+      <div style="margin-bottom:14px">
+        <label>Estimate rows (optional — paste design tasks as text)</label>
+        <textarea name="estimate_rows" rows="4" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px" placeholder="Screen name&#9;Hours&#10;…"></textarea>
+      </div>
+      <div style="margin-bottom:14px">
+        <label>Upload spreadsheet (optional — .csv or .xlsx)</label>
+        <input type="file" name="files" accept=".csv,.xlsx,.xls" multiple />
+        <p style="font-size:12px;color:var(--mut);margin:4px 0 0">Content is extracted as text for the generator — links are not fetched automatically.</p>
+      </div>
+      <div style="margin-bottom:14px">
+        <label>Corrections / extra context (optional)</label>
+        <textarea name="corrections" rows="2" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px" placeholder="e.g. KAM is actually X, kickoff confirmed Friday"></textarea>
+      </div>
+      <button class="btn" type="submit" {% if pending_busy %}disabled{% endif %}>{% if pending_busy %}Generating…{% else %}Generate intake page{% endif %}</button>
+    </form>
+  </div>
+
+  {% elif tab == 'drafts' %}
+  <div style="padding:18px 20px">
+    {% if not drafts %}
+    <p class="sub">No drafts yet. <a href="/intake?tab=input">Paste an email →</a></p>
+    {% else %}
+    <div class="intake-layout">
+      <div>
+        <div class="intake-draft-list" style="border:1px solid var(--line);border-radius:8px;margin-bottom:14px">
+          {% for d in drafts %}
+          <a class="intake-draft-item{% if viewed and viewed.id == d.id %} on{% endif %}" href="/intake?tab=drafts&amp;draft_id={{ d.id }}">
+            {{ d.title or 'Untitled' }}
+            <span style="color:var(--mut);font-size:11px"> · {{ d.generated_at|dt }}{% if d.status=='error' %} · error{% endif %}</span>
+          </a>
+          {% endfor %}
+        </div>
+
+        {% if viewed %}
+        <div class="intake-preview">
+          {% if viewed.status == 'error' %}
+          <div class="banner warn">{{ viewed.error_message or 'Generation failed' }}</div>
+          {% endif %}
+          {{ preview_html|safe }}
+        </div>
+
+        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+          {% if viewed.status == 'draft' and notion_ready %}
+          <form method="post" action="/intake/publish">
+            <input type="hidden" name="draft_id" value="{{ viewed.id }}" />
+            <button class="btn" type="submit">Publish to Notion</button>
+          </form>
+          {% endif %}
+          <form method="post" action="/intake/generate" enctype="multipart/form-data" style="flex:1;min-width:280px">
+            <input type="hidden" name="draft_id" value="{{ viewed.id }}" />
+            <input type="hidden" name="return_tab" value="drafts" />
+            <div style="margin-bottom:8px">
+              <label style="font-size:11px">Regenerate with corrections</label>
+              <textarea class="intake-email" name="pasted_input" style="min-height:120px">{{ viewed.pasted_input }}</textarea>
+            </div>
+            <div class="row" style="margin-bottom:8px">
+              <input name="estimate_link" value="{{ viewed.estimate_link or '' }}" placeholder="Estimate link" style="flex:1" />
+              <input name="proposal_link" value="{{ viewed.proposal_link or '' }}" placeholder="Proposal link" style="flex:1" />
+            </div>
+            <textarea name="estimate_rows" rows="2" style="width:100%;font:inherit;padding:6px;margin-bottom:8px" placeholder="Estimate rows">{{ viewed.estimate_rows or '' }}</textarea>
+            <input type="text" name="corrections" placeholder="Corrections (override email)…" style="width:100%;margin-bottom:8px" />
+            <button class="btn ghost sm" type="submit">Regenerate</button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if viewed and viewed.intake_report %}
+      <div>
+        <h3 style="font-size:14px;margin:0 0 8px">Intake report <span style="color:var(--mut);font-weight:400">(DM only — not published)</span></h3>
+        <div class="intake-report">{{ viewed.intake_report }}</div>
+        {% if viewed.flags %}
+        <h4 style="font-size:13px;margin:14px 0 6px">Flags</h4>
+        <ul style="font-size:12px;color:var(--mut)">
+          {% for f in viewed.flags %}<li>{{ f }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% elif tab == 'published' %}
+  <div style="padding:18px 20px">
+    {% if not published %}
+    <p class="sub">Nothing published yet.</p>
+    {% else %}
+    <table>
+      <thead><tr><th>Title</th><th>Published</th><th>Notion</th></tr></thead>
+      <tbody>
+        {% for d in published %}
+        <tr>
+          <td><a href="/intake?tab=drafts&amp;draft_id={{ d.id }}">{{ d.title or 'Untitled' }}</a></td>
+          <td>{{ d.published_at|dt }}</td>
+          <td>{% if d.notion_page_url %}<a href="{{ d.notion_page_url }}" target="_blank" rel="noopener">Open page</a>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

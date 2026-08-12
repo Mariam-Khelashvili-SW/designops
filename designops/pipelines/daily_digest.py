@@ -58,6 +58,7 @@ from designops.pipelines.daily_signals import (
     empty_signals,
     enforce_intelligence_artifacts,
 )
+from designops.pipelines.digest_postprocess import postprocess_digest
 from designops.pipelines.leave_from_vacsick import sync_leave_from_vacsick
 from designops.pipelines.render import render_digest
 from designops.pipelines.synthesis import synthesize
@@ -957,6 +958,12 @@ def execute_run(
                 row["untracked"] = False
         _reconcile_availability(digest, filtered, roster_rows, report_date)
         _annotate_upcoming_leave(digest, roster_rows, report_date)
+        postprocess_digest(
+            digest,
+            report_date=report_date,
+            roster_rows=roster_rows,
+            session=session,
+        )
         incomplete = bool(
             coverage.get("exports_failed", 0) > 0 or coverage.get("incomplete")
         )
