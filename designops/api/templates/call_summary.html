@@ -18,12 +18,12 @@
       headers: { 'Accept': 'application/json' },
       credentials: 'same-origin'
     }).then(function (r) { return r.json(); }).then(function (data) {
-      if (!data || data.status === 'pending') {
-        setTimeout(poll, 3000);
+      if (data && data.redirect) {
+        window.location.replace(data.redirect);
         return;
       }
-      if (data.redirect) {
-        window.location.replace(data.redirect);
+      if (!data || data.status === 'pending') {
+        setTimeout(poll, 3000);
         return;
       }
       if (data.status === 'ready' && data.draft_id) {
@@ -35,7 +35,8 @@
         window.location.replace('/call-summary?tab=' + encodeURIComponent(tab) + '&flash=' + encodeURIComponent(msg) + '&flash_type=error');
         return;
       }
-      setTimeout(poll, 3000);
+      // idle / unknown — drop stale pending query params
+      window.location.replace('/call-summary?tab=' + encodeURIComponent(tab));
     }).catch(function () {
       setTimeout(poll, 4000);
     });
@@ -286,9 +287,57 @@
     .cs-drafts-actions .btn{min-width:7.5rem;text-align:center;justify-content:center}
     .cs-drafts-actions form{margin:0;display:inline-flex}
     .cs-drafts-body{flex:1;min-height:0;overflow-y:auto;padding:16px}
+    .cs-status{
+      border-radius:12px;padding:14px 16px;margin:0 0 14px;border:1px solid var(--line);
+    }
+    .cs-status.ok{background:#eefaf6;border-color:#9fd9cc}
+    .cs-status.info{background:#eef3fb;border-color:#c5d4f0}
+    .cs-status.warn{background:#fff8ec;border-color:#f5c66b}
+    .cs-status.error{background:#fdf2f1;border-color:#f0b4ad}
+    .cs-status-top{display:flex;gap:12px;align-items:flex-start}
+    .cs-status-icon{
+      flex:0 0 28px;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
+      justify-content:center;font-size:14px;font-weight:800;margin-top:1px;
+    }
+    .cs-status.ok .cs-status-icon{background:#0f8a7e;color:#fff}
+    .cs-status.info .cs-status-icon{background:#1d5fb0;color:#fff}
+    .cs-status.warn .cs-status-icon{background:#b45309;color:#fff}
+    .cs-status.error .cs-status-icon{background:#c0392b;color:#fff}
+    .cs-status h3{margin:0 0 4px;font-size:14px;font-weight:700;color:var(--ink)}
+    .cs-status p{margin:0;font-size:13px;color:#4b5563;line-height:1.45}
+    .cs-status-next{
+      margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.06);
+      font-size:12px;color:var(--mut);
+    }
+    .cs-status-next strong{color:var(--ink);font-weight:600}
+    .cs-status-reasons{margin:10px 0 0;padding:0;list-style:none}
+    .cs-status-reasons li{
+      position:relative;padding:8px 10px 8px 28px;margin:0 0 6px;border-radius:8px;
+      background:rgba(255,255,255,.7);font-size:13px;color:#374151;line-height:1.4;
+    }
+    .cs-status-reasons li::before{
+      content:"!";position:absolute;left:8px;top:8px;width:16px;height:16px;border-radius:50%;
+      background:#b45309;color:#fff;font-size:11px;font-weight:800;line-height:16px;text-align:center;
+    }
+    .cs-status.error .cs-status-reasons li::before{background:#c0392b}
+    .cs-status-facts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+    .cs-status-facts span{
+      font-size:11px;font-weight:600;color:#5b6470;background:rgba(255,255,255,.75);
+      border:1px solid rgba(0,0,0,.06);border-radius:999px;padding:3px 9px;
+    }
+    .cs-status details{margin-top:10px}
+    .cs-status summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--mut);user-select:none}
+    .cs-status-cat{margin-top:10px}
+    .cs-status-cat h4{
+      margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);
+    }
+    .cs-status-cat ul{margin:0;padding-left:18px;font-size:12px;color:#4b5563}
+    .cs-status-cat li{margin:0 0 3px}
     .cs-email{
       background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;
     }
+    .cs-email.is-placeholder{border-color:#f0b4ad;background:#fffafa}
+    .cs-email.is-placeholder .cs-email-label{color:#c0392b}
     .cs-email-label{
       font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
       color:var(--mut);padding:8px 14px;background:#f8f9fb;border-bottom:1px solid var(--line);
@@ -354,8 +403,13 @@
             <div class="m">{{ d.account_name or d.transcript_name or d.transcript_id }}</div>
             <div class="meta">
               <span>{{ d.generated_at.strftime('%b %d, %H:%M') if d.generated_at else '' }}</span>
-              {% if d.policy_blocked %}<span class="pill failed">blocked</span>{% endif %}
-              {% if d.low_confidence %}<span class="pill flagged">low conf.</span>{% endif %}
+              {% if 'Follow-up details to be confirmed' in (d.body_text or '') %}
+              <span class="pill failed">placeholder</span>
+              {% elif d.policy_blocked %}
+              <span class="pill flagged">needs review</span>
+              {% elif d.low_confidence %}
+              <span class="pill flagged">check transcript</span>
+              {% endif %}
             </div>
           </a>
         </li>
@@ -374,10 +428,11 @@
           </div>
         </div>
         <div class="cs-drafts-pills">
+          {% if draft_status %}
+          <span class="pill {% if draft_status.level=='ok' %}ok{% elif draft_status.level=='error' %}failed{% elif draft_status.level=='info' %}blue{% else %}flagged{% endif %}">{{ draft_status.list_label }}</span>
+          {% endif %}
           {% if viewed.transcript_quality %}<span class="pill mut">{{ viewed.transcript_quality }}</span>{% endif %}
-          {% if viewed.low_confidence %}<span class="pill flagged">low confidence</span>{% endif %}
-          {% if viewed.policy_blocked %}<span class="pill failed">policy blocked</span>{% endif %}
-          {% if viewed.placeholder_count %}<span class="pill flagged">{{ viewed.placeholder_count }} placeholder{% if viewed.placeholder_count != 1 %}s{% endif %}</span>{% else %}<span class="pill ok">no placeholders</span>{% endif %}
+          {% if viewed.placeholder_count %}<span class="pill flagged">{{ viewed.placeholder_count }} placeholder{% if viewed.placeholder_count != 1 %}s{% endif %}</span>{% endif %}
           {% if viewed.owner_name %}<span class="pill mut">owner: {{ viewed.owner_name }}</span>{% endif %}
         </div>
         <div class="cs-drafts-actions">
@@ -396,12 +451,81 @@
       </div>
 
       <div class="cs-drafts-body">
-        {% if viewed.policy_block_reason %}
-        <div class="banner warn" style="margin-top:0">{{ viewed.policy_block_reason }}</div>
+        {% if draft_status %}
+        <div class="cs-status {{ draft_status.level }}">
+          <div class="cs-status-top">
+            <div class="cs-status-icon" aria-hidden="true">{% if draft_status.level=='ok' %}✓{% elif draft_status.level=='error' %}!{% else %}i{% endif %}</div>
+            <div style="min-width:0;flex:1">
+              <h3>{{ draft_status.title }}</h3>
+              <p>{{ draft_status.summary }}</p>
+              {% if draft_status.reasons %}
+              <ul class="cs-status-reasons">
+                {% for r in draft_status.reasons %}
+                <li>{{ r }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+              {% if separate_email and (separate_email.subject or separate_email.why) %}
+              <div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,.75);font-size:13px">
+                <strong style="display:block;margin-bottom:2px">Send separately</strong>
+                {% if separate_email.subject %}<div>Subject: {{ separate_email.subject }}</div>{% endif %}
+                {% if separate_email.why %}<div style="color:#4b5563">{{ separate_email.why }}</div>{% endif %}
+              </div>
+              {% endif %}
+              {% if draft_status.fact_counts and (draft_status.fact_counts.decisions or draft_status.fact_counts.commitments or draft_status.fact_counts.client_actions) %}
+              <div class="cs-status-facts">
+                <span>{{ draft_status.fact_counts.decisions }} decisions</span>
+                <span>{{ draft_status.fact_counts.commitments }} our commitments</span>
+                <span>{{ draft_status.fact_counts.client_actions }} client actions</span>
+                <span>{{ draft_status.fact_counts.open_questions }} open questions</span>
+                {% if draft_status.fact_counts.flags %}<span>{{ draft_status.fact_counts.flags }} flags</span>{% endif %}
+              </div>
+              {% endif %}
+              {% if draft_status.next_step %}
+              <div class="cs-status-next"><strong>Next:</strong> {{ draft_status.next_step }}</div>
+              {% endif %}
+              {% if draft_status.has_details %}
+              <details>
+                <summary>Technical notes from generation</summary>
+                {% if draft_status.categories.blocking %}
+                <div class="cs-status-cat">
+                  <h4>Blocking / validators</h4>
+                  <ul>{% for n in draft_status.categories.blocking %}<li>{{ n }}</li>{% endfor %}</ul>
+                </div>
+                {% endif %}
+                {% if draft_status.categories.quality %}
+                <div class="cs-status-cat">
+                  <h4>Transcript quality</h4>
+                  <ul>{% for n in draft_status.categories.quality %}<li>{{ n }}</li>{% endfor %}</ul>
+                </div>
+                {% endif %}
+                {% if draft_status.categories.critic %}
+                <div class="cs-status-cat">
+                  <h4>Critic pass</h4>
+                  <ul>{% for n in draft_status.categories.critic %}<li>{{ n }}</li>{% endfor %}</ul>
+                </div>
+                {% endif %}
+                {% if draft_status.categories.links %}
+                <div class="cs-status-cat">
+                  <h4>Links</h4>
+                  <ul>{% for n in draft_status.categories.links %}<li>{{ n }}</li>{% endfor %}</ul>
+                </div>
+                {% endif %}
+                {% if draft_status.categories.other %}
+                <div class="cs-status-cat">
+                  <h4>Other</h4>
+                  <ul>{% for n in draft_status.categories.other %}<li>{{ n }}</li>{% endfor %}</ul>
+                </div>
+                {% endif %}
+              </details>
+              {% endif %}
+            </div>
+          </div>
+        </div>
         {% endif %}
 
-        <div class="cs-email">
-          <div class="cs-email-label">Email body <span style="font-weight:500;text-transform:none;letter-spacing:0">· formatted preview · use Copy body for Gmail</span></div>
+        <div class="cs-email{% if draft_status and draft_status.skeleton %} is-placeholder{% endif %}">
+          <div class="cs-email-label">{% if draft_status and draft_status.skeleton %}Placeholder body — not the real follow-up{% else %}Email body{% endif %} <span style="font-weight:500;text-transform:none;letter-spacing:0">· formatted preview · use Copy body for Gmail</span></div>
           <div class="cs-email-body" id="cs-body-html">{{ body_html | safe }}</div>
         </div>
 
@@ -418,12 +542,39 @@
           {% endif %}
         </div>
 
-        {% if viewed.reviewer_notes %}
+        {% if review_table %}
         <div class="cs-section">
-          <h3>Reviewer notes</h3>
-          <ul class="cs-notes">
-            {% for n in viewed.reviewer_notes %}<li>{{ n }}</li>{% endfor %}
-          </ul>
+          <h3>Evidence review</h3>
+          <p style="margin:0 0 10px;font-size:12px;color:var(--mut)">Each body bullet mapped to its fact-sheet source. Verify claims without re-reading the transcript.</p>
+          <div style="overflow:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="text-align:left;border-bottom:1px solid var(--line)">
+                  <th style="padding:6px 8px">Body bullet</th>
+                  <th style="padding:6px 8px">Source</th>
+                  <th style="padding:6px 8px">Impact</th>
+                  <th style="padding:6px 8px">Evidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in review_table %}
+                <tr style="border-bottom:1px solid var(--line);vertical-align:top{% if not row.matched %};opacity:0.7{% endif %}">
+                  <td style="padding:6px 8px">{{ row.bullet }}</td>
+                  <td style="padding:6px 8px">
+                    {% if row.matched %}
+                    <span class="pill mut">{{ row.source }}</span>
+                    <div style="margin-top:4px">{{ row.fact }}</div>
+                    {% else %}
+                    <span class="pill flagged">unmatched</span>
+                    {% endif %}
+                  </td>
+                  <td style="padding:6px 8px">{% if row.impact %}{{ row.impact }}{% else %}—{% endif %}</td>
+                  <td style="padding:6px 8px;color:var(--mut);font-style:italic">{% if row.evidence %}{{ row.evidence }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
         </div>
         {% endif %}
 
@@ -433,7 +584,7 @@
             <div style="margin-top:10px;font-size:12px;color:var(--mut);display:flex;flex-wrap:wrap;gap:10px">
               <span class="mono">{{ viewed.transcript_id }}</span>
             </div>
-            <pre class="mono" style="margin-top:10px;background:#10132c;color:#e8eaf6;padding:12px;border-radius:8px;overflow:auto;font-size:11px;max-height:220px">{{ extraction_json_pretty }}</pre>
+            <pre class="mono" style="margin-top:10px;background:#10132c;color:#e8eaf6;padding:12px;border-radius:8px;overflow:auto;font-size:11px;max-height:220px">{{ fact_sheet_pretty or extraction_json_pretty }}</pre>
           </details>
         </div>
       </div>

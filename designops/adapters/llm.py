@@ -46,6 +46,7 @@ class LLMClient:
         user_content: str,
         max_tokens: int = 8000,
         retries: int = 3,
+        model: str | None = None,
     ) -> LLMResult:
         if not self.s.anthropic_configured:
             raise RuntimeError("ANTHROPIC_API_KEY not set (env only).")
@@ -53,12 +54,12 @@ class LLMClient:
         import anthropic
 
         client = anthropic.Anthropic(api_key=self.s.anthropic_api_key)
-        model = self.s.digest_model
+        model_id = model or self.s.digest_model
         last_err: Exception | None = None
         for attempt in range(retries):
             try:
                 msg = client.messages.create(
-                    model=model,
+                    model=model_id,
                     max_tokens=max_tokens,
                     system=system,
                     messages=[{"role": "user", "content": user_content}],
@@ -70,8 +71,8 @@ class LLMClient:
                     text=text,
                     input_tokens=msg.usage.input_tokens,
                     output_tokens=msg.usage.output_tokens,
-                    cost_usd=_cost(model, msg.usage.input_tokens, msg.usage.output_tokens),
-                    model=model,
+                    cost_usd=_cost(model_id, msg.usage.input_tokens, msg.usage.output_tokens),
+                    model=model_id,
                 )
             except Exception as e:  # noqa: BLE001 — retry transient API errors + empties
                 last_err = e

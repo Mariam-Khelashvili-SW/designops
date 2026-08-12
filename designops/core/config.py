@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     # Anthropic
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     digest_model: str = Field(default="claude-opus-4-8", alias="DIGEST_MODEL")
+    # Cheaper/faster tier for call-summary critic pass (v2).
+    call_summary_critic_model: str = Field(
+        default="claude-haiku-4-5-20251001", alias="CALL_SUMMARY_CRITIC_MODEL"
+    )
 
     # Jira Cloud (direct REST — A3 weekly backlog; email + API token Basic auth)
     jira_base_url: str = Field(default="", alias="JIRA_BASE_URL")

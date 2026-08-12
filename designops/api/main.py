@@ -211,6 +211,23 @@ CALL_SUMMARY_PAGE_SIZE = 50
 # In-flight call-summary generations: transcript_id → started_at (epoch seconds)
 _call_summary_pending: dict[str, float] = {}
 _call_summary_failed: dict[str, str] = {}
+# LLM extract+critic+compose can be slow; past this, treat as dead so UI unblocks.
+_CALL_SUMMARY_PENDING_TIMEOUT_SEC = 15 * 60
+
+
+def _expire_stale_call_summary_jobs() -> None:
+    """Mark hung background jobs failed so pending UI and the generate lock clear."""
+    import time as _time
+
+    now = _time.time()
+    for tid, started in list(_call_summary_pending.items()):
+        if now - float(started) < _CALL_SUMMARY_PENDING_TIMEOUT_SEC:
+            continue
+        _call_summary_pending.pop(tid, None)
+        _call_summary_failed.setdefault(
+            tid,
+            "Draft generation timed out after 15 minutes — try Regenerate.",
+        )
 
 
 @app.get("/call-summary", response_class=HTMLResponse)
@@ -236,6 +253,8 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
         url_pending_since = float(request.query_params.get("pending_since") or "0")
     except ValueError:
         url_pending_since = 0.0
+
+    _expire_stale_call_summary_jobs()
 
     # Resolve finished / failed jobs from memory (any tab). Pending stays until
     # this handler sees the draft — the worker must not clear it on success.
@@ -387,6 +406,12 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
                     "viewed": viewed,
                     "draft_id": draft_id,
                     "extraction_json_pretty": "",
+                    "fact_sheet_pretty": "",
+                    "review_table": [],
+                    "separate_email": None,
+                    "draft_status": None,
+                    "body_html": "",
+                    "body_plain": "",
                 },
             )
 
@@ -418,13 +443,42 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
     extraction_json_pretty = ""
     body_html = ""
     body_plain = ""
+    review_table: list = []
+    separate_email = None
+    fact_sheet_pretty = ""
+    draft_status = None
+    facts_only: dict = {}
     if viewed and viewed.extraction_json is not None:
-        extraction_json_pretty = _json.dumps(viewed.extraction_json, indent=2, default=str)
+        raw_ext = viewed.extraction_json if isinstance(viewed.extraction_json, dict) else {}
+        pipeline_meta = raw_ext.get("_pipeline") if isinstance(raw_ext.get("_pipeline"), dict) else {}
+        review_table = list(pipeline_meta.get("review_table") or [])
+        separate_email = pipeline_meta.get("separate_email_recommended")
+        facts_only = {k: v for k, v in raw_ext.items() if k != "_pipeline"}
+        fact_sheet_pretty = _json.dumps(facts_only, indent=2, default=str)
+        extraction_json_pretty = _json.dumps(raw_ext, indent=2, default=str)
+        if not review_table and viewed.body_text:
+            from designops.pipelines.call_summary import build_review_table
+
+            review_table = build_review_table(body=viewed.body_text, extraction=facts_only)
     if viewed and viewed.body_text:
         from designops.api.markdown_lite import markdown_lite_to_html, markdown_lite_to_plain
 
         body_html = markdown_lite_to_html(viewed.body_text)
         body_plain = markdown_lite_to_plain(viewed.body_text)
+    if viewed is not None:
+        from designops.pipelines.call_summary import explain_draft_status
+
+        draft_status = explain_draft_status(
+            body_text=viewed.body_text,
+            policy_blocked=bool(viewed.policy_blocked),
+            policy_block_reason=viewed.policy_block_reason,
+            reviewer_notes=list(viewed.reviewer_notes or []),
+            transcript_quality=viewed.transcript_quality,
+            low_confidence=bool(viewed.low_confidence),
+            placeholder_count=int(viewed.placeholder_count or 0),
+            separate_email=separate_email if isinstance(separate_email, dict) else None,
+            extraction=facts_only,
+        )
 
     return templates.TemplateResponse(
         "call_summary.html",
@@ -463,6 +517,10 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
             "viewed": viewed,
             "draft_id": draft_id,
             "extraction_json_pretty": extraction_json_pretty,
+            "fact_sheet_pretty": fact_sheet_pretty,
+            "review_table": review_table,
+            "separate_email": separate_email,
+            "draft_status": draft_status,
             "body_html": body_html,
             "body_plain": body_plain,
         },
@@ -510,6 +568,8 @@ def call_summary_pending_status(request: Request, db: Session = Depends(get_db))
     if not tid:
         return JSONResponse({"status": "idle"})
 
+    _expire_stale_call_summary_jobs()
+
     err = _call_summary_failed.get(tid)
     if err:
         _call_summary_failed.pop(tid, None)
@@ -539,7 +599,13 @@ def call_summary_pending_status(request: Request, db: Session = Depends(get_db))
                     "redirect": f"/call-summary?tab=drafts&draft_id={latest.id}&flash=Draft+generated",
                 }
             )
-        return JSONResponse({"status": "idle"})
+        # Stale ?pending= URL with no live job — stop the spinner.
+        return JSONResponse(
+            {
+                "status": "idle",
+                "redirect": f"/call-summary?tab={tab}&flash={quote('Generation was interrupted — try Regenerate.')}&flash_type=error",
+            }
+        )
 
     latest = (
         db.query(CallSummaryDraft)
@@ -578,6 +644,16 @@ def call_summary_generate(
             f"/call-summary?tab={tab}&flash=Missing+transcript&flash_type=error",
             status_code=303,
         )
+
+    _expire_stale_call_summary_jobs()
+    # Surface a timed-out job for this transcript before refusing a new run.
+    if tid in _call_summary_failed and tid not in _call_summary_pending:
+        err = _call_summary_failed.pop(tid)
+        return RedirectResponse(
+            f"/call-summary?tab={tab}&flash={quote(err)}&flash_type=error",
+            status_code=303,
+        )
+
     if _call_summary_pending:
         return RedirectResponse(
             f"/call-summary?tab={tab}&flash=Already+generating+a+draft&flash_type=error",
