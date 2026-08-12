@@ -412,6 +412,9 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
                     "draft_status": None,
                     "body_html": "",
                     "body_plain": "",
+                    "kept_body_html": "",
+                    "kept_body_plain": "",
+                    "kept_body_text": None,
                 },
             )
 
@@ -443,16 +446,22 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
     extraction_json_pretty = ""
     body_html = ""
     body_plain = ""
+    kept_body_html = ""
+    kept_body_plain = ""
     review_table: list = []
     separate_email = None
     fact_sheet_pretty = ""
     draft_status = None
+    kept_body_text = None
     facts_only: dict = {}
     if viewed and viewed.extraction_json is not None:
         raw_ext = viewed.extraction_json if isinstance(viewed.extraction_json, dict) else {}
         pipeline_meta = raw_ext.get("_pipeline") if isinstance(raw_ext.get("_pipeline"), dict) else {}
         review_table = list(pipeline_meta.get("review_table") or [])
         separate_email = pipeline_meta.get("separate_email_recommended")
+        kept_body_text = pipeline_meta.get("kept_body")
+        if isinstance(kept_body_text, str) and not kept_body_text.strip():
+            kept_body_text = None
         facts_only = {k: v for k, v in raw_ext.items() if k != "_pipeline"}
         fact_sheet_pretty = _json.dumps(facts_only, indent=2, default=str)
         extraction_json_pretty = _json.dumps(raw_ext, indent=2, default=str)
@@ -479,6 +488,37 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
             separate_email=separate_email if isinstance(separate_email, dict) else None,
             extraction=facts_only,
         )
+        # Historical placeholder drafts: treat stored body as "kept" only.
+        if draft_status.get("skeleton") and not kept_body_text:
+            kept_body_text = viewed.body_text
+            draft_status["show_primary_email"] = False
+            draft_status["show_kept_email"] = True
+        elif draft_status.get("show_kept_email") and not kept_body_text:
+            # Older rows have no separate kept copy — don't duplicate the same body twice.
+            draft_status["show_kept_email"] = False
+            if "kept below" in (draft_status.get("summary") or "").lower():
+                draft_status["summary"] = (
+                    "A follow-up email was generated (shown below). "
+                    "Automatic checks flagged a few things to confirm."
+                )
+                draft_status["next_step"] = (
+                    "Resolve the issues above, then copy subject and body."
+                )
+                draft_status["title"] = "Almost ready — fix these before sending"
+        if kept_body_text:
+            from designops.api.markdown_lite import markdown_lite_to_html, markdown_lite_to_plain
+
+            kept_body_html = markdown_lite_to_html(kept_body_text)
+            kept_body_plain = markdown_lite_to_plain(kept_body_text)
+            # Don't duplicate the same text in both panels.
+            if (
+                draft_status.get("show_primary_email")
+                and (viewed.body_text or "").strip() == kept_body_text.strip()
+            ):
+                draft_status["show_kept_email"] = False
+                kept_body_html = ""
+                kept_body_plain = ""
+                kept_body_text = None
 
     return templates.TemplateResponse(
         "call_summary.html",
@@ -523,6 +563,9 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
             "draft_status": draft_status,
             "body_html": body_html,
             "body_plain": body_plain,
+            "kept_body_html": kept_body_html,
+            "kept_body_plain": kept_body_plain,
+            "kept_body_text": kept_body_text,
         },
     )
 

@@ -98,6 +98,31 @@ def test_policy_guard_currency():
     assert any("Currency" in r for r in reasons)
 
 
+def test_policy_guard_degraded_fails_even_with_placeholders():
+    body = (
+        "Hello Sam,\n\nThank you for the call!\n\n"
+        "As next steps from your side, please:\n- Confirm the shipping method\n\n"
+        "For the next review session we suggest [option 1] or [option 2].\n"
+    )
+    ok, reasons = run_policy_guard(
+        body=body,
+        transcript_quality="degraded",
+        source_text="confirm the shipping method",
+        allowed_urls=[],
+    )
+    assert ok is False
+    assert any("Degraded transcript" in r for r in reasons)
+
+    ok_good, reasons_good = run_policy_guard(
+        body=body,
+        transcript_quality="good",
+        source_text="confirm the shipping method",
+        allowed_urls=[],
+    )
+    assert ok_good is True
+    assert reasons_good == []
+
+
 def test_placeholders():
     assert count_placeholders("See [Figma link] by [date] or [option 1]") == 3
     assert find_disallowed_placeholders("Hello [CONFIRM: this]") == ["[CONFIRM: this]"]
@@ -322,8 +347,60 @@ def test_explain_draft_status_skeleton_and_human_reasons():
     assert status["level"] == "error"
     assert status["skeleton"] is True
     assert status["list_label"] == "placeholder"
-    assert any("timing" in r.lower() for r in status["reasons"])
+    assert status["show_primary_email"] is False
+    assert status["show_kept_email"] is True
+    assert status["issue_count"] >= 1
+    assert status["issues"][0]["label"]
+    assert any("timing" in r.lower() or "recap" in r.lower() for r in status["reasons"])
     assert status["fact_counts"]["decisions"] == 2
+
+
+def test_repair_appends_timing_and_drops_weak_recap():
+    from designops.pipelines.call_summary import repair_composition_body, validate_composition_draft
+
+    extraction = {
+        "decisions": [
+            {
+                "text": "Remove the VAT field",
+                "impact": "detail",
+                "reverses_prior_assumption": False,
+                "evidence": "remove vat",
+            },
+            {
+                "text": "Shut down B2C",
+                "impact": "project",
+                "reverses_prior_assumption": True,
+                "evidence": "shut down b2c",
+            },
+        ],
+        "our_commitments": [
+            {
+                "text": "Share adjusted frames",
+                "timing_verbatim": "by the end of this week",
+                "evidence": "share by the end of this week",
+            }
+        ],
+        "client_actions": [],
+        "open_questions": [],
+        "flags": [],
+        "artifacts": [],
+    }
+    body = (
+        "From our side we will proceed with:\n"
+        "- Share adjusted frames\n\n"
+        "We also want to confirm the main points we aligned on:\n"
+        "- Remove the VAT field\n"
+        "- Shut down B2C\n"
+    )
+    repaired = repair_composition_body(body=body, extraction=extraction)
+    assert "this week" in repaired
+    assert "Remove the VAT field" not in repaired
+    assert "Shut down B2C" in repaired
+    ok, reasons = validate_composition_draft(body=repaired, extraction=extraction)
+    assert ok is True, reasons
+
+
+def test_review_table_maps_bullets():
     extraction = {
         "decisions": [
             {

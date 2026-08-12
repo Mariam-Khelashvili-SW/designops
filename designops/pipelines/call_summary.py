@@ -759,6 +759,109 @@ def validate_composition_draft(
     return (len(reasons) == 0), reasons
 
 
+def repair_composition_body(*, body: str, extraction: dict) -> str:
+    """Best-effort deterministic fixes for soft Step-4 failures (timing / weak recap)."""
+    text = body or ""
+    # Append missing commitment timing suffixes on matching our-actions bullets.
+    our_bullets = _section_bullets(text, OUR_ACTIONS_HEADER_RE)
+    if our_bullets:
+        lines = text.splitlines()
+        in_our = False
+        out_lines: list[str] = []
+        for line in lines:
+            if OUR_ACTIONS_HEADER_RE.search(line):
+                in_our = True
+                out_lines.append(line)
+                continue
+            if in_our:
+                s = line.strip()
+                if not s:
+                    in_our = False
+                    out_lines.append(line)
+                    continue
+                if s.startswith("- ") or s.startswith("* "):
+                    bullet = s[2:].strip()
+                    bnorm = _normalize(bullet)
+                    for commit in extraction.get("our_commitments") or []:
+                        ctext = _normalize(str(commit.get("text") or ""))
+                        timing = str(commit.get("timing_verbatim") or "").strip()
+                        if not ctext or not timing:
+                            continue
+                        if ctext in bnorm or bnorm in ctext or dice_coefficient(ctext, bnorm) >= 0.55:
+                            if timing_present_in_body(timing, bullet):
+                                break
+                            signals = timing_signals(timing)
+                            suffix = signals[0] if signals else None
+                            if suffix and suffix not in bnorm:
+                                prefix = "- " if s.startswith("- ") else "* "
+                                line = f"{prefix}{bullet} - {suffix}"
+                            break
+                    out_lines.append(line)
+                    continue
+                in_our = False
+            out_lines.append(line)
+        text = "\n".join(out_lines)
+
+    # Drop recap bullets whose best-matching decision is low-impact.
+    recap = _section_bullets(text, RECAP_HEADER_RE)
+    if recap:
+        decisions = list(extraction.get("decisions") or [])
+        drop: set[str] = set()
+        for bullet in recap:
+            bnorm = _normalize(bullet)
+            best = None
+            best_score = 0.0
+            for d in decisions:
+                dtext = _normalize(str(d.get("text") or ""))
+                if not dtext:
+                    continue
+                score = 1.0 if dtext in bnorm or bnorm in dtext else dice_coefficient(dtext, bnorm)
+                if score > best_score:
+                    best_score = score
+                    best = d
+            if (
+                best
+                and best_score >= 0.62
+                and str(best.get("impact") or "") in {"single_screen", "detail"}
+                and not best.get("reverses_prior_assumption")
+            ):
+                drop.add(_normalize(bullet))
+        if drop:
+            lines = text.splitlines()
+            in_recap = False
+            kept_recap = 0
+            out_lines = []
+            for line in lines:
+                if RECAP_HEADER_RE.search(line):
+                    in_recap = True
+                    out_lines.append(line)
+                    continue
+                if in_recap:
+                    s = line.strip()
+                    if not s:
+                        if kept_recap == 0:
+                            # Remove empty recap header we just added if all bullets dropped
+                            if out_lines and RECAP_HEADER_RE.search(out_lines[-1]):
+                                out_lines.pop()
+                        in_recap = False
+                        out_lines.append(line)
+                        continue
+                    if s.startswith("- ") or s.startswith("* "):
+                        bullet = s[2:].strip()
+                        if _normalize(bullet) in drop:
+                            continue
+                        kept_recap += 1
+                        out_lines.append(line)
+                        continue
+                    in_recap = False
+                out_lines.append(line)
+            text = "\n".join(out_lines)
+
+    # Strip em dashes to house-style hyphens.
+    text = EM_DASH_RE.sub(" - ", text)
+    return text
+
+
 def build_review_table(*, body: str, extraction: dict) -> list[dict]:
     """Map each body bullet to a fact-sheet item + evidence for human review."""
     candidates: list[dict] = []
@@ -1041,6 +1144,9 @@ def find_disallowed_placeholders(body: str) -> list[str]:
 
 
 
+DEGRADED_DRAFT_REASON = "Degraded transcript — draft must be reviewed before sending"
+
+
 def run_policy_guard(
     *,
     body: str,
@@ -1067,9 +1173,15 @@ def run_policy_guard(
         cleaned = re.sub(r"[.,;:]+$", "", u)
         if cleaned.lower() not in allow:
             reasons.append(f"URL not on allowlist: {cleaned}")
-    if transcript_quality == "degraded" and count_placeholders(body or "") == 0:
-        reasons.append("Degraded transcript produced a placeholder-free draft")
+    if transcript_quality == "degraded":
+        reasons.append(DEGRADED_DRAFT_REASON)
     return (len(reasons) == 0, reasons)
+
+
+def _only_degraded_quality(reasons: list[str]) -> bool:
+    """True when the only guard failure is the degraded-transcript review gate."""
+    hits = [r for r in reasons if r.strip()]
+    return bool(hits) and all("degraded transcript" in r.lower() for r in hits)
 
 
 def skeleton_composition(
@@ -1156,46 +1268,151 @@ def client_first_names(attendees: list[dict], client_participants: list[str] | N
     return ", ".join(parts) if parts else "[name]"
 
 
-def _humanize_validator_reason(reason: str) -> str:
+def _humanize_validator_reason(reason: str) -> dict[str, str]:
+    """Turn a raw validator string into a short card: label / detail / fix."""
     r = (reason or "").strip()
+    empty = {"label": "Check failed", "detail": r or "Unknown issue.", "fix": "Review the email and regenerate if needed.", "tag": "other"}
     if not r:
-        return ""
+        return empty
     low = r.lower()
+    detail = r.split(":", 1)[-1].strip() if ":" in r else ""
+
     if "commitment timing missing" in low:
-        detail = r.split(":", 1)[-1].strip() if ":" in r else ""
-        base = "A promised delivery date/timing from the call did not appear in the email body"
-        return f"{base} ({detail})." if detail else f"{base}."
+        return {
+            "label": "Missing delivery timing",
+            "detail": (
+                f"A commitment from the call had timing (“{detail}”), but that timing "
+                "didn’t make it into the email body."
+                if detail
+                else "A commitment’s timing from the call is missing in the email body."
+            ),
+            "fix": "Add the timing to the matching “From our side” bullet (e.g. “ - next week”), then send.",
+            "tag": "timing",
+        }
     if "recap includes low-impact" in low:
-        detail = r.split(":", 1)[-1].strip() if ":" in r else ""
-        base = "The alignment recap included a small UI/detail change that should stay out of the email"
-        return f"{base}: {detail}" if detail else f"{base}."
+        return {
+            "label": "Too-small item in the recap",
+            "detail": (
+                f"The alignment section included a small UI/detail change that belongs in the designs, not the email"
+                + (f": “{detail}”." if detail else ".")
+            ),
+            "fix": "Delete that bullet from the recap (or regenerate). Keep only big project decisions.",
+            "tag": "recap",
+        }
     if "recap bullet count" in low:
-        return "The alignment recap had more than 5 bullets (limit is 5)."
+        n = ""
+        m = re.search(r"\((\d+)\)", r)
+        if m:
+            n = m.group(1)
+        return {
+            "label": "Recap is too long",
+            "detail": (
+                f"The alignment section has {n} bullets; the house format allows at most 5."
+                if n
+                else "The alignment section has more than 5 bullets."
+            ),
+            "fix": "Keep the 5 most important project/multi-template points (prefer reversals), drop the rest.",
+            "tag": "recap",
+        }
     if "em dash" in low:
-        return "The draft used an em dash (—). House style uses a plain hyphen ( - )."
+        return {
+            "label": "Wrong dash character",
+            "detail": "The draft used an em dash (—). Client emails use a plain hyphen with spaces ( - ).",
+            "fix": "Replace — with “ - ” before sending.",
+            "tag": "style",
+        }
     if "banned filler" in low or "banned phrase" in low:
-        return "The draft included corporate filler language we avoid (e.g. “circling back”)."
+        return {
+            "label": "Corporate filler language",
+            "detail": "The draft included phrases we avoid (e.g. “circling back”, “hope this finds you well”).",
+            "fix": "Remove the filler and keep the email warm but direct.",
+            "tag": "style",
+        }
     if "disallowed bracket" in low or "disallowed placeholder" in low:
-        return "The draft contained a placeholder that is not allowed for sendable emails."
+        return {
+            "label": "Invalid placeholder",
+            "detail": (
+                f"The draft has a bracket token that isn’t allowed for a sendable email"
+                + (f" ({detail})." if detail else ".")
+            ),
+            "fix": "Only use [Figma link], [link], [date], [name], [option 1], or [option 2] — or fill the real value.",
+            "tag": "placeholder",
+        }
     if "dual-share" in low or "artifact dual" in low:
-        return "The same design file was described as both already shared and still being adjusted."
+        return {
+            "label": "Conflicting share status",
+            "detail": (
+                "The same design file was described as both already shared and still being adjusted."
+                + (f" ({detail})" if detail else "")
+            ),
+            "fix": "Pick one: either share the link now, or say you’ll send after changes — not both.",
+            "tag": "artifact",
+        }
     if "urgent flag" in low:
-        return "An urgent risk/security item was written into the follow-up body (it needs a separate email)."
+        return {
+            "label": "Urgent item in the follow-up",
+            "detail": "A security/legal/risk item was written into the normal follow-up body.",
+            "fix": "Remove it from this email and send a separate short note about it.",
+            "tag": "risk",
+        }
     if "currency" in low:
-        return "A price or currency amount appeared that was not in the call source."
+        return {
+            "label": "Unverified price",
+            "detail": "A currency/amount appeared that wasn’t found in the call source.",
+            "fix": "Remove the number unless you can confirm it from the transcript or notes.",
+            "tag": "safety",
+        }
     if "effort estimate" in low:
-        return "An hours/days estimate appeared that was not in the call source."
+        return {
+            "label": "Unverified effort estimate",
+            "detail": "Hours/days appeared that weren’t found in the call source.",
+            "fix": "Remove the estimate unless it was explicitly said on the call.",
+            "tag": "safety",
+        }
     if "scope-expansion" in low:
-        return "The draft sounded like a new scope commitment rather than confirming what was agreed."
+        return {
+            "label": "Sounds like new scope",
+            "detail": "Wording looked like a new commitment rather than confirming what was already agreed.",
+            "fix": "Rephrase as confirmation of the call alignment, not a new promise.",
+            "tag": "safety",
+        }
     if "url not on allowlist" in low:
-        return "The draft included a link that was not found in the transcript or project registry."
-    if "placeholder-free" in low and "degraded" in low:
-        return "Transcript quality looked poor, but the draft had no placeholders — double-check carefully."
+        return {
+            "label": "Unexpected link",
+            "detail": "The draft included a URL that wasn’t in the transcript or project link registry.",
+            "fix": "Replace with a known Figma/Notion link, or use [Figma link] / [link].",
+            "tag": "links",
+        }
+    if "degraded transcript" in low:
+        return {
+            "label": "Messy transcript, sendable-looking draft",
+            "detail": (
+                "Auto-transcript quality was weak, but the email still reads as ready to send. "
+                "That is easy to over-trust."
+            ),
+            "fix": "Verify every bullet against your own notes before sending.",
+            "tag": "quality",
+        }
     if "timed out" in low:
-        return "Generation timed out before finishing. Try Regenerate."
+        return {
+            "label": "Generation timed out",
+            "detail": "The draft job ran too long and was stopped.",
+            "fix": "Click Regenerate and wait for it to finish.",
+            "tag": "system",
+        }
     if "interrupted" in low:
-        return "Generation was interrupted (server restart). Try Regenerate."
-    return r
+        return {
+            "label": "Generation interrupted",
+            "detail": "The server restarted while this draft was generating.",
+            "fix": "Click Regenerate.",
+            "tag": "system",
+        }
+    return {
+        "label": "Automatic check flagged this",
+        "detail": r,
+        "fix": "Review the email carefully, edit if needed, or regenerate.",
+        "tag": "other",
+    }
 
 
 def _split_policy_reasons(reason: str | None) -> list[str]:
@@ -1228,10 +1445,15 @@ def explain_draft_status(
     notes = [str(n).strip() for n in (reviewer_notes or []) if str(n).strip()]
     skeleton = _is_skeleton_body(body_text) or any("skeleton draft" in n.lower() for n in notes)
     kept_despite_validators = any(
-        "validators still failing after retry" in n.lower() or "draft kept" in n.lower() for n in notes
+        "validators still failing after retry" in n.lower()
+        or "draft kept" in n.lower()
+        or "cleaned follow-up was prepared" in n.lower()
+        or "kept raw model" in n.lower()
+        for n in notes
     )
-    reasons = [_humanize_validator_reason(r) for r in _split_policy_reasons(policy_block_reason)]
-    reasons = [r for r in reasons if r]
+    issues = [_humanize_validator_reason(r) for r in _split_policy_reasons(policy_block_reason)]
+    issues = [i for i in issues if i.get("detail")]
+    reasons = [i["detail"] for i in issues]  # plain strings for older callers/tests
 
     # Categorize remaining notes for the details panel.
     categories: dict[str, list[str]] = {
@@ -1268,33 +1490,39 @@ def explain_draft_status(
         "flags": len(facts.get("flags") or []),
     }
 
-    if skeleton and (policy_blocked or reasons):
+    if skeleton and (policy_blocked or issues):
         level = "error"
-        title = "Draft was replaced with a placeholder"
+        title = "No sendable follow-up yet"
         summary = (
-            "The pipeline extracted facts from the call, but automatic checks rejected the "
-            "composed email. The body you see is a short placeholder — regenerate after the "
-            "fix, or review the reasons below."
+            "Automatic checks blocked this run. Only a short placeholder was stored. "
+            "Regenerate to get a full client email."
         )
         list_label = "placeholder"
-        next_step = "Click Regenerate to try again with the latest rules."
+        next_step = "Click Regenerate, then review the new follow-up."
+        show_primary_email = False
+        show_kept_email = True
     elif policy_blocked and kept_despite_validators:
         level = "warn"
-        title = "Needs review before sending"
+        title = "Almost ready — fix these before sending"
         summary = (
-            "A full follow-up email was generated, but some automatic house-style checks "
-            "still failed after a retry. The draft was kept for you to edit."
+            "A follow-up email was generated (shown below). "
+            "A few house-style checks still need your eye."
         )
         list_label = "needs review"
-        next_step = "Skim the email, fix anything noted below, then copy to send."
+        next_step = "Skim the issues, edit the follow-up if needed, then copy to send."
+        show_primary_email = True
+        show_kept_email = True
     elif policy_blocked:
         level = "warn"
-        title = "Needs review before sending"
+        title = "Almost ready — fix these before sending"
         summary = (
-            "Automatic checks flagged this draft. Read the reasons below before sending."
+            "A follow-up email was generated (shown below). "
+            "Automatic checks flagged a few things to confirm."
         )
         list_label = "needs review"
-        next_step = "Review the flagged items, edit if needed, then copy to send."
+        next_step = "Resolve the issues below, then copy subject and body."
+        show_primary_email = not skeleton
+        show_kept_email = True
     elif low_confidence or (transcript_quality or "").lower() == "degraded":
         level = "warn"
         title = "Transcript looked messy"
@@ -1304,6 +1532,8 @@ def explain_draft_status(
         )
         list_label = "check transcript"
         next_step = "Compare key bullets with the call before sending."
+        show_primary_email = True
+        show_kept_email = False
     elif separate_email and (separate_email.get("subject") or separate_email.get("why")):
         level = "warn"
         title = "Follow-up ready — plus a separate email"
@@ -1312,6 +1542,8 @@ def explain_draft_status(
         )
         list_label = "separate email"
         next_step = "Send the follow-up, then send the separate urgent note."
+        show_primary_email = True
+        show_kept_email = False
     elif placeholder_count:
         level = "info"
         title = "Draft ready — placeholders to fill"
@@ -1321,12 +1553,16 @@ def explain_draft_status(
         )
         list_label = "fill placeholders"
         next_step = "Replace bracket placeholders, then copy to send."
+        show_primary_email = True
+        show_kept_email = False
     else:
         level = "ok"
         title = "Draft ready to review"
         summary = "Generation finished without blocking issues. Give it a quick human pass, then send."
         list_label = "ready"
         next_step = "Copy subject and body into your email client."
+        show_primary_email = True
+        show_kept_email = False
 
     return {
         "level": level,  # ok | info | warn | error
@@ -1335,10 +1571,14 @@ def explain_draft_status(
         "list_label": list_label,
         "next_step": next_step,
         "reasons": reasons,
+        "issues": issues,
+        "issue_count": len(issues),
         "skeleton": skeleton,
         "fact_counts": fact_counts,
         "categories": categories,
-        "has_details": any(categories.values()) or bool(reasons) or bool(separate_email),
+        "has_details": any(categories.values()) or bool(issues) or bool(separate_email),
+        "show_primary_email": show_primary_email,
+        "show_kept_email": show_kept_email,
     }
 
 
@@ -1671,8 +1911,10 @@ def generate_call_summary_draft(
 
     policy_blocked = False
     policy_block_reason: str | None = None
+    kept_body_raw: str | None = None
 
-    if not ok and not fact_empty:
+    # Degraded quality cannot be fixed by rewriting the email — skip the extra LLM retry.
+    if not ok and not fact_empty and not _only_degraded_quality(reasons):
         log.warning("Composition validators failed (%s); regenerating once", reasons)
         try:
             composition, r3 = _llm_json(
@@ -1691,19 +1933,51 @@ def generate_call_summary_draft(
             pass
         ok, reasons = _guards(str(composition.get("body") or ""))
 
-    if not ok:
-        # Keep the last LLM draft for human review — never replace a populated
-        # composition with the empty skeleton (that produced "almost empty" emails).
+    if not ok and not fact_empty and _only_degraded_quality(reasons):
+        policy_blocked = True
+        policy_block_reason = "; ".join(reasons)
+        log.warning("Degraded transcript; blocking send-as-is (%s)", policy_block_reason)
+    elif not ok and not fact_empty and not _is_skeleton_body(str(composition.get("body") or "")):
+        # Keep the model output as-is, then produce a cleaned "as it should be" body.
+        kept_body_raw = str(composition.get("body") or "")
+        repaired = repair_composition_body(body=kept_body_raw, extraction=extraction)
+        ok_r, reasons_r = _guards(repaired)
+        composition["body"] = repaired
+        policy_blocked = True
+        policy_block_reason = "; ".join(reasons_r if not ok_r else reasons)
+        notes = list(composition.get("reviewer_notes") or [])
+        if ok_r:
+            notes.insert(
+                0,
+                "Validators failed on the raw model email; a cleaned follow-up was prepared. "
+                "Original model output is kept below for comparison.",
+            )
+            policy_block_reason = "; ".join(reasons)  # original failure reasons for UI
+        else:
+            notes.insert(
+                0,
+                "Composition validators still failing after retry+repair (cleaned draft kept): "
+                f"{policy_block_reason}",
+            )
+        composition["reviewer_notes"] = notes
+        ok = ok_r
+        log.warning(
+            "Composition validators failed; kept raw model body and prepared cleaned draft (%s)",
+            policy_block_reason,
+        )
+    elif not ok:
+        # Skeleton / empty-fact path — nothing better to keep.
         policy_blocked = True
         policy_block_reason = "; ".join(reasons)
         notes = list(composition.get("reviewer_notes") or [])
         notes.insert(
             0,
-            f"Composition validators still failing after retry (draft kept): {policy_block_reason}",
+            f"Composition validators failed (placeholder draft): {policy_block_reason}",
         )
         composition["reviewer_notes"] = notes
+        kept_body_raw = str(composition.get("body") or "")
         log.warning(
-            "Composition validators failed after retry; keeping draft (%s)",
+            "Composition validators failed on placeholder/empty path (%s)",
             policy_block_reason,
         )
 
@@ -1721,6 +1995,13 @@ def generate_call_summary_draft(
         arts,
     )
     composition["body"] = body_final
+    kept_body_final: str | None = None
+    if kept_body_raw is not None:
+        kept_body_final = inject_resolved_urls_into_body(kept_body_raw, link_map, arts)
+        if kept_body_final.strip() == body_final.strip():
+            # No meaningful difference after URL inject — still keep if blocked for UI.
+            if not policy_blocked:
+                kept_body_final = None
 
     reviewer_notes = list(composition.get("reviewer_notes") or [])
     for n in critic_notes:
@@ -1758,6 +2039,8 @@ def generate_call_summary_draft(
             "thanks_line": thanks_line,
             "separate_email_recommended": separate if isinstance(separate, dict) else None,
             "review_table": review_table,
+            "kept_body": kept_body_final,
+            "show_kept_body": bool(kept_body_final and policy_blocked),
         },
     }
 
