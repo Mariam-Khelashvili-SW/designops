@@ -22,6 +22,103 @@ log = logging.getLogger(__name__)
 PIPELINE_KEY = "design-intake"
 SKILL_PATH = Path(__file__).resolve().parents[1] / "skills" / "design-intake.md"
 
+SAMPLE_INTAKE = {
+    "pasted_input": """From: iryna.rubanava@scandiweb.com
+To: design-ops@scandiweb.com
+Cc: olga.kimalana@scandiweb.com, ana.taylor@scandiweb.com
+Subject: C-pipe handover — Sports Group Denmark Club Portal (wireframes)
+
+Hi team,
+
+Handing over a new design project from C-pipe.
+
+Client: Sports Group Denmark (SGD)
+Project: Club Portal rebuild — wireframes phase
+Scope: Core (club-specific screens only; reuse the SGD B2B store design system)
+Site type: B2B
+
+Sports Group Denmark makes sportswear. Badminton clubs order team uniforms through a private Club Portal. A club member logs in, sees only their club's products at club prices, picks a jersey, adds their name and the club logo, and orders before the club's shared deadline. The club collects orders into one batch; clubs can pay for members using club credit.
+
+The current portal is old and runs on a lot of manual work. It is on Shopify today. SGD is growing from 30 clubs to 40+ this year, so we are rebuilding the portal on the same Hyva / Magento stack as the SGD web store we already designed — reusing that design system, and designing new only what is unique to clubs.
+
+Website / current Club Portal URL: not in this handover — please request from the client.
+
+Commercial
+- Signed for this phase: wireframes, 30–50h
+- Two revision rounds included; anything past that is billed extra
+- Full estimate: see the sheet (hours below). Proposal slides are linked separately.
+- Contract status: signed for Discovery / wireframes. Build-phase Designs not signed yet.
+
+This phase (~4 weeks): wireframes for the club-specific screens so open questions get answered and the client can approve the build. Design leads. Main deliverable = wireframes.
+
+What we design (new)
+- Club landing page — each club gets its own page: banner, club info, their products
+- Product page — member picks name + club logo, previews it; bundles and a possible sponsor choice
+- Cart & checkout — order deadline must be visible; club credit as a payment method
+- Sign-up & log-in — new members join a club; someone approves them (approval step)
+- My account — standard account + a block showing the club's deadline
+- Global elements, homepage, product list — light adjustments of what we already have from the SGD store
+
+Reuse, don't redesign
+- Look & feel, colors, type, components — from the existing SGD store design system (Figma link from the SGD B2B project — being added, not in this mail)
+- Search, CMS pages, transactional emails — reused with styling touch-ups only
+
+Out of scope
+- No public-facing shop, no fan merchandise
+- No automatic logo-on-photo rendering (stays manual on the client side)
+- No extra screen sizes beyond desktop 1440px and mobile 375px
+
+Open questions (need answers in Discovery)
+1. How do club budgets / sponsor money work — who pays for what, and what does the member see at checkout? (Mette owes us this — she is on vacation after kickoff week)
+2. When someone signs up, are they approved automatically (e.g. Danish address) or manually by the club admin?
+3. Where does the order deadline live — one date for everyone or per club, and who sets it?
+4. How different are club prices from the main store's logic? (tech, during Discovery)
+5. Invoice currency for the SOW is EUR 18,400 vs the estimate sheet which still shows DKK — do not resolve, just flag. No design impact.
+
+People
+- Iryna Rubanava — DM (first stop for scope, deadlines, client communication)
+- Olga Kimalana — design lead (direction, wireframe validation, who is assigned). UX/UI designer not assigned yet — Olga to assign
+- Ana Taylor — KAM (client relationship, brand asset requests)
+- Mette — client, SGD (how clubs work day-to-day; budget/sponsor rules). On vacation after kickoff week
+
+Kickoff: planned this Friday — to confirm.
+
+Constraints
+- The portal shares its website foundation with the SGD store that's being built right now (shared release calendar — handoff dates are real dates)
+- Member accounts are not migrated: club data moves over via Twoday (middleware vendor), but individual members are re-created by club admins after launch
+
+Missing from handover
+- Brand assets / club logo pack — not attached, request via Ana
+- WoW (Ways of Working) doc — not provided, please request
+- Current Club Portal URL — requested
+
+Figma / Design Drive / Jira: pending, added at design kickoff.
+
+Thanks,
+Iryna
+""",
+    "estimate_link": "https://docs.google.com/spreadsheets/d/sample-sgd-club-portal-estimate/edit",
+    "proposal_link": "https://docs.google.com/presentation/d/sample-sgd-club-portal-proposal/edit",
+    "estimate_rows": (
+        "Phase\tTask\tHours\n"
+        "Wireframes\tGlobal elements (header, footer)\t4\n"
+        "Wireframes\tHomepage (light adjust)\t3\n"
+        "Wireframes\tClub landing page\t6\n"
+        "Wireframes\tProduct list (light adjust)\t3\n"
+        "Wireframes\tProduct page + name/logo picker\t12\n"
+        "Wireframes\tCart\t4\n"
+        "Wireframes\tCheckout (deadline + club credit)\t8\n"
+        "Wireframes\tSign-up / log-in / password (with approval step)\t6\n"
+        "Wireframes\tMy account + deadline block\t4\n"
+        "Wireframes\tRevisions (2 rounds)\t8\n"
+        "Designs (later phase — do not seed)\tHi-fi UI\t80"
+    ),
+    "corrections": (
+        "KAM is Ana Taylor. Kickoff is planned this Friday — still to confirm. "
+        "Designer is unassigned — Olga to assign. Do not invent a Club Portal URL."
+    ),
+}
+
 
 @dataclass(slots=True)
 class GenerateResult:
@@ -335,10 +432,10 @@ def render_preview_html(sections: dict) -> str:
         plinks = s8.get("project_links") or []
         if plinks:
             parts.append("<p><strong>Project links</strong></p>")
-            parts.append(_html_table(["Link", "URL"], plinks, "label", "url"))
+            parts.append(_html_table(["Link", "Where"], plinks, "label", "url"))
         templates = s8.get("templates") or []
         if templates:
-            parts.append("<p><strong>Templates to produce</strong></p>")
+            parts.append("<p><strong>Templates to produce — Wireframes</strong></p>")
             parts.append(_html_table(["Template", "Status"], templates, "name", "status"))
         if s8.get("sync_callout"):
             parts.append(f'<div class="intake-callout intake-callout-gray">🔄 {s8["sync_callout"]}</div>')

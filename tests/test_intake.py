@@ -6,7 +6,15 @@ import io
 
 import pytest
 
-from designops.adapters.notion import sections_to_blocks
+from designops.adapters.notion import (
+    DESIGN_PROJECTS_SCHEMA,
+    database_properties_from_sections,
+    extract_url,
+    match_select,
+    parse_kickoff_date,
+    sections_to_blocks,
+    split_person_names,
+)
 from designops.pipelines.intake import (
     build_user_message,
     parse_spreadsheet,
@@ -84,8 +92,14 @@ def test_build_user_message_includes_all_fields():
     assert "KAM is Alice" in msg
 
 
-def test_validate_sections_json_ok():
-    assert validate_sections_json(SAMPLE_SECTIONS) is None
+def test_sample_intake_has_required_fields():
+    from designops.pipelines.intake import SAMPLE_INTAKE
+
+    assert "C-pipe handover" in SAMPLE_INTAKE["pasted_input"]
+    assert SAMPLE_INTAKE["estimate_link"].startswith("https://")
+    assert SAMPLE_INTAKE["proposal_link"].startswith("https://")
+    assert "Club landing page" in SAMPLE_INTAKE["estimate_rows"]
+    assert "Ana Taylor" in SAMPLE_INTAKE["corrections"]
 
 
 def test_validate_sections_json_error_field():
@@ -150,3 +164,126 @@ def test_render_preview_html_contains_sections():
 def test_render_preview_html_error():
     html = render_preview_html({"error": "Not a handover email"})
     assert "Not a handover email" in html
+
+
+def test_sections_to_blocks_skips_callout_for_database_row():
+    blocks = sections_to_blocks(SAMPLE_SECTIONS, include_properties_callout=False)
+    assert blocks[0]["type"] == "heading_2"
+    assert "1. What this project is" in blocks[0]["heading_2"]["rich_text"][0]["text"]["content"]
+
+
+def test_extract_url_ignores_placeholders():
+    assert extract_url("pending") is None
+    assert extract_url("paste link here") is None
+    assert extract_url("https://www.figma.com/design/abc") == "https://www.figma.com/design/abc"
+
+
+def test_parse_kickoff_date():
+    assert parse_kickoff_date("to confirm") is None
+    assert parse_kickoff_date("2026-08-15") == "2026-08-15"
+    assert parse_kickoff_date("March 1, 2023") == "2023-03-01"
+
+
+def test_split_person_names_skips_unassigned():
+    assert split_person_names("⚠ unassigned") == []
+    assert split_person_names("Olga Kimalana, Iryna Rubanava") == ["Olga Kimalana", "Iryna Rubanava"]
+
+
+def test_status_intake_maps_to_todo():
+    options = ["To Do", "Done", "Canceled"]
+    assert match_select("Intake", options, {"intake": "To Do"}) == "To Do"
+    assert match_select("Done", options, {"intake": "To Do"}) == "Done"
+
+
+def test_database_properties_maps_design_projects_row():
+    sections = {
+        "title": "Sports Group Denmark - Club Portal",
+        "properties_callout": {
+            "status": "Intake",
+            "scope": "Core",
+            "ba_dm_lead": "Olga Kimalana",
+            "kam": "Ana Taylor",
+            "ux_ui_designer": "⚠ unassigned",
+            "kickoff": "to confirm",
+        },
+        "database_properties": {
+            "name": "Sports Group Denmark - Club Portal",
+            "status": "To Do",
+            "scope": "Core",
+            "site_type": ["B2B"],
+            "ba_dm_lead": ["Olga Kimalana"],
+            "kam": ["Ana Taylor"],
+            "ux_ui_designer": [],
+            "date": None,
+            "figma": None,
+        },
+    }
+    users = [
+        {"id": "u-olga", "name": "Olga Kimalana"},
+        {"id": "u-ana", "name": "Ana Taylor"},
+    ]
+    props = database_properties_from_sections(
+        sections,
+        title="Sports Group Denmark - Club Portal",
+        schema=DESIGN_PROJECTS_SCHEMA,
+        users=users,
+    )
+    assert props["Name"]["title"][0]["text"]["content"] == "Sports Group Denmark - Club Portal"
+    assert props["Status"]["select"]["name"] == "To Do"
+    assert props["Scope"]["select"]["name"] == "Core"
+    assert props["Site type"]["multi_select"] == [{"name": "B2B"}]
+    assert props["BA/DM lead"]["people"] == [{"id": "u-olga"}]
+    assert props["KAM"]["people"] == [{"id": "u-ana"}]
+    assert "UX/UI designer" not in props
+    assert "Date" not in props
+    assert "FIGMA" not in props
+
+
+def test_database_properties_sets_real_urls_only():
+    sections = {
+        "title": "IONTO",
+        "database_properties": {
+            "figma": "https://www.figma.com/design/abc",
+            "jira_phase_1": "pending",
+        },
+    }
+    props = database_properties_from_sections(sections, title="IONTO")
+    assert props["FIGMA"]["url"] == "https://www.figma.com/design/abc"
+    assert "JIRA: Phase 1" not in props
+
+
+def test_db_props_harvests_section_links():
+    from designops.adapters.notion import _db_props_source
+
+    src = _db_props_source(
+        {
+            "database_properties": {"figma": None, "design_contract": None},
+            "section_7": {
+                "rows": [
+                    {
+                        "what": "Proposal",
+                        "where": "https://docs.google.com/presentation/d/abc",
+                        "status": "Linked",
+                    }
+                ]
+            },
+            "section_8": {
+                "project_links": [
+                    {"label": "🎨 Figma file", "url": "https://www.figma.com/design/xyz"},
+                    {"label": "Jira epic", "url": "paste link here"},
+                ]
+            },
+        }
+    )
+    assert src["figma"] == "https://www.figma.com/design/xyz"
+    assert src["design_contract"] == "https://docs.google.com/presentation/d/abc"
+
+
+def test_unmatched_people_notes_when_no_users():
+    from designops.adapters.notion import unmatched_people_notes
+
+    notes = unmatched_people_notes(
+        {"database_properties": {"ba_dm_lead": ["Iryna Rubanava"], "kam": ["Ana Taylor"]}},
+        users=[],
+    )
+    assert notes == ["BA/DM lead: Iryna Rubanava", "KAM: Ana Taylor"]

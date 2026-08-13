@@ -743,7 +743,7 @@ _intake_completed: dict[str, str] = {}  # job_id → draft_id
 
 @app.get("/intake", response_class=HTMLResponse)
 def intake_page(request: Request, db: Session = Depends(get_db)):
-    from designops.pipelines.intake import render_preview_html
+    from designops.pipelines.intake import SAMPLE_INTAKE, render_preview_html
 
     s = get_settings()
     tab = (request.query_params.get("tab") or "input").strip().lower()
@@ -810,6 +810,58 @@ def intake_page(request: Request, db: Session = Depends(get_db)):
         .all()
     )
 
+    notion_pages: list[dict] = []
+    notion_error = None
+    notion_parent_url = None
+    if s.notion_parent_page_id:
+        notion_parent_url = (
+            f"https://app.notion.com/{s.notion_parent_page_id.replace('-', '')}"
+        )
+    if s.notion_configured:
+        try:
+            from designops.adapters.notion import NotionClient
+
+            notion_pages = NotionClient().list_intake_pages()
+        except Exception as e:  # noqa: BLE001
+            notion_error = str(e)[:240]
+
+    by_notion_id: dict[str, IntakeDraft] = {}
+    for d in published:
+        if d.notion_page_id:
+            by_notion_id[d.notion_page_id.replace("-", "").lower()] = d
+    published_rows: list[dict] = []
+    matched_ids: set[str] = set()
+    for page in notion_pages:
+        key = (page.get("id") or "").replace("-", "").lower()
+        draft = by_notion_id.get(key)
+        if draft:
+            matched_ids.add(str(draft.id))
+        published_rows.append(
+            {
+                "title": page.get("name") or "Untitled",
+                "url": page.get("url"),
+                "notion_id": page.get("id"),
+                "source": page.get("source"),
+                "last_edited_time": page.get("last_edited_time"),
+                "draft": draft,
+            }
+        )
+    # Local published records with no matching Notion page (orphans)
+    for d in published:
+        if str(d.id) in matched_ids:
+            continue
+        published_rows.append(
+            {
+                "title": d.title or "Untitled",
+                "url": d.notion_page_url,
+                "notion_id": d.notion_page_id,
+                "source": "local",
+                "last_edited_time": None,
+                "draft": d,
+                "missing_on_notion": True,
+            }
+        )
+
     viewed = None
     preview_html = ""
     if draft_id:
@@ -834,11 +886,15 @@ def intake_page(request: Request, db: Session = Depends(get_db)):
             "notion_ready": s.notion_configured,
             "drafts": drafts,
             "published": published,
+            "published_rows": published_rows,
+            "notion_error": notion_error,
+            "notion_parent_url": notion_parent_url,
             "viewed": viewed,
             "preview_html": preview_html,
             "pending_job": pending_job,
             "pending_since": pending_since,
             "pending_busy": bool(pending_ids),
+            "sample_intake": SAMPLE_INTAKE,
         },
     )
 
@@ -1020,6 +1076,49 @@ def intake_publish(
     return RedirectResponse(
         f"/intake?tab=published&draft_id={result.draft_id}&flash=Published+to+Notion",
         status_code=303,
+    )
+
+
+@app.post("/intake/delete")
+def intake_delete(
+    draft_id: str = Form(...),
+    return_tab: str = Form("drafts"),
+    db: Session = Depends(get_db),
+):
+    import uuid as _uuid
+
+    tab = (return_tab or "drafts").strip().lower()
+    if tab not in ("drafts", "published"):
+        tab = "drafts"
+    try:
+        did = _uuid.UUID(draft_id)
+    except ValueError:
+        return RedirectResponse(
+            f"/intake?tab={tab}&flash=Invalid+draft&flash_type=error",
+            status_code=303,
+        )
+    draft = db.get(IntakeDraft, did)
+    if not draft:
+        return RedirectResponse(
+            f"/intake?tab={tab}&flash=Draft+not+found&flash_type=error",
+            status_code=303,
+        )
+    title = (draft.title or "Untitled").strip() or "Untitled"
+    db.delete(draft)
+    db.commit()
+    return RedirectResponse(
+        f"/intake?tab={tab}&flash={quote(f'Deleted: {title}')}",
+        status_code=303,
+    )
+
+
+@app.get("/intake/sample-estimate.csv")
+def intake_sample_estimate_csv():
+    path = Path(__file__).resolve().parents[1] / "seeds" / "intake_sample_estimate.csv"
+    return Response(
+        content=path.read_text(encoding="utf-8"),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=intake_sample_estimate.csv"},
     )
 
 

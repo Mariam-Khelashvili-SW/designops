@@ -51,8 +51,6 @@
   .intake-tabs a{padding:10px 16px;text-decoration:none;font-size:13px;font-weight:600;border-bottom:2px solid transparent}
   .intake-tabs a.on{color:var(--ink);border-color:var(--teal)}
   .intake-tabs a:not(.on){color:var(--mut)}
-  .intake-layout{display:grid;grid-template-columns:1fr 340px;gap:16px}
-  @media(max-width:900px){.intake-layout{grid-template-columns:1fr}}
   .intake-preview h2{font-size:16px;margin:18px 0 8px}
   .intake-preview table{font-size:12px;margin-bottom:12px}
   .intake-callout{border-radius:8px;padding:10px 14px;margin:10px 0;font-size:13px}
@@ -63,23 +61,61 @@
   .intake-personas{display:flex;gap:12px;flex-wrap:wrap}
   .intake-persona{flex:1;min-width:200px;background:#f0f4ff;border-radius:8px;padding:12px;border:1px solid #c5d0f5}
   .intake-report{background:#fafbfc;border:1px solid var(--line);border-radius:8px;padding:14px;font-size:13px;white-space:pre-wrap;max-height:70vh;overflow:auto}
-  .intake-draft-list{max-height:420px;overflow:auto}
-  .intake-draft-item{display:block;padding:8px 12px;border-bottom:1px solid #f1f2f4;text-decoration:none;color:inherit;font-size:13px}
-  .intake-draft-item.on{background:#eef0fb;font-weight:600}
-  .intake-draft-item:hover{background:#f8f9fb}
   textarea.intake-email{width:100%;min-height:220px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px}
+
+  .intake-drafts{display:grid;grid-template-columns:260px minmax(0,1fr);gap:0;min-height:520px;border-top:1px solid var(--line)}
+  @media(max-width:900px){.intake-drafts{grid-template-columns:1fr}}
+  .intake-side{border-right:1px solid var(--line);background:#fafbfc;display:flex;flex-direction:column;min-height:0}
+  @media(max-width:900px){.intake-side{border-right:0;border-bottom:1px solid var(--line);max-height:220px}}
+  .intake-side-head{padding:12px 14px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);border-bottom:1px solid var(--line)}
+  .intake-draft-list{overflow:auto;flex:1}
+  .intake-draft-row{display:flex;align-items:stretch;border-bottom:1px solid #eef0f3}
+  .intake-draft-row.on{background:#eef0fb}
+  .intake-draft-row:hover{background:#f4f6fb}
+  .intake-draft-row.on:hover{background:#e8ebf8}
+  .intake-draft-link{flex:1;min-width:0;padding:10px 8px 10px 14px;text-decoration:none;color:inherit}
+  .intake-draft-title{font-size:13px;font-weight:600;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .intake-draft-row.on .intake-draft-title{font-weight:700}
+  .intake-draft-meta{margin-top:3px;font-size:11px;color:var(--mut)}
+  .intake-draft-del{appearance:none;border:0;background:transparent;color:#a0a7b4;cursor:pointer;padding:0 12px;font-size:16px;line-height:1;opacity:0}
+  .intake-draft-row:hover .intake-draft-del,
+  .intake-draft-row.on .intake-draft-del{opacity:1}
+  .intake-draft-del:hover{color:var(--red)}
+
+  .intake-main{padding:18px 20px;min-width:0}
+  .intake-toolbar{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+  .intake-toolbar h2{margin:0;font-size:18px;line-height:1.3}
+  .intake-toolbar .meta{margin-top:4px;font-size:12px;color:var(--mut)}
+  .intake-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .intake-link-danger{appearance:none;border:0;background:transparent;color:var(--mut);font:inherit;font-size:12px;cursor:pointer;padding:6px 4px;text-decoration:underline;text-underline-offset:2px}
+  .intake-link-danger:hover{color:var(--red)}
+  .intake-regen{margin-top:18px;border:1px solid var(--line);border-radius:8px;background:#fafbfc}
+  .intake-regen > summary{cursor:pointer;padding:10px 14px;font-size:13px;font-weight:600;list-style:none}
+  .intake-regen > summary::-webkit-details-marker{display:none}
+  .intake-regen > summary::before{content:"▸ ";color:var(--mut)}
+  .intake-regen[open] > summary::before{content:"▾ "}
+  .intake-regen-body{padding:0 14px 14px;border-top:1px solid var(--line)}
+  .intake-report-wrap{margin-top:18px}
+  .intake-report-wrap h3{font-size:14px;margin:0 0 8px}
+  .intake-pub-actions{display:flex;gap:10px;align-items:center;justify-content:flex-end}
+  .intake-pub-actions form{margin:0}
 </style>
 
 <div class="card" style="padding:0;overflow:hidden">
   <div class="intake-tabs">
     <a href="/intake?tab=input" class="{% if tab=='input' %}on{% endif %}">Input</a>
     <a href="/intake?tab=drafts" class="{% if tab=='drafts' %}on{% endif %}">Drafts ({{ drafts|length }})</a>
-    <a href="/intake?tab=published" class="{% if tab=='published' %}on{% endif %}">Published ({{ published|length }})</a>
+    <a href="/intake?tab=published" class="{% if tab=='published' %}on{% endif %}">Published ({{ published_rows|length }})</a>
   </div>
 
   {% if tab == 'input' %}
   <div style="padding:18px 20px">
-    <form method="post" action="/intake/generate" enctype="multipart/form-data">
+    <p class="sub" style="margin-top:0">Use a real C-pipe paste, or load the SGD Club Portal sample to try generate → preview → publish.</p>
+    <p style="margin:0 0 14px">
+      <button class="btn ghost sm" type="button" id="intake-load-sample">Load sample inputs</button>
+      <a class="btn ghost sm" href="/intake/sample-estimate.csv" style="margin-left:6px">Download sample estimate.csv</a>
+    </p>
+    <form method="post" action="/intake/generate" enctype="multipart/form-data" id="intake-form">
       <input type="hidden" name="return_tab" value="input" />
       <div style="margin-bottom:14px">
         <label>Handover email content <span style="color:var(--red)">*</span></label>
@@ -102,7 +138,7 @@
       <div style="margin-bottom:14px">
         <label>Upload spreadsheet (optional — .csv or .xlsx)</label>
         <input type="file" name="files" accept=".csv,.xlsx,.xls" multiple />
-        <p style="font-size:12px;color:var(--mut);margin:4px 0 0">Content is extracted as text for the generator — links are not fetched automatically.</p>
+        <p style="font-size:12px;color:var(--mut);margin:4px 0 0">Content is extracted as text for the generator — links are not fetched automatically. You can upload the sample estimate.csv after downloading it.</p>
       </div>
       <div style="margin-bottom:14px">
         <label>Corrections / extra context (optional)</label>
@@ -110,87 +146,200 @@
       </div>
       <button class="btn" type="submit" {% if pending_busy %}disabled{% endif %}>{% if pending_busy %}Generating…{% else %}Generate intake page{% endif %}</button>
     </form>
+    <script>
+    (function () {
+      var sample = {{ sample_intake|tojson }};
+      var btn = document.getElementById('intake-load-sample');
+      if (!btn || !sample) return;
+      btn.addEventListener('click', function () {
+        var form = document.getElementById('intake-form');
+        form.pasted_input.value = sample.pasted_input || '';
+        form.estimate_link.value = sample.estimate_link || '';
+        form.proposal_link.value = sample.proposal_link || '';
+        form.estimate_rows.value = sample.estimate_rows || '';
+        form.corrections.value = sample.corrections || '';
+      });
+    })();
+    </script>
   </div>
 
   {% elif tab == 'drafts' %}
+  {% if not drafts %}
   <div style="padding:18px 20px">
-    {% if not drafts %}
-    <p class="sub">No drafts yet. <a href="/intake?tab=input">Paste an email →</a></p>
-    {% else %}
-    <div class="intake-layout">
-      <div>
-        <div class="intake-draft-list" style="border:1px solid var(--line);border-radius:8px;margin-bottom:14px">
-          {% for d in drafts %}
-          <a class="intake-draft-item{% if viewed and viewed.id == d.id %} on{% endif %}" href="/intake?tab=drafts&amp;draft_id={{ d.id }}">
-            {{ d.title or 'Untitled' }}
-            <span style="color:var(--mut);font-size:11px"> · {{ d.generated_at|dt }}{% if d.status=='error' %} · error{% endif %}</span>
+    <p class="sub" style="margin:0">No drafts yet. <a href="/intake?tab=input">Paste an email →</a></p>
+  </div>
+  {% else %}
+  <div class="intake-drafts">
+    <aside class="intake-side">
+      <div class="intake-side-head">Drafts</div>
+      <div class="intake-draft-list">
+        {% for d in drafts %}
+        <div class="intake-draft-row{% if viewed and viewed.id == d.id %} on{% endif %}">
+          <a class="intake-draft-link" href="/intake?tab=drafts&amp;draft_id={{ d.id }}">
+            <div class="intake-draft-title">{{ d.title or 'Untitled' }}</div>
+            <div class="intake-draft-meta">
+              {{ d.generated_at|dt }}
+              {% if d.status == 'error' %}<span class="pill red" style="margin-left:6px">error</span>{% endif %}
+            </div>
           </a>
-          {% endfor %}
+          <form method="post" action="/intake/delete"
+                onsubmit="return confirm('Delete “{{ (d.title or 'Untitled')|e }}”? This only removes it from Intake.');">
+            <input type="hidden" name="draft_id" value="{{ d.id }}" />
+            <input type="hidden" name="return_tab" value="drafts" />
+            <button class="intake-draft-del" type="submit" title="Delete draft" aria-label="Delete {{ d.title or 'Untitled' }}">×</button>
+          </form>
         </div>
+        {% endfor %}
+      </div>
+    </aside>
 
-        {% if viewed %}
-        <div class="intake-preview">
-          {% if viewed.status == 'error' %}
-          <div class="banner warn">{{ viewed.error_message or 'Generation failed' }}</div>
-          {% endif %}
-          {{ preview_html|safe }}
+    <div class="intake-main">
+      {% if viewed %}
+      <div class="intake-toolbar">
+        <div style="min-width:0;flex:1">
+          <h2>{{ viewed.title or 'Untitled' }}</h2>
+          <div class="meta">
+            Generated {{ viewed.generated_at|dt }}
+            {% if viewed.status == 'error' %} · <span style="color:var(--red)">generation failed</span>{% endif %}
+            {% if viewed.status == 'draft' %} · ready to publish{% endif %}
+          </div>
         </div>
-
-        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+        <div class="intake-actions">
           {% if viewed.status == 'draft' and notion_ready %}
           <form method="post" action="/intake/publish">
             <input type="hidden" name="draft_id" value="{{ viewed.id }}" />
             <button class="btn" type="submit">Publish to Notion</button>
           </form>
+          {% elif viewed.status == 'draft' and not notion_ready %}
+          <span class="sub" style="margin:0">Notion not configured</span>
           {% endif %}
-          <form method="post" action="/intake/generate" enctype="multipart/form-data" style="flex:1;min-width:280px">
+          <form method="post" action="/intake/delete"
+                onsubmit="return confirm('Delete this draft permanently? This does not remove anything from Notion.');">
             <input type="hidden" name="draft_id" value="{{ viewed.id }}" />
             <input type="hidden" name="return_tab" value="drafts" />
-            <div style="margin-bottom:8px">
-              <label style="font-size:11px">Regenerate with corrections</label>
-              <textarea class="intake-email" name="pasted_input" style="min-height:120px">{{ viewed.pasted_input }}</textarea>
-            </div>
-            <div class="row" style="margin-bottom:8px">
-              <input name="estimate_link" value="{{ viewed.estimate_link or '' }}" placeholder="Estimate link" style="flex:1" />
-              <input name="proposal_link" value="{{ viewed.proposal_link or '' }}" placeholder="Proposal link" style="flex:1" />
-            </div>
-            <textarea name="estimate_rows" rows="2" style="width:100%;font:inherit;padding:6px;margin-bottom:8px" placeholder="Estimate rows">{{ viewed.estimate_rows or '' }}</textarea>
-            <input type="text" name="corrections" placeholder="Corrections (override email)…" style="width:100%;margin-bottom:8px" />
-            <button class="btn ghost sm" type="submit">Regenerate</button>
+            <button class="intake-link-danger" type="submit">Delete</button>
           </form>
         </div>
-        {% endif %}
       </div>
 
-      {% if viewed and viewed.intake_report %}
-      <div>
-        <h3 style="font-size:14px;margin:0 0 8px">Intake report <span style="color:var(--mut);font-weight:400">(DM only — not published)</span></h3>
+      {% if viewed.status == 'error' %}
+      <div class="banner warn">{{ viewed.error_message or 'Generation failed' }}</div>
+      {% endif %}
+
+      <div class="intake-preview">{{ preview_html|safe }}</div>
+
+      {% if viewed.intake_report %}
+      <div class="intake-report-wrap">
+        <h3>Intake report <span style="color:var(--mut);font-weight:400">(DM only — not published)</span></h3>
         <div class="intake-report">{{ viewed.intake_report }}</div>
         {% if viewed.flags %}
         <h4 style="font-size:13px;margin:14px 0 6px">Flags</h4>
-        <ul style="font-size:12px;color:var(--mut)">
+        <ul style="font-size:12px;color:var(--mut);margin:0;padding-left:18px">
           {% for f in viewed.flags %}<li>{{ f }}</li>{% endfor %}
         </ul>
         {% endif %}
       </div>
       {% endif %}
+
+      <details class="intake-regen">
+        <summary>Regenerate with corrections</summary>
+        <div class="intake-regen-body" style="padding-top:12px">
+          <p class="sub" style="margin-top:0">Reuse this handover and tweak links or notes, then regenerate a new draft version.</p>
+          <form method="post" action="/intake/generate" enctype="multipart/form-data">
+            <input type="hidden" name="draft_id" value="{{ viewed.id }}" />
+            <input type="hidden" name="return_tab" value="drafts" />
+            <div style="margin-bottom:10px">
+              <label>Handover email content</label>
+              <textarea class="intake-email" name="pasted_input" style="min-height:120px">{{ viewed.pasted_input }}</textarea>
+            </div>
+            <div class="row" style="margin-bottom:10px">
+              <div style="flex:1;min-width:160px">
+                <label>Estimate link</label>
+                <input name="estimate_link" value="{{ viewed.estimate_link or '' }}" style="width:100%" />
+              </div>
+              <div style="flex:1;min-width:160px">
+                <label>Proposal link</label>
+                <input name="proposal_link" value="{{ viewed.proposal_link or '' }}" style="width:100%" />
+              </div>
+            </div>
+            <div style="margin-bottom:10px">
+              <label>Estimate rows</label>
+              <textarea name="estimate_rows" rows="2" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">{{ viewed.estimate_rows or '' }}</textarea>
+            </div>
+            <div style="margin-bottom:12px">
+              <label>Corrections</label>
+              <input type="text" name="corrections" placeholder="e.g. KAM is actually X, kickoff confirmed Friday" style="width:100%" />
+            </div>
+            <button class="btn ghost sm" type="submit">Regenerate</button>
+          </form>
+        </div>
+      </details>
+      {% else %}
+      <p class="sub" style="margin:0">Select a draft from the list.</p>
+      {% endif %}
     </div>
-    {% endif %}
   </div>
+  {% endif %}
 
   {% elif tab == 'published' %}
   <div style="padding:18px 20px">
-    {% if not published %}
-    <p class="sub">Nothing published yet.</p>
+    <div class="row" style="margin-bottom:14px;align-items:center;justify-content:space-between;gap:12px">
+      <p class="sub" style="margin:0;flex:1">Pages on the Notion parent{% if notion_parent_url %} (<a href="{{ notion_parent_url }}" target="_blank" rel="noopener">open</a>){% endif %}. Matched Intake drafts are linked when available.</p>
+      <div class="intake-actions">
+        <a class="btn ghost sm" href="/intake?tab=published">Refresh from Notion</a>
+      </div>
+    </div>
+    {% if notion_error %}
+    <div class="banner warn">Could not read Notion: {{ notion_error }}</div>
+    {% endif %}
+    {% if not notion_ready %}
+    <div class="banner warn">Notion is not configured — showing local published drafts only.</div>
+    {% endif %}
+    {% if not published_rows %}
+    <p class="sub" style="margin:0">Nothing on the Notion parent yet. Publish a draft to add one.</p>
     {% else %}
     <table>
-      <thead><tr><th>Title</th><th>Published</th><th>Notion</th></tr></thead>
+      <thead><tr><th>Title</th><th>Source</th><th>In Intake</th><th>Notion</th><th></th></tr></thead>
       <tbody>
-        {% for d in published %}
+        {% for r in published_rows %}
         <tr>
-          <td><a href="/intake?tab=drafts&amp;draft_id={{ d.id }}">{{ d.title or 'Untitled' }}</a></td>
-          <td>{{ d.published_at|dt }}</td>
-          <td>{% if d.notion_page_url %}<a href="{{ d.notion_page_url }}" target="_blank" rel="noopener">Open page</a>{% else %}—{% endif %}</td>
+          <td>
+            {% if r.draft %}
+            <a href="/intake?tab=drafts&amp;draft_id={{ r.draft.id }}">{{ r.title }}</a>
+            {% else %}
+            {{ r.title }}
+            {% endif %}
+            {% if r.missing_on_notion %}
+            <span class="pill flagged" style="margin-left:6px">missing on Notion</span>
+            {% endif %}
+          </td>
+          <td class="mono" style="font-size:12px;color:var(--mut)">
+            {% if r.source == 'table' %}table row
+            {% elif r.source == 'page' %}sub-page
+            {% elif r.source == 'local' %}local only
+            {% else %}{{ r.source or '—' }}{% endif %}
+          </td>
+          <td>
+            {% if r.draft %}
+            <a href="/intake?tab=drafts&amp;draft_id={{ r.draft.id }}">Draft</a>
+            {% if r.draft.published_at %}<span style="color:var(--mut);font-size:11px"> · {{ r.draft.published_at|dt }}</span>{% endif %}
+            {% else %}
+            <span style="color:var(--mut)">—</span>
+            {% endif %}
+          </td>
+          <td>{% if r.url %}<a href="{{ r.url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td>
+          <td>
+            {% if r.draft %}
+            <div class="intake-pub-actions">
+              <form method="post" action="/intake/delete"
+                    onsubmit="return confirm('Remove “{{ r.title|e }}” from Intake? The Notion page stays.');">
+                <input type="hidden" name="draft_id" value="{{ r.draft.id }}" />
+                <input type="hidden" name="return_tab" value="published" />
+                <button class="intake-link-danger" type="submit">Remove from Intake</button>
+              </form>
+            </div>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

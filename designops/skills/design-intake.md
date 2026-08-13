@@ -41,8 +41,10 @@ HARD RULES
    come exclusively from pasted text and uploaded file content.
 
 PAGE STRUCTURE — produce exactly these sections in this order, matching the
-SGD Club Portal sample page:
-  Top callout (properties_callout): Status Intake · Scope · UX/UI designer · BA/DM lead · KAM · Kickoff · Figma/Drive/Jira pending
+SGD Club Portal sample page. In the live Design projects database these become
+the BODY of a new table row; Status/Scope/people/links live as row properties
+(not a body callout). Still fill properties_callout + database_properties.
+  properties_callout: Status · Scope · UX/UI designer · BA/DM lead · KAM · Kickoff · Figma/Drive/Jira
   Section 1 What this project is: website line, two paragraphs, blue job callout
   Section 2 Who uses it: persona cards (1-2), closing not-for line
   Section 3 What we design: new screens table, reuse list, out-of-scope list, yellow revision callout
@@ -50,9 +52,26 @@ SGD Club Portal sample page:
   Section 5 People: table Who / Ask them about
   Section 6 Heads-up: max 4 bullets
   Section 7 Files & links: table What / Status / Where
-  Section 8 Working space: kickoff, UX discovery, UX/UI designs subheads; project links table; templates table; gray sync callout
-  Section 9 Project AI assistant: link slot
-  Section 10 Case study: fixed placeholder
+  Section 8 Working space: kickoff, UX discovery, UX/UI designs; Project links table
+    (Link / Where: Figma file, Jira epic); Templates to produce — Wireframes; gray sync callout
+  Section 9 Project AI assistant: Team assistant link slot
+
+TITLE / ROW NAME:
+Use a short Design projects Name like existing rows ("Sports Group Denmark - Club Portal",
+"IONTO", "Jollyes") — not a long "Client — Project — SAMPLE" title.
+
+DESIGN PROJECTS ROW PROPERTIES (database_properties):
+Status options (live DB; "Intake" is NOT an option yet): To Do, Research in progress,
+Wireframes in progress, Designs in progress, Dedicated, On hold, Done, Canceled.
+New handover rows: Status = "To Do" unless the source clearly says otherwise.
+Scope options (use only these): Core, Full, Custom, UI Refresh, Improved UX & UI Refresh,
+Webflow, Partial improvements, Agile. Map "template" → Custom.
+Site type (multi, use only these): B2B, B2C, D2C, B2G, Custom.
+People: real full names only, or empty list — never "⚠ unassigned" in database_properties.
+Date: ISO YYYY-MM-DD if kickoff is a real date, else null.
+URL fields (figma, design_drive, design_contract, jira_phase_1, jira_phase_2, jira_ux_ui):
+real http(s) URLs only, else null. Do not invent. Figma/Drive/Jira are usually pending
+at intake and stay empty on the row.
 
 FILES TABLE STATUS VOCABULARY (use only these):
   Linked  = real URL present (green)
@@ -60,8 +79,9 @@ FILES TABLE STATUS VOCABULARY (use only these):
   Missing = not in the handover at all, must be requested (red)
   Pending = will be created later in the project (gray)
 Always evaluate these candidate rows: design system to reuse, brand assets /
-logo pack, proposal, estimate, WoW (Ways of Working) doc. Write the WoW row as
-"WoW (Ways of Working) doc" in full.
+logo pack, proposal, estimate, C-pipe email (internal handover), WoW (Ways of Working) doc.
+Write the WoW row as "WoW (Ways of Working) doc" in full. C-pipe email is Linked only if
+a Gmail URL was provided; otherwise Link it / Missing.
 
 TEMPLATES-TO-PRODUCE SEEDING:
 If the runner pasted estimate rows as text or uploaded file content is provided:
@@ -93,15 +113,31 @@ OUTPUT FORMAT — respond with a single JSON object only (no markdown fences):
 
 {
   "error": null,
-  "title": "{Client} — {Project}",
+  "title": "Sports Group Denmark - Club Portal",
   "properties_callout": {
-    "status": "Intake",
-    "scope": "Custom or Template",
+    "status": "To Do",
+    "scope": "Custom",
     "ux_ui_designer": "name or ⚠ unassigned",
     "ba_dm_lead": "name or ⚠ unassigned",
     "kam": "name or ⚠ unassigned",
     "kickoff": "date or to confirm",
     "figma_drive_jira": "pending"
+  },
+  "database_properties": {
+    "name": "Sports Group Denmark - Club Portal",
+    "status": "To Do",
+    "scope": "Core",
+    "site_type": ["B2B"],
+    "ba_dm_lead": ["Iryna Rubanava"],
+    "kam": ["Ana Taylor"],
+    "ux_ui_designer": [],
+    "date": null,
+    "figma": null,
+    "design_drive": null,
+    "design_contract": null,
+    "jira_phase_1": null,
+    "jira_phase_2": null,
+    "jira_ux_ui": null
   },
   "section_1": {
     "website": "URL or ⚠ requested",
@@ -133,15 +169,15 @@ OUTPUT FORMAT — respond with a single JSON object only (no markdown fences):
     "rows": [{"what": "...", "status": "Linked|Link it|Missing|Pending", "where": "URL or note"}]
   },
   "section_8": {
-    "project_links": [{"label": "🎨 Figma file", "url": "paste link here"}, {"label": "🎫 Jira epic", "url": "paste link here"}],
+    "project_links": [
+      {"label": "Figma file", "url": "paste link here"},
+      {"label": "Jira epic", "url": "paste link here"}
+    ],
     "templates": [{"name": "...", "status": "Not started"}],
-    "sync_callout": "Statuses update automatically — designers don't edit this table by hand."
+    "sync_callout": "Statuses update automatically from Figma and Jira activity once the links above are added — designers don't need to edit this table by hand. The Designs template list appears here when the build phase is confirmed."
   },
   "section_9": {
-    "assistant_link": "paste Team assistant link here"
-  },
-  "section_10": {
-    "placeholder": "Case study placeholder — to be filled after project delivery."
+    "assistant_link": "paste the project assistant link here so the whole team uses the same one"
   },
   "intake_report": "Full report text for DM and design lead...",
   "flags": ["list of warnings or notes for the runner"]
