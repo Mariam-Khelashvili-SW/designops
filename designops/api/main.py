@@ -814,9 +814,9 @@ def intake_page(request: Request, db: Session = Depends(get_db)):
     notion_error = None
     notion_parent_url = None
     if s.notion_parent_page_id:
-        notion_parent_url = (
-            f"https://app.notion.com/{s.notion_parent_page_id.replace('-', '')}"
-        )
+        from designops.adapters.notion import _page_url
+
+        notion_parent_url = _page_url(s.notion_parent_page_id)
     if s.notion_configured:
         try:
             from designops.adapters.notion import NotionClient

@@ -13,7 +13,7 @@ httpx==0.28.*                  # Fairwind REST + OAuth
 pyyaml==6.0.*                  # seed files
 anthropic==0.42.*             # LLM synthesis
 css-inline==0.21.*             # inline email CSS (Gmail strips <style> in full view)
-notion-client==2.2.*           # Notion API for design intake publishing
+notion-client==3.1.*           # Notion API (data_sources / 2025-09-03) for design intake
 openpyxl==3.1.*                # xlsx parsing for estimate uploads
 
 # Dev / test

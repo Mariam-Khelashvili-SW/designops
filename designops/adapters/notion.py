@@ -662,8 +662,33 @@ class NotionClient:
             from notion_client import Client
 
             self._client = Client(auth=self.s.notion_api_token, notion_version=NOTION_VERSION)
+            if not hasattr(self._client, "data_sources"):
+                raise RuntimeError(
+                    "notion-client is too old for this app (need 3.1+ with data_sources). "
+                    "Redeploy after updating requirements.txt."
+                )
         return self._client
 
+    def _query_rows(self, data_source_or_db_id: str, **kwargs: Any) -> dict:
+        """Query rows via data_sources API (2025), with raw-request fallback."""
+        client = self._get_client()
+        if hasattr(client, "data_sources"):
+            return client.data_sources.query(data_source_or_db_id, **kwargs)
+        # Older SDKs: hit the endpoint directly.
+        return client.request(
+            path=f"data_sources/{data_source_or_db_id}/query",
+            method="POST",
+            body={k: v for k, v in kwargs.items() if v is not None},
+        )
+
+    def _retrieve_data_source(self, data_source_id: str) -> dict:
+        client = self._get_client()
+        if hasattr(client, "data_sources"):
+            return client.data_sources.retrieve(data_source_id)
+        return client.request(
+            path=f"data_sources/{data_source_id}",
+            method="GET",
+        )
     def test_connection(self) -> dict:
         """Verify token works. Returns bot user info."""
         return self._get_client().users.me()
@@ -722,7 +747,7 @@ class NotionClient:
         if sources:
             ds_id = sources[0]["id"]
             try:
-                src = client.data_sources.retrieve(ds_id)
+                src = self._retrieve_data_source(ds_id)
                 schema = src.get("properties") or db.get("properties") or DESIGN_PROJECTS_SCHEMA
             except Exception as e:  # noqa: BLE001
                 log.warning("Could not retrieve Notion data source: %s", e)
@@ -874,7 +899,7 @@ class NotionClient:
                 kwargs: dict[str, Any] = {"page_size": 100}
                 if cursor:
                     kwargs["start_cursor"] = cursor
-                resp = client.data_sources.query(ds_id, **kwargs)
+                resp = self._query_rows(ds_id, **kwargs)
                 for page in resp.get("results") or []:
                     if page.get("in_trash") or page.get("archived"):
                         continue
