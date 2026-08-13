@@ -1429,6 +1429,17 @@ def _is_skeleton_body(body: str | None) -> bool:
     return "Follow-up details to be confirmed" in text
 
 
+def email_bodies_equivalent(left: str | None, right: str | None) -> bool:
+    """True when two email bodies are the same for display purposes."""
+
+    def _norm(value: str | None) -> str:
+        text = (value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        lines = [" ".join(line.split()) for line in text.split("\n")]
+        return "\n".join(line for line in lines if line).strip()
+
+    return _norm(left) == _norm(right)
+
+
 def explain_draft_status(
     *,
     body_text: str | None,
@@ -1511,7 +1522,7 @@ def explain_draft_status(
         list_label = "needs review"
         next_step = "Skim the issues, edit the follow-up if needed, then copy to send."
         show_primary_email = True
-        show_kept_email = True
+        show_kept_email = False
     elif policy_blocked:
         level = "warn"
         title = "Almost ready — fix these before sending"
@@ -1522,7 +1533,7 @@ def explain_draft_status(
         list_label = "needs review"
         next_step = "Resolve the issues below, then copy subject and body."
         show_primary_email = not skeleton
-        show_kept_email = True
+        show_kept_email = False
     elif low_confidence or (transcript_quality or "").lower() == "degraded":
         level = "warn"
         title = "Transcript looked messy"
@@ -1998,10 +2009,8 @@ def generate_call_summary_draft(
     kept_body_final: str | None = None
     if kept_body_raw is not None:
         kept_body_final = inject_resolved_urls_into_body(kept_body_raw, link_map, arts)
-        if kept_body_final.strip() == body_final.strip():
-            # No meaningful difference after URL inject — still keep if blocked for UI.
-            if not policy_blocked:
-                kept_body_final = None
+        if email_bodies_equivalent(kept_body_final, body_final):
+            kept_body_final = None
 
     reviewer_notes = list(composition.get("reviewer_notes") or [])
     for n in critic_notes:

@@ -475,7 +475,7 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
         body_html = markdown_lite_to_html(viewed.body_text)
         body_plain = markdown_lite_to_plain(viewed.body_text)
     if viewed is not None:
-        from designops.pipelines.call_summary import explain_draft_status
+        from designops.pipelines.call_summary import email_bodies_equivalent, explain_draft_status
 
         draft_status = explain_draft_status(
             body_text=viewed.body_text,
@@ -493,9 +493,14 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
             kept_body_text = viewed.body_text
             draft_status["show_primary_email"] = False
             draft_status["show_kept_email"] = True
-        elif draft_status.get("show_kept_email") and not kept_body_text:
-            # Older rows have no separate kept copy — don't duplicate the same body twice.
+        same_as_followup = bool(
+            kept_body_text
+            and draft_status.get("show_primary_email")
+            and email_bodies_equivalent(viewed.body_text, kept_body_text)
+        )
+        if same_as_followup or (draft_status.get("show_kept_email") and not kept_body_text):
             draft_status["show_kept_email"] = False
+            kept_body_text = None
             if "kept below" in (draft_status.get("summary") or "").lower():
                 draft_status["summary"] = (
                     "A follow-up email was generated (shown below). "
@@ -505,20 +510,13 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
                     "Resolve the issues above, then copy subject and body."
                 )
                 draft_status["title"] = "Almost ready — fix these before sending"
-        if kept_body_text:
+        elif kept_body_text and not draft_status.get("skeleton"):
+            draft_status["show_kept_email"] = True
+        if kept_body_text and draft_status.get("show_kept_email"):
             from designops.api.markdown_lite import markdown_lite_to_html, markdown_lite_to_plain
 
             kept_body_html = markdown_lite_to_html(kept_body_text)
             kept_body_plain = markdown_lite_to_plain(kept_body_text)
-            # Don't duplicate the same text in both panels.
-            if (
-                draft_status.get("show_primary_email")
-                and (viewed.body_text or "").strip() == kept_body_text.strip()
-            ):
-                draft_status["show_kept_email"] = False
-                kept_body_html = ""
-                kept_body_plain = ""
-                kept_body_text = None
 
     return templates.TemplateResponse(
         "call_summary.html",

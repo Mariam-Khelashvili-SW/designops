@@ -355,6 +355,31 @@ def test_explain_draft_status_skeleton_and_human_reasons():
     assert status["fact_counts"]["decisions"] == 2
 
 
+def test_email_bodies_equivalent_ignores_whitespace():
+    from designops.pipelines.call_summary import email_bodies_equivalent, explain_draft_status
+
+    assert email_bodies_equivalent(
+        "Hello Sam,\n\nThank you for the call!\n",
+        "Hello Sam,\r\n\r\nThank you for the call!  \n",
+    )
+    assert not email_bodies_equivalent(
+        "Hello Sam,\n\nThank you for the call!",
+        "Hello Sam,\n\nThank you for the call yesterday!",
+    )
+
+    status = explain_draft_status(
+        body_text="Hello Sam,\n\nThank you for the call!\n",
+        policy_blocked=True,
+        policy_block_reason="Degraded transcript — draft must be reviewed before sending",
+        reviewer_notes=["Transcript quality degraded — verify against your own notes before sending."],
+        transcript_quality="degraded",
+        low_confidence=False,
+        placeholder_count=0,
+    )
+    assert status["show_primary_email"] is True
+    assert status["show_kept_email"] is False
+
+
 def test_repair_appends_timing_and_drops_weak_recap():
     from designops.pipelines.call_summary import repair_composition_body, validate_composition_draft
 
