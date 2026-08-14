@@ -33,10 +33,6 @@ def _lines_for_row(row: dict, field: str) -> list[str]:
     return [text] if text else []
 
 
-def _first_name(full_name: str) -> str:
-    return (full_name or "").strip().split()[0] if full_name else ""
-
-
 def _escalation_names(digest: dict) -> set[str]:
     names: set[str] = set()
     for e in digest.get("escalations") or []:
@@ -244,33 +240,6 @@ def build_person_groups(digest: dict, report_date: date) -> list[dict]:
     return person_groups
 
 
-def build_project_index(digest: dict, person_groups: list[dict]) -> list[dict]:
-    """One-line index so shared-project work stays legible after the person split."""
-    project_statuses = digest.get("project_statuses") or {}
-    by_proj: dict[str, dict] = {}
-    order: list[str] = []
-    for card in person_groups:
-        for p in card["projects"]:
-            name = p["name"]
-            key = name.lower()
-            if key not in by_proj:
-                by_proj[key] = {
-                    "project": name,
-                    "people": [],
-                    "status_tag": validate_project_status(project_statuses.get(key)),
-                }
-                order.append(key)
-            if card["name"] not in by_proj[key]["people"]:
-                by_proj[key]["people"].append(card["name"])
-    index = []
-    for key in order:
-        g = by_proj[key]
-        firsts = [_first_name(n) for n in g["people"]]
-        g["people_label"] = ", ".join(firsts)
-        index.append(g)
-    return index
-
-
 def render_digest(
     digest: dict,
     report_date: date,
@@ -280,7 +249,6 @@ def render_digest(
 ) -> str:
     template = _env.get_template("digest.html.j2")
     person_groups = build_person_groups(digest, report_date)
-    project_index = build_project_index(digest, person_groups)
 
     plans = list(digest.get("todays_plans") or [])
     leave_plans = [p for p in plans if p.get("leave_upcoming")]
@@ -297,7 +265,6 @@ def render_digest(
     return template.render(
         digest=digest,
         person_groups=person_groups,
-        project_index=project_index,
         leave_plans=leave_plans,
         other_plans=other_plans,
         on_leave=on_leave,

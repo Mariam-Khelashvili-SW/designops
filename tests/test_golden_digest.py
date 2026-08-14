@@ -133,7 +133,7 @@ def test_render_groups_by_person_with_done_next():
     assert html.index("PLP work.") > arturs_i
     assert "Kick-off." in html
     assert "Finished PLP." in html
-    assert "Today's projects:" in html
+    assert "Today's projects:" not in html
 
 
 def test_coverage_incomplete_warns(expected):
