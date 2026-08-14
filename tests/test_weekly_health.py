@@ -308,7 +308,6 @@ def test_render_weekly_health_figma_panel():
             }
         ],
         "this_week": [],
-        "unclassified_handles": [],
     }
     html = render_weekly_health(
         {

@@ -6,6 +6,8 @@ from datetime import date
 
 from designops.pipelines.weekly_health_figma import (
     attach_figma_to_cards,
+    build_figma_project_output,
+    build_figma_roster,
     classify_thread,
     fetch_figma_comments_bundle,
     figma_excerpt_no_activity,
@@ -14,8 +16,10 @@ from designops.pipelines.weekly_health_figma import (
     is_client_author,
     is_internal_author,
     is_imperative_todo,
+    is_internal_handle,
     is_question_shaped,
     load_figma_roster,
+    looks_internal_handle,
     prefetch_figma_for_projects,
     sum_figma_overdue_kpi,
     thread_in_health_window,
@@ -127,6 +131,90 @@ def test_internal_vs_client_author():
     client = {"user": "Alessio", "user_email": None}
     assert is_internal_author(internal) is True
     assert is_client_author(client) is True
+
+
+def test_quote_authors_include_reply_writer():
+    roster = load_figma_roster()
+    thread = _thread(
+        tid="1",
+        message="Is this a slider or static?",
+        created="2026-08-14T10:00:00Z",
+        user="Sanna Purho",
+        user_email=None,
+        replies=[
+            {
+                "id": "r1",
+                "message": "Sanna Purho this is intended as static, to replace the rotating carousel.",
+                "user": "Maarja",
+                "user_email": None,
+                "created_at": "2026-08-14T11:00:00Z",
+            }
+        ],
+    )
+    from designops.pipelines.weekly_health_figma import _item_from_thread
+
+    item = _item_from_thread(
+        thread,
+        kind="UNANSWERED",
+        file_key="abc",
+        file_url="https://www.figma.com/design/abc",
+        as_of=date(2026, 8, 14),
+        roster=roster,
+    )
+    assert item["who"] == "Sanna Purho"
+    assert item["quotes"][0]["who"] == "Sanna Purho"
+    assert "slider" in item["quotes"][0]["text"]
+    assert item["quotes"][1]["who"] == "Maarja"
+    assert "static" in item["quotes"][1]["text"]
+
+
+def test_looks_internal_handle_sw_dev_and_scandiweb():
+    assert looks_internal_handle("sw-dev")
+    assert looks_internal_handle("SW-Dev")
+    assert looks_internal_handle("scandiweb-bot")
+    assert not looks_internal_handle("Alessio")
+    assert not looks_internal_handle("Maarja Truu")
+
+
+def test_designer_list_and_sw_dev_are_internal():
+    roster = build_figma_roster(designer_names=["Elene Chekurishvili"])
+    assert is_internal_handle("Elene Chekurishvili", roster)
+    assert is_internal_handle("sw-dev", roster)
+    assert is_internal_handle("elene chekurishvili", roster)  # casefold
+
+    threads = [
+        (
+            "file",
+            _thread(
+                tid="1",
+                message="ping",
+                created="2026-08-10T00:00:00Z",
+                user="sw-dev",
+                user_email=None,
+                unresolved=False,
+            ),
+        ),
+        (
+            "file",
+            _thread(
+                tid="2",
+                message="Remove delivery options",
+                created="2026-08-10T00:00:00Z",
+                user="Elene Chekurishvili",
+                user_email=None,
+            ),
+        ),
+    ]
+    panel = build_figma_project_output(
+        threads,
+        all_comments=[],
+        as_of=date(2026, 8, 11),
+        week_start=date(2026, 8, 4),
+        url_by_key={"file": "https://www.figma.com/design/file"},
+        roster=roster,
+    )
+    assert "unclassified_handles" not in panel
+    assert panel["counts"]["still_open"] >= 1
 
 
 def test_fetch_figma_comments_bundle_no_urls():
@@ -269,7 +357,6 @@ def test_attach_figma_to_cards_uses_panel():
                         }
                     ],
                     "this_week": [],
-                    "unclassified_handles": [],
                 }
             }
         },

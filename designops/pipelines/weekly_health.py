@@ -239,6 +239,7 @@ def _fetch_figma_bundle_for_project(
     as_of: date,
     account_domains: list[str] | None = None,
     roster_emails: set[str] | None = None,
+    designer_names: list[str] | None = None,
     settings=None,
 ) -> dict:
     from designops.adapters import figma as figma_api
@@ -256,6 +257,7 @@ def _fetch_figma_bundle_for_project(
         settings=s,
         account_domains=account_domains,
         roster_emails=roster_emails,
+        designer_names=designer_names,
     )
 
 
@@ -268,6 +270,7 @@ def _prefetch_one_project(
     roster_emails: set[str],
     participant_emails: list[str],
     reuse: bool,
+    designer_names: list[str] | None = None,
     settings=None,
 ) -> tuple[str, dict, list[dict]]:
     """Fetch Fairwind + Jira + calendar + Figma for one project (parallel inner fan-out)."""
@@ -322,6 +325,7 @@ def _prefetch_one_project(
             as_of=as_of,
             account_domains=domains,
             roster_emails=roster_emails,
+            designer_names=designer_names,
             settings=s,
         )
         fw_data, fw_snips = fw_fut.result()
@@ -360,6 +364,7 @@ def _prefetch_all_project_inputs(
     coverage: dict,
     settings=None,
     concurrency: int | None = None,
+    designer_names: list[str] | None = None,
 ) -> dict[str, dict]:
     """Parallel per-project prefetch (Fairwind + Jira + meetings + Figma)."""
     s = settings or get_settings()
@@ -380,6 +385,7 @@ def _prefetch_all_project_inputs(
                 roster_emails=roster_emails,
                 participant_emails=participant_emails,
                 reuse=reuse,
+                designer_names=designer_names,
                 settings=s,
             )
             for proj in projects
@@ -1101,6 +1107,7 @@ def execute_run(
     settings = get_settings()
     roster = list(session.query(Person).filter(Person.status != "out").all())
     roster_emails = design_roster_emails(roster)
+    designer_names = [p.full_name for p in roster if getattr(p, "full_name", None)]
     # Calendar API: design roster + Olga as participants on client meetings.
     call_participant_emails = design_participant_emails(
         list(roster_emails), settings=settings
@@ -1142,6 +1149,7 @@ def execute_run(
             reuse=reuse_ingest,
             coverage=coverage,
             settings=settings,
+            designer_names=designer_names,
         )
 
         figma_by_project = {

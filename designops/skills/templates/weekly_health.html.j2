@@ -244,10 +244,12 @@
             <div class="fwho">{{ item.who }}{% if item.to %} → {{ item.to }}{% endif %} · {{ item.date_label }}{% if item.kind == 'UNANSWERED' %} · no reply{% elif item.kind == 'NOT_FINISHED' %} · not done{% endif %}{% if item.quotes|length > 1 %} · {{ item.quotes|length }} items{% endif %}</div>
             {% if item.quotes|length > 1 %}
             <ul class="fl">
-              {% for q in item.quotes %}<li>{{ q }}</li>{% endfor %}
+              {% for q in item.quotes %}
+              <li>{% if q is mapping %}{% if q.who and q.who != item.who %}<b>{{ q.who }}:</b> {% endif %}{{ q.text }}{% else %}{{ q }}{% endif %}</li>
+              {% endfor %}
             </ul>
             {% else %}
-            <p class="fq">"{{ item.quote }}"{% if item.link %} <a href="{{ item.link }}">open pin ↗</a>{% endif %}</p>
+            <p class="fq">"{% if item.quotes and item.quotes[0] is mapping %}{{ item.quotes[0].text }}{% else %}{{ item.quote }}{% endif %}"{% if item.link %} <a href="{{ item.link }}">open pin ↗</a>{% endif %}</p>
             {% endif %}
             {% if item.quotes|length > 1 and item.link %}<p class="fq" style="margin-top:5px"><a href="{{ item.link }}">open pins ↗</a></p>{% endif %}
           </td>
@@ -265,9 +267,13 @@
           <td>
             <div class="fwho">{{ item.who }} · {{ item.date_label }}{% if item.quotes|length > 1 %} · {{ item.quotes|length }} items{% endif %}</div>
             {% if item.quotes|length > 1 %}
-            <ul class="fl">{% for q in item.quotes %}<li>{{ q }}</li>{% endfor %}</ul>
+            <ul class="fl">
+              {% for q in item.quotes %}
+              <li>{% if q is mapping %}{% if q.who and q.who != item.who %}<b>{{ q.who }}:</b> {% endif %}{{ q.text }}{% else %}{{ q }}{% endif %}</li>
+              {% endfor %}
+            </ul>
             {% else %}
-            <p class="fq">"{{ item.quote }}"{% if item.link %} <a href="{{ item.link }}">open pin ↗</a>{% endif %}</p>
+            <p class="fq">"{% if item.quotes and item.quotes[0] is mapping %}{{ item.quotes[0].text }}{% else %}{{ item.quote }}{% endif %}"{% if item.link %} <a href="{{ item.link }}">open pin ↗</a>{% endif %}</p>
             {% endif %}
           </td>
         </tr></table>
@@ -277,9 +283,6 @@
       <p class="fnone">Nothing{% if fc.new_comments %} — everything raised this week was replied to or closed{% endif %}.</p>
       {% endif %}
 
-      {% if p.figma.unclassified_handles %}
-      <p class="fwarn"><b>Unclassified Figma handles:</b> {{ p.figma.unclassified_handles | join(', ') }} — add to figma_roster.json before production.</p>
-      {% endif %}
       {% endif %}
     </div>
     {% endif %}
@@ -306,7 +309,7 @@
 
   <footer>
     <p><b>Scope.</b> Tickets with Jira component DESIGN/UX/CRO-UX <i>or</i> a design-roster assignee. Epics and time-log bucket tickets excluded; dev/QA/BA/SEO/growth excluded. <b>Logged</b> = all-time Jira aggregate rollup. <b>Days</b> = calendar days under the current status (last status change, or ticket created if never changed; amber ≥7, red ≥14). <b>Last/Next call</b> from Transcript calendar (client email domains × design roster + Olga). Ageing in <b>working days</b> as of {{ as_of_label }}.</p>
-    <p><b>Figma comments.</b> Thread-level rollup of the Figma comments API for each project's linked file. Reports only what is unanswered or unfinished on our side; resolved threads are treated as done. Anything open more than a week is shown in full until it is closed. Items raised in the current week are listed but not counted as overdue. Internal vs client is resolved from <code>designops/config/figma_roster.json</code>.</p>
+    <p><b>Figma comments.</b> Thread-level rollup of the Figma comments API for each project's linked file. Reports only what is unanswered or unfinished on our side; resolved threads are treated as done. Anything open more than a week is shown in full until it is closed. Items raised in the current week are listed but not counted as overdue. Internal = design roster names, <code>sw-dev</code>/<code>scandiweb</code> handles, plus <code>designops/config/figma_roster.json</code> (for client aliases like Alessio).</p>
     {% if sample %}<p><b>Sample / dry-run — not sent.</b></p>{% endif %}
     {% if coverage.get('jira_incomplete') %}<p><b>⚠ Jira incomplete</b> — treat burn as partial.</p>{% endif %}
     {% if coverage.get('invoice_incomplete') %}<p><b>⚠ Fairwind invoices incomplete</b> — some invoiced UX/UI tiles may be missing.</p>{% endif %}

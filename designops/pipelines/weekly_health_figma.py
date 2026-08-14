@@ -14,11 +14,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from designops.core.config import Settings, get_settings
+from designops.pipelines.call_scope import is_internal_email
 from designops.pipelines.weekly_health_math import working_days_between
 
 _ROSTER_PATH = Path(__file__).resolve().parent.parent / "config" / "figma_roster.json"
 _DEFAULT_MAX_FILES = 5
 _OVERDUE_WORKING_DAYS = 5  # "more than a week" = strictly > 5 Mon–Fri days
+# Shared / agency Figma accounts that are never the client.
+_INTERNAL_HANDLE_EXACT = frozenset({"sw-dev", "scandiweb", "scandipwa"})
 
 _QUESTION_RE = re.compile(
     r"\?|"
@@ -90,24 +93,100 @@ def load_figma_roster(path: Path | None = None) -> dict[str, dict[str, str]]:
     return {str(k): dict(v) for k, v in handles.items() if isinstance(v, dict)}
 
 
-def _side_for_handle(handle: str, roster: dict[str, dict[str, str]]) -> str | None:
+def looks_internal_handle(handle: str) -> bool:
+    """True for known Scandiweb / shared Figma accounts (no roster row needed)."""
+    h = (handle or "").strip().lower()
+    if not h:
+        return False
+    if h in _INTERNAL_HANDLE_EXACT:
+        return True
+    if "scandiweb" in h or "scandipwa" in h:
+        return True
+    if h.startswith("sw-dev"):
+        return True
+    return False
+
+
+def _roster_entry(
+    handle: str, roster: dict[str, dict[str, str]]
+) -> dict[str, str] | None:
     h = (handle or "").strip()
     if not h:
         return None
-    entry = roster.get(h)
-    if entry:
-        return entry.get("side")
+    if h in roster:
+        return roster[h]
+    low = h.lower()
+    for key, entry in roster.items():
+        if key.lower() == low:
+            return entry
     return None
 
 
-def is_internal_handle(handle: str, roster: dict[str, dict[str, str]]) -> bool:
-    side = _side_for_handle(handle, roster)
-    return side == "internal"
+def merge_designer_names_into_roster(
+    roster: dict[str, dict[str, str]],
+    designer_names: Iterable[str] | None,
+) -> dict[str, dict[str, str]]:
+    """Treat matched design-roster people as internal Figma handles."""
+    out = {str(k): dict(v) for k, v in roster.items()}
+    for raw in designer_names or []:
+        name = (raw or "").strip()
+        if not name:
+            continue
+        existing = _roster_entry(name, out)
+        if existing and existing.get("side") == "client":
+            continue
+        # Prefer the designer-list spelling when adding a new key.
+        if existing is None:
+            out[name] = {"side": "internal", "role": "designer"}
+        else:
+            # Update the existing key (preserve alias spelling like "Artur B").
+            for key in list(out):
+                if key.lower() == name.lower():
+                    out[key] = {**out[key], "side": "internal"}
+                    break
+    return out
 
 
-def is_client_handle(handle: str, roster: dict[str, dict[str, str]]) -> bool:
-    side = _side_for_handle(handle, roster)
-    return side == "client"
+def build_figma_roster(
+    *,
+    designer_names: Iterable[str] | None = None,
+    path: Path | None = None,
+) -> dict[str, dict[str, str]]:
+    return merge_designer_names_into_roster(load_figma_roster(path), designer_names)
+
+
+def _side_for_handle(
+    handle: str,
+    roster: dict[str, dict[str, str]],
+    email: str | None = None,
+) -> str | None:
+    if email and is_internal_email(email):
+        return "internal"
+    h = (handle or "").strip()
+    if not h:
+        return None
+    entry = _roster_entry(h, roster)
+    if entry:
+        return entry.get("side")
+    if looks_internal_handle(h):
+        return "internal"
+    return None
+
+
+def is_internal_handle(
+    handle: str,
+    roster: dict[str, dict[str, str]],
+    email: str | None = None,
+) -> bool:
+    return _side_for_handle(handle, roster, email) == "internal"
+
+
+def is_client_handle(
+    handle: str,
+    roster: dict[str, dict[str, str]],
+    email: str | None = None,
+) -> bool:
+    return _side_for_handle(handle, roster, email) == "client"
 
 
 def strip_leading_mentions(message: str, roster: dict[str, dict[str, str]]) -> str:
@@ -184,7 +263,8 @@ def thread_has_client(
 ) -> bool:
     for msg in _thread_messages(thread):
         user = (msg.get("user") or "").strip()
-        if is_client_handle(user, roster):
+        email = msg.get("user_email")
+        if is_client_handle(user, roster, email if isinstance(email, str) else None):
             return True
     return False
 
@@ -203,11 +283,12 @@ def classify_thread(
         return None
     last = thread_latest_comment(thread)
     last_user = (last.get("user") or "").strip()
+    last_email = last.get("user_email") if isinstance(last.get("user_email"), str) else None
     last_msg = str(last.get("message") or "")
     has_client = thread_has_client(thread, roster)
 
     if has_client:
-        if is_client_handle(last_user, roster):
+        if is_client_handle(last_user, roster, last_email):
             return "UNANSWERED"
         for handle in roster:
             if is_client_handle(handle, roster) and _mentions_handle(last_msg, handle):
@@ -267,6 +348,34 @@ def _addressed_to(message: str, roster: dict[str, dict[str, str]]) -> str | None
     return None
 
 
+def _clip_quote(text: str, roster: dict[str, dict[str, str]], *, who: str) -> dict[str, str] | None:
+    clipped = _clip(strip_leading_mentions(str(text or ""), roster))
+    if not clipped or clipped == "(empty)":
+        return None
+    return {"who": (who or "").strip(), "text": clipped}
+
+
+def _normalize_quotes(raw: list[Any] | None, *, default_who: str = "") -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for q in raw or []:
+        if isinstance(q, dict):
+            text = str(q.get("text") or q.get("quote") or "").strip()
+            if not text or text == "(empty)":
+                continue
+            out.append({"who": str(q.get("who") or default_who).strip(), "text": text})
+        else:
+            text = str(q or "").strip()
+            if text and text != "(empty)":
+                out.append({"who": default_who, "text": text})
+    return out
+
+
+def _quote_text(q: Any) -> str:
+    if isinstance(q, dict):
+        return str(q.get("text") or q.get("quote") or "").strip()
+    return str(q or "").strip()
+
+
 def _item_from_thread(
     thread: dict[str, Any],
     *,
@@ -280,11 +389,19 @@ def _item_from_thread(
     root_user = (root.get("user") or "?").strip()
     root_date = _thread_created_date(thread)
     root_msg = str(root.get("message") or "")
-    quotes = [_clip(strip_leading_mentions(root_msg, roster))]
+    quotes: list[dict[str, str]] = []
+    root_q = _clip_quote(root_msg, roster, who=root_user)
+    if root_q:
+        quotes.append(root_q)
     for reply in thread.get("replies") or []:
-        if isinstance(reply, dict):
-            quotes.append(_clip(strip_leading_mentions(str(reply.get("message") or ""), roster)))
-    quotes = [q for q in quotes if q and q != "(empty)"]
+        if not isinstance(reply, dict):
+            continue
+        reply_user = (reply.get("user") or "?").strip()
+        reply_q = _clip_quote(str(reply.get("message") or ""), roster, who=reply_user)
+        if reply_q:
+            quotes.append(reply_q)
+    if not quotes:
+        quotes = [{"who": root_user, "text": _clip(root_msg)}]
     link = _node_link(file_url, root)
     return {
         "kind": kind,
@@ -294,8 +411,8 @@ def _item_from_thread(
         "to": _addressed_to(root_msg, roster),
         "date": root_date.isoformat() if root_date else "",
         "date_label": _short_date(root.get("created_at")),
-        "quotes": quotes or [_clip(root_msg)],
-        "quote": quotes[0] if quotes else _clip(root_msg),
+        "quotes": quotes,
+        "quote": quotes[0]["text"],
         "link": link,
         "file_key": file_key,
         "file_url": file_url,
@@ -308,19 +425,28 @@ def _collapse_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     order: list[tuple[str, str, str]] = []
     for item in items:
         key = (item.get("who") or "", item.get("date") or "", item.get("kind") or "")
+        who = item.get("who") or ""
+        incoming = _normalize_quotes(
+            item.get("quotes") or [item.get("quote")],
+            default_who=who,
+        )
         if key not in buckets:
             buckets[key] = dict(item)
-            buckets[key]["quotes"] = list(item.get("quotes") or [item.get("quote")])
+            buckets[key]["quotes"] = incoming
             order.append(key)
         else:
             existing = buckets[key]
-            for q in item.get("quotes") or [item.get("quote")]:
-                if q and q not in existing["quotes"]:
+            seen = {(_quote_text(q), (q.get("who") if isinstance(q, dict) else who)) for q in existing["quotes"]}
+            for q in incoming:
+                marker = (_quote_text(q), q.get("who") or who)
+                if marker[0] and marker not in seen:
                     existing["quotes"].append(q)
+                    seen.add(marker)
     out = []
     for key in order:
         row = buckets[key]
-        row["quote"] = row["quotes"][0] if row["quotes"] else ""
+        row["quotes"] = _normalize_quotes(row.get("quotes"), default_who=row.get("who") or "")
+        row["quote"] = row["quotes"][0]["text"] if row["quotes"] else ""
         out.append(row)
     return out
 
@@ -340,7 +466,8 @@ def _count_week_activity(
         if created and week_start <= created <= as_of:
             new_comments += 1
             user = (c.get("user") or "").strip()
-            if is_client_handle(user, roster):
+            email = c.get("user_email") if isinstance(c.get("user_email"), str) else None
+            if is_client_handle(user, roster, email):
                 new_from_client += 1
         resolved_at = c.get("resolved_at")
         if resolved_at:
@@ -358,17 +485,11 @@ def build_figma_project_output(
     week_start: date,
     url_by_key: dict[str, str],
     roster: dict[str, dict[str, str]],
-    unclassified: set[str],
 ) -> dict[str, Any]:
     overdue_raw: list[dict[str, Any]] = []
     this_week_raw: list[dict[str, Any]] = []
 
     for file_key, thread in threads:
-        for msg in _thread_messages(thread):
-            user = (msg.get("user") or "").strip()
-            if user and user not in roster:
-                unclassified.add(user)
-
         kind = classify_thread(thread, roster=roster)
         if not kind:
             continue
@@ -412,7 +533,6 @@ def build_figma_project_output(
         },
         "overdue": overdue,
         "this_week": this_week,
-        "unclassified_handles": sorted(unclassified),
         "has_comments": bool(all_comments),
     }
 
@@ -424,7 +544,6 @@ def empty_figma_panel(*, has_urls: bool = True, configured: bool = True) -> dict
             "counts": {},
             "overdue": [],
             "this_week": [],
-            "unclassified_handles": [],
         }
     if not configured:
         return {
@@ -432,10 +551,9 @@ def empty_figma_panel(*, has_urls: bool = True, configured: bool = True) -> dict
             "counts": {},
             "overdue": [],
             "this_week": [],
-            "unclassified_handles": [],
         }
     return {
-        "panel": "empty",
+        "panel": "data",
         "counts": {
             "new_comments": 0,
             "new_from_client": 0,
@@ -445,7 +563,6 @@ def empty_figma_panel(*, has_urls: bool = True, configured: bool = True) -> dict
         },
         "overdue": [],
         "this_week": [],
-        "unclassified_handles": [],
         "has_comments": False,
     }
 
@@ -491,17 +608,12 @@ def format_figma_excerpt(panel: dict[str, Any], *, since: date) -> str:
     for item in (panel.get("overdue") or [])[:5]:
         lines.append(
             f"- OVERDUE [{item.get('age_working_days')}d] {item.get('who')} "
-            f"({item.get('date_label')}): {item.get('quote')} [{item.get('link')}]"
+            f"({item.get('date_label')}): {_quote_text(item.get('quote') or (item.get('quotes') or [''])[0])} [{item.get('link')}]"
         )
     for item in (panel.get("this_week") or [])[:5]:
         lines.append(
             f"- THIS WEEK {item.get('who')} ({item.get('date_label')}): "
-            f"{item.get('quote')} [{item.get('link')}]"
-        )
-    if panel.get("unclassified_handles"):
-        lines.append(
-            "WARNING unclassified handles: "
-            + ", ".join(panel["unclassified_handles"])
+            f"{_quote_text(item.get('quote') or (item.get('quotes') or [''])[0])} [{item.get('link')}]"
         )
     return "\n".join(lines)
 
@@ -523,12 +635,13 @@ def fetch_figma_comments_bundle(
     settings: Settings | None = None,
     account_domains: Iterable[str] | None = None,
     roster_emails: Iterable[str] | None = None,
+    designer_names: Iterable[str] | None = None,
     max_files: int = _DEFAULT_MAX_FILES,
     roster: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     from designops.adapters import figma as figma_api
 
-    del account_domains, roster_emails  # roster file drives side classification
+    del account_domains, roster_emails  # side = designer list + figma_roster + heuristics
     if not figma_urls:
         return empty_figma_bundle(figma_excerpt_no_urls())
 
@@ -538,8 +651,7 @@ def fetch_figma_comments_bundle(
 
     snapshot = as_of or since
     week_start = snapshot - timedelta(days=7)
-    roster_map = roster or load_figma_roster()
-    unclassified: set[str] = set()
+    roster_map = roster or build_figma_roster(designer_names=designer_names)
     selected: list[tuple[str, dict[str, Any]]] = []
     all_comments: list[dict[str, Any]] = []
     url_by_key: dict[str, str] = {}
@@ -574,7 +686,6 @@ def fetch_figma_comments_bundle(
         week_start=week_start,
         url_by_key=url_by_key,
         roster=roster_map,
-        unclassified=unclassified,
     )
     panel["panel"] = "data"
     panel["files"] = files
@@ -659,11 +770,13 @@ def is_internal_author(
     comment: dict[str, Any],
     *,
     roster_emails: Iterable[str] | None = None,
+    designer_names: Iterable[str] | None = None,
 ) -> bool:
     del roster_emails
-    roster = load_figma_roster()
+    roster = build_figma_roster(designer_names=designer_names)
     user = (comment.get("user") or "").strip()
-    return is_internal_handle(user, roster)
+    email = comment.get("user_email") if isinstance(comment.get("user_email"), str) else None
+    return is_internal_handle(user, roster, email)
 
 
 def is_client_author(
@@ -671,11 +784,13 @@ def is_client_author(
     *,
     account_domains: Iterable[str] | None = None,
     roster_emails: Iterable[str] | None = None,
+    designer_names: Iterable[str] | None = None,
 ) -> bool:
     del account_domains, roster_emails
-    roster = load_figma_roster()
+    roster = build_figma_roster(designer_names=designer_names)
     user = (comment.get("user") or "").strip()
-    return is_client_handle(user, roster)
+    email = comment.get("user_email") if isinstance(comment.get("user_email"), str) else None
+    return is_client_handle(user, roster, email)
 
 
 def is_plain_figma_risk(text: str) -> bool:
@@ -696,6 +811,7 @@ def prefetch_figma_for_projects(
     coverage: dict[str, Any] | None = None,
     account_domains_by_project: dict[str, list[str]] | None = None,
     roster_emails: Iterable[str] | None = None,
+    designer_names: Iterable[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     from designops.adapters import figma as figma_api
 
@@ -703,6 +819,7 @@ def prefetch_figma_for_projects(
     cov = coverage if coverage is not None else {}
     results: dict[str, dict[str, Any]] = {}
     snapshot = as_of or comms_from
+    names = list(designer_names or [])
 
     if not figma_api.is_ready(s):
         cov["figma_note"] = "Figma not configured — Connect Figma or save PAT on Config"
@@ -728,6 +845,7 @@ def prefetch_figma_for_projects(
             settings=s,
             account_domains=domains,
             roster_emails=roster_emails,
+            designer_names=names,
         )
 
     workers = max(1, min(int(s.fw_export_concurrency), len(projects) or 1))
