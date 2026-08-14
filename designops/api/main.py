@@ -8,8 +8,11 @@ to cron runs (§12.4).
 
 from __future__ import annotations
 
+import io
+import json
 import re
 import threading
+import zipfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
@@ -2332,6 +2335,68 @@ def run_digest(run_id: str, db: Session = Depends(get_db)):
     if not art:
         raise HTTPException(404, "no rendered digest for this run")
     return Response(content=art.content, media_type="text/html")
+
+
+@app.get("/runs/{run_id}/download")
+def download_run_artifacts(run_id: str, db: Session = Depends(get_db)):
+    """Zip HTML + JSON artifacts so local vs prod Figma/report diffs are easy to compare."""
+    run = db.get(PipelineRun, run_id)
+    if not run:
+        raise HTTPException(404)
+    if run.status == "running":
+        raise HTTPException(409, "run still generating")
+    arts = (
+        db.query(Artifact)
+        .filter(Artifact.run_id == run_id, Artifact.kind.in_(("html", "json")))
+        .order_by(Artifact.kind.asc(), Artifact.id.desc())
+        .all()
+    )
+    by_kind: dict[str, Artifact] = {}
+    for art in arts:
+        by_kind.setdefault(art.kind, art)
+    if not by_kind:
+        raise HTTPException(404, "no artifacts for this run")
+
+    pipeline = db.get(Pipeline, run.pipeline_id)
+    pipe_key = (pipeline.key if pipeline else "run") or "run"
+    day = run.report_date.isoformat() if run.report_date else "unknown"
+    short = str(run.id).replace("-", "")[:8]
+    base = f"{pipe_key}-{day}-{short}"
+
+    meta = {
+        "run_id": str(run.id),
+        "pipeline": pipe_key,
+        "report_date": day,
+        "status": run.status,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "skill_version": run.skill_version,
+        "input_tokens": run.input_tokens,
+        "output_tokens": run.output_tokens,
+        "cost_usd": float(run.cost_usd or 0),
+        "counts": run.counts or {},
+        "error": run.error,
+        "note": run.note,
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"{base}-meta.json", json.dumps(meta, indent=2, default=str))
+        if "html" in by_kind and by_kind["html"].content is not None:
+            zf.writestr(f"{base}.html", by_kind["html"].content)
+        if "json" in by_kind and by_kind["json"].content is not None:
+            raw = by_kind["json"].content
+            try:
+                pretty = json.dumps(json.loads(raw), indent=2, ensure_ascii=False)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pretty = raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
+            zf.writestr(f"{base}.json", pretty)
+    data = buf.getvalue()
+    headers = {
+        "Content-Disposition": f'attachment; filename="{base}.zip"',
+        "Content-Length": str(len(data)),
+    }
+    return Response(content=data, media_type="application/zip", headers=headers)
 
 
 @app.post("/runs/{run_id}/validate")

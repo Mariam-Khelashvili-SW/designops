@@ -42,7 +42,9 @@
              required style="min-width:360px">
     </div>
     <button class="btn" type="submit"{% if not can_send %} disabled{% endif %}>Send</button>
+    <a class="btn sm" href="/runs/{{ run.id }}/download" style="align-self:flex-end;text-decoration:none">Download zip</a>
   </form>
+  <p class="sub" style="margin-top:6px">Download includes the rendered HTML + JSON (Figma panels, tickets, coverage) for comparing local vs prod.</p>
   {% if not can_send %}<p class="sub" style="margin-top:6px">Connect Google or set a Gmail app password on the <a href="/config">Config</a> page to enable sending.</p>{% endif %}
 </div>
 {% endif %}
