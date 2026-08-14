@@ -60,13 +60,14 @@ Produce a **lean pulse**, not a project dossier. Sections:
 2. **ESCALATIONS** — intelligence-layer items Olga may need to act on (no Jira link
    required; max 5, ranked). Empty `[]` if none.
 3. **HEADS-UPS** — context worth knowing; no action needed. Empty `[]` if none.
-4. **BY PROJECT** — **group work under the project**. Under each project, list each
-   person who touched it with:
+4. **BY PERSON** — **group work under the designer**. Code regroups your
+   person×project `status` rows into one card per person. Under each project they
+   touched that day:
    - **Done** — what they finished / moved that day (from their daily only).
-   - **Next** — what they said they'll do next on **that same project** (from their
-     daily plan). Empty string if they gave no next for that project.
-   - **`agent_note`** (optional) — tagged inference (R4/R6); never merge into Done/Next.
-   Then any **Heads-ups** for that project — **after** the person reports, not above.
+   - **Next** — what they said they'll do next on **that same project**.
+   - **Jira tickets** — attached in code from worklogs; do **not** invent keys or hours.
+   - **Repeat** — attached in code from stored Next history; do **not** invent a streak.
+   - **`agent_note`** (optional) — tagged inference (R6); never merge into Done/Next.
 5. **NEEDS REVIEW** — link-backed items Olga must look at: item + **required link** + who.
 6. **OPEN QUESTIONS** — **verbatim** + **who** (owner); optional **evidence** / **link**
    when the ask comes from a client email, daily, or ticket. Empty if none.
@@ -79,18 +80,18 @@ Produce a **lean pulse**, not a project dossier. Sections:
 Emit **one `status` row per person × project**. Never one blob that mixes projects.
 
 ```text
-Project A
-  Person 1
+Person 1
+  Project A
     Done: …
     Next: …
-    Agent note (optional)
-  Person 2
+  Project B
     Done: …
     Next: …
-  Heads-up (optional — after reports)
-Project B
+Person 2
   …
 ```
+
+Code renders one card per person. You still emit one `status` row per person×project.
 
 ### Quiet day rule
 
@@ -111,7 +112,7 @@ designer mentions them in passing — carry only the design part.
 | Stated next step on that project | `status[].next` |
 | Leave×assignment / coverage gap (R1) or report stop-language without a ticket (R5) | `escalations` |
 | Client wait×leave (R2), launch proximity (R3) | `heads_ups` |
-| Repeated Next (R4) / rework (R6) | `status[].agent_note` |
+| Repeated Next (R4) / rework (R6) | `status[].agent_note` (R4 streaks are also flagged in code as Repeat rows) |
 | Blocked / stopped — **with a ticket/link** | `needs_review` (`blocked: true`) |
 | Slip / sign-off / Jira discrepancy Olga should see — **with a link** | `needs_review` |
 | Explicit question | `open_questions` (verbatim + who; evidence/link when known) |
@@ -151,10 +152,10 @@ Four tiles — code derives counts from the rendered body after deduplication:
 |------|------------|
 | `reported` | Distinct designers who submitted a daily today |
 | `need_you` | Count of Needs Olga items **after** deduplication (one decision per item) |
-| `waiting_on_input` | Projects whose status is `waiting on you` or `blocked on client` |
+| `repeating` | Distinct **people** with a Repeat flag at 3+ consecutive reporting days |
 | `no_report` | Roster members with no report and no approved leave |
 
-Legacy aliases `need_review`, `blocked`, `active` may still appear in JSON — code overwrites.
+Legacy aliases `need_review`, `blocked`, `waiting_on_input`, `active` may still appear in JSON — code overwrites.
 
 ## Output quality rules (C1–C10)
 
@@ -184,11 +185,11 @@ Emit at most one notes block per project (via `project_notes` in Pass B, or
 Do not create a second annotation section under any other heading (no separate
 "Beyond the dailies" block).
 
-### C4 — Leave badges on designer names
+### C4 — Leave chips on person cards
 
-Every designer in By project who starts leave within 7 working days gets an inline leave
-badge (`out 14 Aug` or `out 14 Aug → 2 Sep`). Needs Olga states the decision once; do not
-restate full leave prose per person in the alert box.
+Every designer in By person who starts leave within 7 working days gets an `Out {dates}`
+chip. `Waiting on you` / `Blocked` / `Repeating ×{n}d` chips are set in code. Needs Olga
+states the decision once; do not restate full leave prose per person in the alert box.
 
 ### C5 — Olga's review queue
 
@@ -215,8 +216,8 @@ end of an adjacent line unless the call produced a decision.
 
 ### C8 — Counters match the body
 
-Each KPI tile must reflect what appears in the email body — if a project is blocked on
-client feedback, `waiting_on_input` must count it.
+Each KPI tile must reflect what appears in the email body — if four people have a
+Repeat flag, `repeating` is 4 (people, not items).
 
 ### C9 — Silence collapses
 
@@ -296,10 +297,11 @@ coverage gaps; R2 is informational under the project only).
 Report mentioning go-live / launch / phase-N preparation → one-line Heads-up under that
 project (not in the top Escalations list).
 
-**R4 — Repeated Next → Agent note.**
-Same Next item ≥3 consecutive runs (fuzzy match vs run-log) → one short note under that
-entry with the count (e.g. `'Finish HP' has been Next for 4 runs (since 14 Jul).`).
-Do not editorialize ("stalled", "behind").
+**R4 — Repeated Next → Agent note (code also flags this).**
+Code compares stored Next lines and flags 3+ consecutive reporting days (weekends and
+leave skipped). Prefer empty R4 findings with `checked: "code detects repeats from stored history"`.
+If you do emit a finding, do **not** invent a streak count the history does not support.
+Two days is watch-only unless the work already sits behind an Olga decision.
 
 **R5 — Blocker/Escalation language in reports → classify.**
 Scan for stop/risk phrasing ("waiting on", "can't", "blocked", "no tickets", "didn't have
@@ -402,8 +404,7 @@ Growth-Pulse sections from the dailies.
 **Placement (Pass B):**
 - `escalations` → top of the email (code renders one Escalations section).
 - `heads_ups` → must include `project` when possible; code nests them under that project
-  in By project **after** the Done/Next reports. Never repeat an escalation's claim in
-  `heads_ups`.
+  on the matching person card. Never repeat an escalation's claim in `heads_ups`.
 - `status[].agent_note` → under that person×project Done/Next only.
 
 ## Output — structured JSON ONLY (Pass B)
@@ -413,7 +414,7 @@ Growth-Pulse sections from the dailies.
   "at_a_glance": {
     "active": 0,
     "need_you": 0,
-    "waiting_on_input": 0,
+    "repeating": 0,
     "no_report": 0
   },
   "signals": {},
@@ -492,5 +493,8 @@ Growth-Pulse sections from the dailies.
 
 - Unparseable report → never guess content; no Done/Next invention; skip review unless a
   real link exists.
-- Jira unreachable → report-only pulse; do not invent ticket links (so fewer review rows).
+- Jira unreachable → report-only pulse; do not invent ticket links or hours (code drops
+  load bars and ticket rows and notes it once).
+- Repeat history missing → code prints "repeat check unavailable (no history)"; do not
+  guess a streak.
 - Missing `signals` key or empty findings without `checked` → generation is invalid.

@@ -237,6 +237,15 @@ def test_daily_execute_syncs_vacsick(monkeypatch):
         def one(self):
             return self._rows[0]
 
+        def filter(self, *a, **k):
+            return self
+
+        def delete(self, **k):
+            return 0
+
+        def one_or_none(self):
+            return None
+
     class FakeSession:
         def get(self, model, _id):
             if model.__name__ == "Pipeline":

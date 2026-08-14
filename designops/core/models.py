@@ -16,10 +16,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
@@ -267,6 +269,43 @@ class Flag(Base):
     run: Mapped[PipelineRun] = relationship(back_populates="flags")
     # No uniqueness on (run_id, type, project_id, person_id): a run can raise several
     # unmatched_project flags that all carry null project/person, distinguished by body.
+
+
+class DailyNextSnapshot(Base):
+    """Per-run Next (and Done) lines for repeat detection — last 5+ reporting days.
+
+    The daily must persist these; artifact JSON is a fallback, not the store.
+    """
+
+    __tablename__ = "daily_next_snapshot"
+    __table_args__ = (
+        UniqueConstraint(
+            "report_date",
+            "person_name",
+            "project",
+            name="uq_daily_next_person_project_date",
+        ),
+        Index("ix_daily_next_snapshot_report_date", "report_date"),
+        Index("ix_daily_next_snapshot_person_project", "person_name", "project"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("pipeline_run.id"), nullable=True
+    )
+    report_date: Mapped[date] = mapped_column(Date, nullable=False)
+    person_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("person.id"), nullable=True
+    )
+    person_name: Mapped[str] = mapped_column(String, nullable=False)
+    project: Mapped[str] = mapped_column(String, nullable=False)
+    next_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    done_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    intent_key: Mapped[str] = mapped_column(String, default="", nullable=False)
+    hours_logged: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class CallSummaryDraft(Base):

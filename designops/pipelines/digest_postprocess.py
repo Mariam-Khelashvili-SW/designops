@@ -746,6 +746,7 @@ def _recompute_at_a_glance(digest: dict) -> None:
 
     g["need_you"] = len(escalations)
     g["waiting_on_input"] = waiting_input
+    g["repeating"] = len(digest.get("repeating_people") or [])
     g["no_report"] = silent_count
     g["need_review"] = g["need_you"]
     g["blocked"] = waiting_input

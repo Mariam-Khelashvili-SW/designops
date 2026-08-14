@@ -117,7 +117,7 @@ def test_render_unified_notes_no_beyond_dailies():
     assert "Agent note" not in html
     assert "Stalled" in html
     assert "Context" in html
-    assert "waiting on input" in html
+    assert "repeating 3+ days" in html
 
 
 def test_out_and_quiet_matches_v3_layout():

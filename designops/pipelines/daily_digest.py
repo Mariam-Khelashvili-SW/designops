@@ -60,6 +60,14 @@ from designops.pipelines.daily_signals import (
 )
 from designops.pipelines.digest_postprocess import postprocess_digest
 from designops.pipelines.leave_from_vacsick import sync_leave_from_vacsick
+from designops.pipelines.daily_repeats import (
+    apply_repeat_kpis,
+    detect_repeats,
+    load_next_history,
+    persist_next_snapshots,
+    prior_hours_by_person_project,
+)
+from designops.pipelines.daily_worklogs import attach_worklogs, collect_daily_worklogs
 from designops.pipelines.render import render_digest
 from designops.pipelines.synthesis import synthesize
 from designops.pipelines.weekly_availability import (
@@ -963,6 +971,30 @@ def execute_run(
             report_date=report_date,
             roster_rows=roster_rows,
             session=session,
+        )
+        history = load_next_history(session, report_date)
+        worklog_bundle = collect_daily_worklogs(roster_rows, report_date)
+        coverage["jira_worklogs"] = {
+            "available": worklog_bundle.available,
+            "note": worklog_bundle.note,
+            "tickets": len(worklog_bundle.tickets),
+        }
+        attach_worklogs(
+            digest,
+            worklog_bundle,
+            report_date=report_date,
+            registry=registry,
+            prior_hours=prior_hours_by_person_project(history),
+        )
+        detect_repeats(
+            digest,
+            report_date=report_date,
+            history=history,
+            roster_rows=roster_rows,
+        )
+        apply_repeat_kpis(digest)
+        persist_next_snapshots(
+            session, run, digest, report_date, roster_rows=roster_rows
         )
         incomplete = bool(
             coverage.get("exports_failed", 0) > 0 or coverage.get("incomplete")

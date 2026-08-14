@@ -341,7 +341,9 @@ def test_render_intelligence_no_v2_preview_banner():
     assert "Needs Olga" in html
     assert "Dorota on leave" in html
     assert "Enmedify go-live" in html or "Phase 2 prep" in html or "Context" in html
-    assert html.index("By project") < html.index("Enmedify")
+    assert "By person" in html
+    assert "Enmedify" in html
+    assert html.rindex("Enmedify") > html.index("By person")
     assert "Beyond the dailies" not in html
     assert "4th run" in html or "Stalled" in html
     assert "V2 PREVIEW" not in html

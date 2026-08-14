@@ -67,7 +67,7 @@ def test_render_dom_structure(expected):
     html = render_digest(expected, REPORT_DATE, sample=True)
     assert "Daily Pulse" in html
     assert "needs you" in html
-    assert "By project" in html
+    assert "By person" in html
     assert "Needs attention" in html
     assert "Other plans" in html  # cross-project Club Portal line
     assert "Out &amp; quiet" in html
@@ -103,7 +103,7 @@ def test_quiet_day_omits_empty_sections():
         "no_report": [],
     }
     html = render_digest(quiet, REPORT_DATE, sample=True)
-    assert "By project" in html
+    assert "By person" in html
     assert "Done" in html
     assert "Next" in html
     assert "Needs attention" not in html
@@ -112,7 +112,7 @@ def test_quiet_day_omits_empty_sections():
     assert html.count("no report") == 1
 
 
-def test_render_groups_by_project_with_done_next():
+def test_render_groups_by_person_with_done_next():
     digest = {
         "at_a_glance": {"active": 2, "need_review": 0, "blocked": 0, "no_report": 0},
         "status": [
@@ -126,14 +126,14 @@ def test_render_groups_by_project_with_done_next():
         "no_report": [],
     }
     html = render_digest(digest, REPORT_DATE, sample=True)
-    # Project headers before people
-    acer_i = html.index("Acer")
-    sgd_i = html.index("SGD")
-    assert acer_i < sgd_i
-    assert html.index("Arturs Boroviks") > acer_i
-    assert "PLP work." in html
+    assert "By person" in html
+    arturs_i = html.index("Arturs Boroviks")
+    dorota_i = html.index("Dorota Umiastowska")
+    assert arturs_i < dorota_i
+    assert html.index("PLP work.") > arturs_i
     assert "Kick-off." in html
     assert "Finished PLP." in html
+    assert "Today's projects:" in html
 
 
 def test_coverage_incomplete_warns(expected):

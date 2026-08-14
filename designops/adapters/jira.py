@@ -6,6 +6,7 @@ Auth is email + API token (Basic) from env — never the DB, never git.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Any
 
@@ -163,6 +164,40 @@ def _parse_status_entries(changelog: dict | None) -> list[dict]:
     return entries
 
 
+def parse_jira_datetime(raw: Any) -> datetime | None:
+    """Parse a Jira ISO timestamp (with or without colon in the tz offset)."""
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw
+    s = str(raw).strip()
+    if not s:
+        return None
+    s = s.replace("Z", "+00:00")
+    # +0200 → +02:00
+    if re.search(r"[+-]\d{4}$", s):
+        s = s[:-2] + ":" + s[-2:]
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        try:
+            return datetime.fromisoformat(s[:19])
+        except ValueError:
+            return None
+
+
+def parse_jira_date(raw: Any) -> date | None:
+    dt = parse_jira_datetime(raw)
+    if dt is not None:
+        return dt.date()
+    if raw is None:
+        return None
+    try:
+        return date.fromisoformat(str(raw)[:10])
+    except ValueError:
+        return None
+
+
 def first_entered_status_at(changelog: dict | None, status_name: str) -> date | None:
     """Date the issue first entered `status_name` (working from changelog)."""
     want = (status_name or "").strip().lower()
@@ -170,19 +205,31 @@ def first_entered_status_at(changelog: dict | None, status_name: str) -> date | 
         return None
     for e in _parse_status_entries(changelog):
         if (e.get("to") or "").strip().lower() == want:
-            raw = e.get("at")
-            if not raw:
-                continue
-            try:
-                # Jira ISO timestamps
-                dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-                return dt.date()
-            except ValueError:
-                try:
-                    return date.fromisoformat(str(raw)[:10])
-                except ValueError:
-                    continue
+            parsed = parse_jira_date(e.get("at"))
+            if parsed:
+                return parsed
     return None
+
+
+def last_status_change_date(raw: dict | None) -> date | None:
+    """Most recent status transition, else issue created date."""
+    if not raw:
+        return None
+    last: date | None = None
+    for e in raw.get("status_entries") or []:
+        parsed = parse_jira_date(e.get("at") if isinstance(e, dict) else None)
+        if parsed and (last is None or parsed > last):
+            last = parsed
+    if last is not None:
+        return last
+    return parse_jira_date(raw.get("created"))
+
+
+def status_unchanged_days(raw: dict | None, report_date: date) -> int | None:
+    last = last_status_change_date(raw)
+    if last is None:
+        return None
+    return max(0, (report_date - last).days)
 
 
 def issue_to_document(issue: dict, *, event_date: date | None = None) -> Document:
@@ -244,6 +291,7 @@ def issue_to_document(issue: dict, *, event_date: date | None = None) -> Documen
         jira_issue_type=type_name,
         project_hint=project_key,
         raw={
+            "id": str(issue.get("id") or "") or None,
             "key": key,
             "summary": summary,
             "status": status_name,
@@ -462,11 +510,111 @@ class JiraClient:
             for issue in self.search_jql(jql)
         ]
 
+    def list_issue_worklogs(self, issue_key: str) -> list[dict]:
+        """All worklogs on an issue (paginated)."""
+        key = (issue_key or "").strip()
+        if not key:
+            return []
+        out: list[dict] = []
+        start_at = 0
+        with self._client() as c:
+            while True:
+                r = c.get(
+                    f"/rest/api/3/issue/{key}/worklog",
+                    params={"startAt": start_at, "maxResults": 1000},
+                )
+                r.raise_for_status()
+                data = r.json() or {}
+                batch = data.get("worklogs") or []
+                out.extend(batch)
+                total = int(data.get("total") or 0)
+                start_at += len(batch)
+                if not batch or start_at >= total:
+                    break
+        return out
+
+    def search_worklogged_on(
+        self,
+        author_account_ids: list[str],
+        worklog_date: date,
+    ) -> list[dict]:
+        """Issues someone in ``author_account_ids`` logged time against on ``worklog_date``.
+
+        Returns one dict per (author, issue): document + hours that day.
+        Excludes time-log buckets, epics, IMR, and In Use types.
+        """
+        ids = [a for a in author_account_ids if a]
+        if not ids:
+            return []
+        id_list = ", ".join(f'"{i}"' for i in ids)
+        id_set = set(ids)
+        type_exclusions = ", ".join(
+            f'"{t}"' for t in sorted(TIME_LOG_BUCKET_TYPES | {"Epic"})
+        )
+        day = worklog_date.isoformat()
+        jql = (
+            f'worklogDate = "{day}" '
+            f"AND worklogAuthor in ({id_list}) "
+            f"AND issuetype not in ({type_exclusions}) "
+            f'AND project != "IMR" '
+            f'AND issuetype != "In Use" '
+            f"ORDER BY updated DESC"
+        )
+        issues = self.search_jql(
+            jql,
+            fields=list(_ISSUE_FIELDS) + ["worklog"],
+            expand=_HEALTH_EXPAND,
+        )
+        rows: list[dict] = []
+        for issue in issues:
+            doc = issue_to_document(issue, event_date=worklog_date)
+            fields = issue.get("fields") or {}
+            wl = fields.get("worklog") or {}
+            worklogs = list(wl.get("worklogs") or [])
+            total = int(wl.get("total") or 0) if isinstance(wl, dict) else 0
+            if total > len(worklogs) or not worklogs:
+                try:
+                    worklogs = self.list_issue_worklogs(doc.external_id)
+                except Exception:  # noqa: BLE001 — still emit the issue with 0h
+                    pass
+            hours_by_author: dict[str, float] = {}
+            for w in worklogs:
+                if not isinstance(w, dict):
+                    continue
+                author = w.get("author") or {}
+                aid = author.get("accountId") if isinstance(author, dict) else None
+                if not aid or aid not in id_set:
+                    continue
+                started = parse_jira_date(w.get("started"))
+                if started != worklog_date:
+                    continue
+                try:
+                    secs = int(w.get("timeSpentSeconds") or 0)
+                except (TypeError, ValueError):
+                    secs = 0
+                if secs <= 0:
+                    continue
+                hours_by_author[aid] = hours_by_author.get(aid, 0.0) + secs / 3600.0
+            if not hours_by_author:
+                continue
+            stale = status_unchanged_days(doc.raw, worklog_date)
+            for aid, hours in hours_by_author.items():
+                rows.append(
+                    {
+                        "document": doc,
+                        "author_account_id": aid,
+                        "hours": round(hours, 2),
+                        "status_unchanged_days": stale,
+                    }
+                )
+        return rows
+
     def search_by_keys(
         self,
         keys: list[str],
         *,
         event_date: date | None = None,
+        expand: list[str] | None = None,
     ) -> list[Document]:
         """Fetch specific issues by key (Friday-planned set). Chunks to keep JQL short."""
         clean = sorted({k.strip().upper() for k in keys if k and k.strip()})
@@ -481,7 +629,30 @@ class JiraClient:
             jql = f"key in ({key_list})"
             docs.extend(
                 issue_to_document(issue, event_date=when)
-                for issue in self.search_jql(jql)
+                for issue in self.search_jql(jql, expand=expand)
+            )
+        return docs
+
+    def search_by_ids(
+        self,
+        ids: list[str],
+        *,
+        event_date: date | None = None,
+        expand: list[str] | None = None,
+    ) -> list[Document]:
+        """Fetch issues by numeric Jira id (Tempo worklogs expose id, not key)."""
+        clean = sorted({str(i).strip() for i in ids if i and str(i).strip()})
+        if not clean:
+            return []
+        when = event_date or date.today()
+        docs: list[Document] = []
+        chunk_size = 50
+        for i in range(0, len(clean), chunk_size):
+            chunk = clean[i : i + chunk_size]
+            jql = f"id in ({', '.join(chunk)})"
+            docs.extend(
+                issue_to_document(issue, event_date=when)
+                for issue in self.search_jql(jql, expand=expand)
             )
         return docs
 
