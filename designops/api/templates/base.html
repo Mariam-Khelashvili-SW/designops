@@ -57,6 +57,11 @@
     <a href="/pipelines" class="{{ 'on' if nav=='pipelines' }}">Pipelines</a>
     <a href="/accounts" class="{{ 'on' if nav=='accounts' }}">Accounts</a>
     <a href="/config" class="{{ 'on' if nav=='config' }}">Config</a>
+    {% if login_enabled() %}
+    <form method="post" action="/logout" style="margin-left:auto">
+      <button type="submit" class="btn ghost sm" style="background:transparent;color:#c7cbe6;border-color:#3a3f66">Log out</button>
+    </form>
+    {% endif %}
   </nav>
 </header>
 <div class="wrap">

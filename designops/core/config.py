@@ -156,6 +156,11 @@ class Settings(BaseSettings):
     # When true, NOTION_PARENT_PAGE_ID is treated as a database_id
     notion_parent_is_database: bool = Field(default=False, alias="NOTION_PARENT_IS_DATABASE")
 
+    # App login — single admin. Leave APP_ADMIN_PASSWORD empty to disable the gate.
+    app_admin_user: str = Field(default="admin", alias="APP_ADMIN_USER")
+    app_admin_password: str = Field(default="", alias="APP_ADMIN_PASSWORD")
+    app_session_secret: str = Field(default="", alias="APP_SESSION_SECRET")
+
     @property
     def fairwind_configured(self) -> bool:
         return bool(self.fw_client_id and self.fw_client_secret)

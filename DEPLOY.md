@@ -30,6 +30,9 @@ Rotate the three secrets that passed through chat when you set them here.
 | `GOOGLE_REDIRECT_URI` | `https://<your-app>.up.railway.app/oauth/google/callback` (or omit and let the app derive it from `PUBLIC_APP_URL`) |
 | `TIMEZONE` | `Europe/Riga` |
 | `SETUP_OWNER_EMAIL` | your email |
+| `APP_ADMIN_USER` | `admin` |
+| `APP_ADMIN_PASSWORD` | a long random password (required — the UI is public without it) |
+| `APP_SESSION_SECRET` | another long random string (cookie signing) |
 | `FW_DATA_TYPES` | `emails_internal,emails_external,jira,transcripts` |
 
 (Get `<your-app>.up.railway.app` from the service's **Settings → Networking → Generate Domain**.)

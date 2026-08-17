@@ -15,6 +15,7 @@ anthropic==0.42.*             # LLM synthesis
 css-inline==0.21.*             # inline email CSS (Gmail strips <style> in full view)
 notion-client==3.1.*           # Notion API (data_sources / 2025-09-03) for design intake
 openpyxl==3.1.*                # xlsx parsing for estimate uploads
+itsdangerous==2.2.*            # signed login sessions
 
 # Dev / test
 pytest==8.3.*

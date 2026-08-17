@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from starlette.middleware.sessions import SessionMiddleware
 
 from designops.adapters import figma_oauth, google_oauth
 from designops.adapters.delivery import send_digest
@@ -48,6 +49,16 @@ from designops.pipelines.weekly_backlog import (
     PIPELINE_KEY as WEEKLY_KEY,
     create_pending_run as create_weekly_pending_run,
 )
+from designops.api.auth import (
+    credentials_ok,
+    is_authenticated,
+    is_public_path,
+    login_enabled,
+    mark_logged_in,
+    mark_logged_out,
+    safe_next_url,
+    session_secret,
+)
 from designops.pipelines.weekly_health import (
     PIPELINE_KEY as WEEKLY_HEALTH_KEY,
     create_pending_run as create_weekly_health_pending_run,
@@ -61,6 +72,32 @@ app = FastAPI(title="Design Ops — A1 Daily Ops Digest")
 _TEMPLATES = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES))
 templates.env.filters["dt"] = lambda v: v.strftime("%Y-%m-%d %H:%M") if v else "—"
+templates.env.globals["login_enabled"] = login_enabled
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    if not login_enabled() or is_public_path(request.url.path):
+        return await call_next(request)
+    if is_authenticated(request):
+        return await call_next(request)
+    if request.method in {"GET", "HEAD"}:
+        nxt = quote(
+            request.url.path
+            + (("?" + request.url.query) if request.url.query else "")
+        )
+        return RedirectResponse(f"/login?next={nxt}", status_code=302)
+    return JSONResponse({"error": "login required"}, status_code=401)
+
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=session_secret(),
+    session_cookie="designops_session",
+    same_site="lax",
+    https_only=False,
+    max_age=60 * 60 * 24 * 14,
+)
 
 
 @app.on_event("startup")
@@ -92,6 +129,56 @@ def _start_scheduler() -> None:
     from designops.api.scheduler import start_scheduler
 
     start_scheduler()
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, next: str = "/daily-report"):
+    nxt = safe_next_url(next)
+    if not login_enabled() or is_authenticated(request):
+        return RedirectResponse(nxt, status_code=302)
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "error": None,
+            "next": nxt,
+            "username": "admin",
+        },
+    )
+
+
+@app.post("/login", response_class=HTMLResponse)
+def login_submit(
+    request: Request,
+    username: str = Form(""),
+    password: str = Form(""),
+    next: str = Form("/daily-report"),
+):
+    nxt = safe_next_url(next)
+    if credentials_ok(username, password):
+        mark_logged_in(request)
+        return RedirectResponse(nxt, status_code=302)
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "error": "Wrong username or password.",
+            "next": nxt,
+            "username": username.strip(),
+        },
+        status_code=401,
+    )
+
+
+@app.api_route("/logout", methods=["GET", "POST"])
+def logout(request: Request):
+    mark_logged_out(request)
+    return RedirectResponse("/login" if login_enabled() else "/daily-report", status_code=302)
 
 
 @app.get("/", response_class=HTMLResponse)
