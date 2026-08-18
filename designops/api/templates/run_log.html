@@ -1,8 +1,15 @@
 {% extends "base.html" %}
+{% from "macros.html" import status_pill, status_cell %}
 {% block title %}Run log — Design Ops{% endblock %}
+{% block page_class %}wide{% endblock %}
 {% block body %}
-<h1>Run log</h1>
-<p class="sub">One row per run. Every run points at the exact input document set it was built from (§12.3).</p>
+<div class="page-head">
+  <h1>Run log</h1>
+  <p class="lede">One row per run, with the exact input document set it was built from.</p>
+</div>
+<div class="callout warn">
+  <div><b>Operator area.</b> These screens control how the pipelines run and hold connected credentials. Nothing here is needed to read or regenerate a report.</div>
+</div>
 
 <div class="card">
   <form method="post" action="/pipelines/daily-digest/run" class="row">
@@ -13,7 +20,7 @@
         <option value="off">Force fresh pull</option>
       </select>
     </div>
-    <button class="btn" type="submit">Run digest now</button>
+    <button class="btn primary" type="submit">Run digest now</button>
     <span class="sub" style="margin:0">On-demand, any date, into the viewer. Nothing is sent (§12.1).</span>
   </form>
 </div>
@@ -29,7 +36,7 @@
       <tr>
         <td class="mono">{{ r.started_at | dt }}</td>
         <td>{{ r.report_date }}</td>
-        <td><span class="pill {{ r.status }}">{{ r.status }}</span></td>
+        <td>{{ status_cell(r) }}</td>
         <td>{{ r.counts.get('reported', '—') }}</td>
         <td>{{ '%.0f%%' % (r.counts.get('coverage_ratio', 0) * 100) }}</td>
         <td>{{ r.counts.get('excluded', '—') }}</td>

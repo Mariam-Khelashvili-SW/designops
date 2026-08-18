@@ -1056,7 +1056,7 @@ def execute_run(
                  delivered_at=_now() if delivery.status in ("self", "draft", "sent") else None,
                  message_id=delivery.message_id)
     )
-    _persist_flags(session, run, filtered, below_floor)
+    _persist_flags(session, run, filtered, below_floor, coverage)
     return run
 
 
@@ -1086,13 +1086,27 @@ def _persist_documents(session: Session, run: PipelineRun, filtered: FilterResul
 
 
 def _persist_flags(
-    session: Session, run: PipelineRun, filtered: FilterResult, below_floor: bool
+    session: Session,
+    run: PipelineRun,
+    filtered: FilterResult,
+    below_floor: bool,
+    coverage: dict | None = None,
 ) -> None:
+    coverage = coverage or {}
     if below_floor:
         session.add(
             Flag(run_id=run.id, type=FlagType.INGEST_GAP,
                  body=f"Roster coverage {filtered.coverage_ratio:.0%} below floor "
                       f"{get_settings().min_coverage:.0%}.")
+        )
+    failed = int(coverage.get("exports_failed") or 0)
+    if failed:
+        session.add(
+            Flag(
+                run_id=run.id,
+                type=FlagType.INGEST_GAP,
+                body=f"{failed} Fairwind export{'s' if failed != 1 else ''} failed.",
+            )
         )
     for raw_string in filtered.unmatched_projects:
         session.add(

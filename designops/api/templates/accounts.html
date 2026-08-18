@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Accounts — Design Ops{% endblock %}
+{% block page_class %}wide{% endblock %}
 {% block body %}
-<h1>Accounts</h1>
-<p class="sub">
-  {{ active }} active accounts (of {{ total }} synced · {{ enabled }} enabled for the daily digest).
-  Pick a date range and pull a Fairwind export for any one account, on demand.
-</p>
+<div class="page-head">
+  <h1>Accounts</h1>
+  <p class="lede">
+    {{ active }} active accounts (of {{ total }} synced · {{ enabled }} in the Daily Pulse).
+    One-off Fairwind exports live here. Daily Pulse and health-brief switches are on
+    <a href="/weekly-health">Project health</a>.
+  </p>
+</div>
 
 {% if not fairwind_configured %}
 <div class="banner warn">

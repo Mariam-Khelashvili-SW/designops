@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "macros.html" import status_pill %}
+{% block title %}Overview — Design Ops{% endblock %}
+{% block body %}
+<div class="page-head">
+  <h1>Overview</h1>
+  <p class="lede">Three reports run on a schedule and go out by email. Anyone here can regenerate one at any time — generating never emails anyone.</p>
+</div>
+
+<div class="grid-3">
+  {% for c in cards %}
+  <div class="rcard">
+    <div class="rtop">
+      <div class="rglyph">{{ c.ico | safe }}</div>
+      <div class="grow">
+        <h3>{{ c.title }}</h3>
+        <div class="rsub">{{ c.sub }}</div>
+      </div>
+    </div>
+    <div class="rmeta">
+      <div class="row"><span>Last report</span><span>{{ c.last_for or '—' }}</span></div>
+      <div class="row"><span>Generated</span><span>{{ c.last_at or '—' }}</span></div>
+      <div class="row"><span>Status</span><span>{% if c.status %}{{ status_pill(c.status) }}{% else %}<span class="pill mut">Never run</span>{% endif %}</span></div>
+      {% if c.status_why %}<div class="row"><span>Why</span><span>{{ c.status_why }}</span></div>{% endif %}
+      <div class="row"><span>Next auto-send</span><span>{{ c.next or '—' }}</span></div>
+    </div>
+    <div class="btn-row">
+      <form method="post" action="{{ c.run_url }}" style="margin:0">
+        {% for name, val in c.run_fields %}
+        <input type="hidden" name="{{ name }}" value="{{ val }}">
+        {% endfor %}
+        <button class="btn primary sm" type="submit">Regenerate</button>
+      </form>
+      <a class="btn sm ghost" href="{{ c.open_url }}">Open</a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="hr"></div>
+
+<div class="grid-2">
+  <div class="card flush" style="margin:0">
+    <div class="card-head">
+      <div class="grow">
+        <h2>What feeds the reports</h2>
+        <p>Change any of these and the next report picks it up.</p>
+      </div>
+    </div>
+    <div class="list-row">
+      <div class="grow">
+        <b>{{ active_n }} designers active</b>
+        <div class="muted" style="font-size:11.5px">{{ leave_n }} on leave</div>
+      </div>
+      <a class="btn sm ghost" href="/people">Manage</a>
+    </div>
+    <div class="list-row">
+      <div class="grow">
+        <b>{{ tracked_n }} projects tracked</b>
+        <div class="muted" style="font-size:11.5px">in the health brief</div>
+      </div>
+      <a class="btn sm ghost" href="/weekly-health">Manage</a>
+    </div>
+  </div>
+  <div class="callout warn" style="align-self:start;margin:0">
+    <div><b>Reports read, they never write.</b> Nothing here reassigns a ticket, moves a Jira status or emails a client. The only outbound action is pressing Send on a finished report.</div>
+  </div>
+</div>
+{% endblock %}

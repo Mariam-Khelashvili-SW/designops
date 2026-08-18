@@ -1,0 +1,54 @@
+{# Shared UI bits used by report pages. #}
+
+{% macro status_pill(st) -%}
+  {%- if st == 'ok' -%}
+    <span class="pill ok"><span class="dot"></span>Clean</span>
+  {%- elif st == 'flagged' -%}
+    <span class="pill flagged"><span class="dot"></span>Needs a look</span>
+  {%- elif st == 'failed' -%}
+    <span class="pill failed"><span class="dot"></span>Failed</span>
+  {%- elif st == 'running' -%}
+    <span class="pill running"><span class="dot"></span>Running</span>
+  {%- else -%}
+    <span class="pill mut">{{ st or '—' }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro status_cell(run) -%}
+  {{ status_pill(run.status) }}
+  {% set why = status_why(run) %}
+  {% if why %}<div class="status-why">{{ why }}</div>{% endif %}
+{%- endmacro %}
+
+{% macro status_banner(run) -%}
+  {% if run.status == 'flagged' %}
+  {% set why = status_why(run) %}
+  <div class="callout warn" style="margin:12px 18px 0">
+    <div><b>Needs a look.</b> {{ why or 'Open the run for details.' }}</div>
+  </div>
+  {% endif %}
+{%- endmacro %}
+
+{% macro ico(d) -%}
+<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="{{ d }}"/></svg>
+{%- endmacro %}
+
+{% macro recipient_chips(recipients, send) -%}
+<input type="hidden" name="send_mode" value="{{ 'send' if send=='send' else 'none' }}">
+<div class="sched-send-row">
+  <div>
+    <div class="lbl">Send by email</div>
+    <div class="hint">When off, the report is generated on schedule and stays in the app.</div>
+  </div>
+  <button class="switch" type="button" data-send-switch aria-checked="{{ 'true' if send=='send' else 'false' }}" title="Email the report automatically"></button>
+</div>
+<div class="field">
+  <label>Email to</label>
+  <div class="mail-box{% if send != 'send' %} is-off{% endif %}" data-mail-box>
+    <div class="mail-chips"></div>
+    <input class="mail-type" type="text" inputmode="email" autocomplete="off" placeholder="Add an address and press Enter">
+    <input type="hidden" name="recipients" value="{{ recipients }}">
+  </div>
+  <div class="hint">Press Enter or comma to add. Click × to remove.</div>
+</div>
+{%- endmacro %}

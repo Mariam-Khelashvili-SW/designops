@@ -1,15 +1,24 @@
 {% extends "base.html" %}
+{% from "macros.html" import status_pill %}
 {% block title %}Run {{ run.report_date }} — Design Ops{% endblock %}
 {% block body %}
-<h1>Digest — {{ run.report_date }}
-  <span class="pill {{ run.status }}">{{ run.status }}</span>
-  {% if run.note %}<span class="pill mut">{{ run.skill_version }}</span>{% endif %}
-</h1>
-<p class="sub">
-  Started {{ run.started_at | dt }} · read {{ run.counts.get('read', 0) }},
-  included {{ run.counts.get('included', 0) }}, excluded {{ run.counts.get('excluded', 0) }}.
-  {% if run.note %}<br>{{ run.note }}{% endif %}
-</p>
+<div class="page-head">
+  <h1>Digest — {{ run.report_date }}
+    {{ status_pill(run.status) }}
+    {% if run.skill_version %}<span class="pill mut">{{ run.skill_version }}</span>{% endif %}
+  </h1>
+  <p class="lede">
+    Started {{ run.started_at | dt }} · read {{ run.counts.get('read', 0) }},
+    included {{ run.counts.get('included', 0) }}, excluded {{ run.counts.get('excluded', 0) }}.
+    {% if run.note %}<br>{{ run.note }}{% endif %}
+  </p>
+</div>
+
+{% if run.status == 'flagged' %}
+<div class="callout warn">
+  <div><b>Needs a look.</b> {{ status_why(run) or 'Open Coverage & flags below for details.' }}</div>
+</div>
+{% endif %}
 
 {% if run.status == 'running' %}
 <div class="banner" style="background:#e8f0fb;border:1px solid #ccd0ec;color:#1d5fb0">
@@ -32,41 +41,56 @@
 <div class="banner warn">Couldn't send: {{ sent_msg or 'unknown error' }}</div>
 {% endif %}
 
-{% if run.status not in ('running',) and not run.error %}
-<div style="margin-bottom:16px">
-  <form method="post" action="/runs/{{ run.id }}/email" class="row" style="gap:8px;align-items:flex-end">
-    <div>
-      <label>Send report to (comma-separated for multiple)</label>
-      <input type="text" name="recipient" value="{{ owner_email }}"
-             placeholder="olga@company.com, liana@company.com"
-             required style="min-width:360px">
+<div class="card flush">
+  <div class="card-head">
+    <div class="grow">
+      <h2>Rendered digest</h2>
+      <p>{{ run.report_date }}</p>
     </div>
-    <button class="btn" type="submit"{% if not can_send %} disabled{% endif %}>Send</button>
-    <a class="btn sm" href="/runs/{{ run.id }}/download" style="align-self:flex-end;text-decoration:none">Download zip</a>
-  </form>
-  <p class="sub" style="margin-top:6px">Download includes the rendered HTML + JSON (Figma panels, tickets, coverage) for comparing local vs prod.</p>
-  {% if not can_send %}<p class="sub" style="margin-top:6px">Connect Google or set a Gmail app password on the <a href="/config">Config</a> page to enable sending.</p>{% endif %}
+    {% if run.status not in ('running',) and not run.error %}
+    <div class="btn-row">
+      <a class="btn sm" href="/runs/{{ run.id }}/download">Download</a>
+    </div>
+    {% endif %}
+  </div>
+  {% if run.status == 'running' %}
+  <div class="card-body" style="background:var(--panel-2)"><div class="muted"><span class="spin"></span> Composing the digest…</div></div>
+  {% elif not run.error %}
+  <div class="card-body" style="background:var(--panel-2)">
+    <iframe class="digest-preview" src="/runs/{{ run.id }}/digest" title="Rendered digest"></iframe>
+  </div>
+  {% else %}
+  <div class="card-body"><p class="sub" style="margin:0">No digest — run failed.</p></div>
+  {% endif %}
+</div>
+
+{% if run.status not in ('running',) and not run.error %}
+<div class="card flush">
+  <div class="card-head">
+    <div class="grow">
+      <h2>Send this report</h2>
+      <p>This puts the report in someone's inbox. It is the only action that sends mail on demand.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/runs/{{ run.id }}/email" class="form-row">
+      <div class="field" style="flex:1;min-width:280px">
+        <label>Send to</label>
+        <input class="input" type="text" name="recipient" value="{{ owner_email }}"
+               placeholder="olga@company.com, liana@company.com" required>
+        <div class="hint">Comma-separate for several people. Download includes HTML + JSON for comparing local vs prod.</div>
+      </div>
+      <button class="btn primary" type="submit"{% if not can_send %} disabled{% endif %}>Send now</button>
+    </form>
+    {% if not can_send %}<p class="muted" style="font-size:12.5px;margin:12px 0 0">Connect Google or set a Gmail app password on <a href="/config">Connections</a> to enable sending.</p>{% endif %}
+  </div>
 </div>
 {% endif %}
 
-<div style="display:grid;grid-template-columns:1.15fr .95fr;gap:16px;align-items:start">
-
-  <!-- PANE 1 — rendered digest -->
-  <div class="card" style="padding:0;overflow:hidden">
-    <div style="padding:10px 14px;border-bottom:1px solid var(--line);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)">1 · Rendered digest</div>
-    {% if run.status == 'running' %}
-    <div class="sub" style="padding:40px 16px;text-align:center"><span class="spin"></span> Composing the digest…</div>
-    {% elif not run.error %}
-    <iframe src="/runs/{{ run.id }}/digest" style="width:100%;height:640px;border:none"></iframe>
-    {% else %}
-    <div class="sub" style="padding:16px">No digest — run failed.</div>
-    {% endif %}
-  </div>
-
-  <div>
-    <!-- PANE 3 — coverage + flags -->
-    <div class="card">
-      <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:8px">3 · Coverage &amp; flags</div>
+<div class="grid-2">
+  <div class="card flush">
+    <div class="card-head"><div class="grow"><h2>Coverage &amp; flags</h2></div></div>
+    <div class="card-body tight">
       <table>
         <tr><td>Roster coverage</td><td><b>{{ '%.0f%%' % (run.counts.get('coverage_ratio',0)*100) }}</b> ({{ run.counts.get('reported',0) }} reported, {{ run.counts.get('silent',0) }} silent)</td></tr>
         <tr><td>Duplicates collapsed</td><td>{{ run.counts.get('duplicates', 0) }}</td></tr>
@@ -79,18 +103,19 @@
         <div style="margin:6px 0;font-size:12.5px"><span class="pill {{ 'red' if f.type in ('blocker','ingest_gap') else 'blue' }}">{{ f.type }}</span> {{ f.body }}</div>
         {% endfor %}
       </div>
-      {% else %}<p class="sub" style="margin:8px 0 0">No flags.</p>{% endif %}
+      {% else %}<p class="muted" style="margin:8px 0 0;font-size:12.5px">No flags.</p>{% endif %}
     </div>
+  </div>
 
-    <!-- validation / sign-off (§12.4) -->
-    <div class="card">
-      <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:8px">Sign-off</div>
+  <div class="card flush">
+    <div class="card-head"><div class="grow"><h2>Sign-off</h2></div></div>
+    <div class="card-body">
       {% if run.validated_at %}
         <p style="margin:0"><span class="pill ok">Validated</span> by {{ run.validated_by }} at {{ run.validated_at | dt }}.<br>
-        {% if run.validation_note %}<span class="sub">{{ run.validation_note }}</span>{% endif %}</p>
+        {% if run.validation_note %}<span class="muted">{{ run.validation_note }}</span>{% endif %}</p>
       {% else %}
       <form method="post" action="/runs/{{ run.id }}/validate">
-        <input name="validation_note" placeholder="Validation note (optional)" style="width:100%;margin-bottom:8px">
+        <input class="input" name="validation_note" placeholder="Validation note (optional)" style="width:100%;margin-bottom:8px">
         <button class="btn sm" type="submit">Mark validated</button>
       </form>
       {% endif %}
@@ -98,9 +123,8 @@
   </div>
 </div>
 
-<!-- PANE 2 — input corpus with verdicts -->
-<div class="card">
-  <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:8px">2 · Input corpus — what was read, and what was dropped &amp; why (§5)</div>
+<div class="card flush">
+  <div class="card-head"><div class="grow"><h2>Input corpus</h2><p>What was read, and what was dropped and why.</p></div></div>
   <table>
     <thead><tr><th>Verdict</th><th>Source</th><th>Person</th><th>Project</th><th>Date</th><th>Title / external id</th></tr></thead>
     <tbody>
@@ -111,7 +135,7 @@
         <td>{{ people.get(d.person_id, '—') }}</td>
         <td>{{ projects.get(d.project_id, '—') }}</td>
         <td class="mono">{{ d.event_date }}</td>
-        <td>{{ d.title or '' }} <span class="sub mono">{{ d.external_id }}</span></td>
+        <td>{{ d.title or '' }} <span class="muted mono">{{ d.external_id }}</span></td>
       </tr>
     {% endfor %}
     </tbody>

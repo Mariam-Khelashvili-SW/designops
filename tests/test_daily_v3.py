@@ -18,6 +18,7 @@ from designops.pipelines.daily_worklogs import (
     _rows_from_tempo,
     attach_worklogs,
     is_design_owned_ticket,
+    keep_daily_worklog,
     zero_logged_range_label,
 )
 from designops.pipelines.render import render_digest
@@ -296,11 +297,82 @@ def test_rows_from_tempo_resolves_issue_ids(monkeypatch):
     assert rows[0]["document"].raw["key"] == "UOM-512"
 
 
-def test_time_log_bucket_excluded():
-    assert not is_design_owned_ticket({"issue_type": "Time Logs", "original_hours": 1, "spent_hours": 40})
+def test_time_log_bucket_excluded_from_design_owned_but_kept_on_daily():
+    bucket = {"issue_type": "Time Logs", "original_hours": 24, "spent_hours": 80, "project_key": "BMX"}
+    assert not is_design_owned_ticket(bucket)
+    assert keep_daily_worklog(bucket)
     assert is_design_owned_ticket({"issue_type": "Task", "original_hours": 6, "spent_hours": 4})
     assert not is_design_owned_ticket({"issue_type": "QA", "components": []})
     assert is_design_owned_ticket({"issue_type": "QA", "components": ["UX"]})
+    assert not keep_daily_worklog({"issue_type": "QA", "components": [], "project_key": "UOM"})
+    assert not keep_daily_worklog({"issue_type": "Epic", "project_key": "UOM"})
+
+
+def test_time_log_bucket_hours_shown_on_daily():
+    report = date(2026, 8, 17)
+    bundle = WorklogBundle(
+        available=True,
+        tickets=[
+            (
+                "Tamari Giunashvili",
+                TicketRow(
+                    key="BMX-220",
+                    summary="Wireframes & Designs | Byggmax | August 2026",
+                    status="Log Time",
+                    hours=4.0,
+                    url="https://scandiweb.atlassian.net/browse/BMX-220",
+                    stale_days=None,
+                    project_key="BMX",
+                    project_name="Byggmax",
+                    original_hours=24,
+                    spent_hours=80,
+                    issue_type="Time Logs",
+                    bucket=True,
+                ),
+            )
+        ],
+        hours_by_person={"Tamari Giunashvili": 4.0},
+    )
+    digest = {
+        "at_a_glance": {"active": 1, "need_you": 0, "repeating": 0, "no_report": 0},
+        "status": [
+            {
+                "person": "Tamari Giunashvili",
+                "project": "Byggmax",
+                "done": "Internal communication.",
+                "next": "Update the My Projects designs.",
+            },
+            {
+                "person": "Tamari Giunashvili",
+                "project": "Seedsman",
+                "done": "Worked on the concept definition.",
+                "next": "Check in with the client.",
+            },
+        ],
+        "needs_review": [],
+        "open_questions": [],
+        "todays_plans": [],
+        "no_report": [],
+    }
+    attach_worklogs(digest, bundle, report_date=report)
+    by_proj = {r["project"]: r for r in digest["status"]}
+    bygg = by_proj["Byggmax"]
+    assert bygg["ticket_hours"] == 4.0
+    assert bygg["tickets"][0]["key"] == "BMX-220"
+    assert bygg["tickets"][0]["bucket"] is True
+    assert bygg["tickets"][0]["hours_label"] == "4.0h"
+    assert not bygg["no_time_logged"]
+    seeds = by_proj["Seedsman"]
+    assert seeds["ticket_hours"] == 0
+    assert seeds["no_time_logged"]
+    assert digest["hours_by_person"]["Tamari Giunashvili"] == 4.0
+
+    digest["jira_available"] = True
+    html = render_digest(digest, report, sample=True)
+    assert "4.0h" in html
+    assert "BMX-220" in html
+    assert "Time log" not in html
+    assert "No time logged on this project 17 Aug." in html
 
 
 def test_zero_logged_range_label():

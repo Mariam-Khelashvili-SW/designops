@@ -1,8 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Call summary — Design Ops{% endblock %}
+{% block title %}Call summaries — Design Ops{% endblock %}
+{% block page_class %}wide{% endblock %}
 {% block body %}
-<h1>Call summary</h1>
-<p class="sub">Client confirmation email drafts from design calls. Nothing is sent — drafts are stored for review.</p>
+<div class="page-head">
+  <h1>Call summaries</h1>
+  <p class="lede">Client follow-up emails drafted from design-call transcripts. Every draft is stored for review — the app never sends one.</p>
+</div>
 
 {% if flash %}
 <div class="banner {% if flash_type=='error' %}warn{% else %}ok{% endif %}" style="{% if flash_type!='error' %}background:#e5f6f2;border:1px solid #9fd9cc;color:#0f5c54{% endif %}">{{ flash }}{% if pending_tid %} <span class="spin"></span>{% endif %}</div>
@@ -53,16 +56,16 @@
 <div class="banner warn">Transcript API is not configured (TRANSCRIPT_API_BASE_URL / TRANSCRIPT_API_TOKEN).</div>
 {% endif %}
 
-<div class="card" style="padding:0;overflow:hidden">
-  <div style="display:flex;gap:0;border-bottom:1px solid var(--line)">
-    <a href="/call-summary?tab=designers" style="padding:10px 16px;text-decoration:none;font-size:13px;font-weight:600;{% if tab=='designers' %}color:var(--ink);border-bottom:2px solid var(--teal){% else %}color:var(--mut){% endif %}">Designers</a>
-    <a href="/call-summary?tab=calls{% if q %}&amp;q={{ q }}{% endif %}" style="padding:10px 16px;text-decoration:none;font-size:13px;font-weight:600;{% if tab=='calls' %}color:var(--ink);border-bottom:2px solid var(--teal){% else %}color:var(--mut){% endif %}">Calls{% if tab=='calls' %} ({{ calls_total }}){% endif %}</a>
-    <a href="/call-summary?tab=drafts{% if draft_id %}&amp;draft_id={{ draft_id }}{% endif %}" style="padding:10px 16px;text-decoration:none;font-size:13px;font-weight:600;{% if tab=='drafts' %}color:var(--ink);border-bottom:2px solid var(--teal){% else %}color:var(--mut){% endif %}">Drafts{% if tab=='drafts' and drafts_total is defined %} ({{ drafts_total }}){% endif %}</a>
+<div class="card flush">
+  <div class="tabs">
+    <a class="tab {{ 'on' if tab=='calls' }}" href="/call-summary?tab=calls{% if q %}&amp;q={{ q }}{% endif %}">Calls{% if tab=='calls' %}<span class="c">{{ calls_total }}</span>{% endif %}</a>
+    <a class="tab {{ 'on' if tab=='drafts' }}" href="/call-summary?tab=drafts{% if draft_id %}&amp;draft_id={{ draft_id }}{% endif %}">Drafts{% if drafts_total is defined %}<span class="c">{{ drafts_total }}</span>{% endif %}</a>
+    <a class="tab {{ 'on' if tab=='designers' }}" href="/call-summary?tab=designers">Who is included</a>
   </div>
 
   {% if tab == 'designers' %}
   <div style="padding:18px 20px">
-    <p class="sub" style="margin-top:0">Include people by roster role and/or manual email. Role matches are substring (e.g. “Designer” includes “Designer (Creatives)”).</p>
+    <p class="sub" style="margin-top:0">Include everyone whose role contains a given string, or pick people directly. Role matches are substring (e.g. “Designer” includes “Designer (Creatives)”).</p>
     <form method="post" action="/call-summary/designers">
       <div class="row" style="margin-bottom:14px">
         <div>
@@ -80,7 +83,7 @@
             <span class="mono" style="color:var(--mut)">{{ (p.emails or [''])[0] }}</span>
           </label>
           {% else %}
-          <p style="padding:12px;color:var(--mut);margin:0">No people in roster. Seed or add via Config.</p>
+          <p class="sub" style="margin:0">No people in roster. Seed or add via Design team.</p>
           {% endfor %}
         </div>
       </div>
@@ -168,7 +171,7 @@
   {% if designer_count == 0 %}
   <div style="padding:40px;text-align:center;color:var(--mut)">
     No designers configured yet.
-    <div style="margin-top:8px"><a href="/call-summary?tab=designers">Choose designers →</a></div>
+    <div style="margin-top:8px"><a href="/call-summary?tab=designers">Who is included →</a></div>
   </div>
   {% elif not calls %}
   <div style="padding:40px;text-align:center;color:var(--mut)">
@@ -197,13 +200,13 @@
             <form method="post" action="/call-summary/generate" class="js-call-summary-generate" style="display:inline">
               <input type="hidden" name="transcript_id" value="{{ c.id }}" />
               <input type="hidden" name="return_tab" value="calls" />
-              <button class="btn sm js-generate-btn" type="submit" style="min-width:6.5rem" {% if not anthropic_ready or not transcript_api_ready or pending_busy %}disabled{% endif %}>Regenerate</button>
+              <button class="btn primary sm js-generate-btn" type="submit" style="min-width:6.5rem" {% if not anthropic_ready or not transcript_api_ready or pending_busy %}disabled{% endif %}>Regenerate</button>
             </form>
             {% else %}
             <form method="post" action="/call-summary/generate" class="js-call-summary-generate" style="display:inline">
               <input type="hidden" name="transcript_id" value="{{ c.id }}" />
               <input type="hidden" name="return_tab" value="calls" />
-              <button class="btn sm js-generate-btn" type="submit" style="min-width:6.5rem" {% if not anthropic_ready or not transcript_api_ready or pending_busy %}disabled{% endif %}>Generate</button>
+              <button class="btn primary sm js-generate-btn" type="submit" style="min-width:6.5rem" {% if not anthropic_ready or not transcript_api_ready or pending_busy %}disabled{% endif %}>Generate</button>
             </form>
             {% endif %}
           </td>
@@ -495,7 +498,7 @@
           <form method="post" action="/call-summary/generate" class="js-call-summary-generate">
             <input type="hidden" name="transcript_id" value="{{ viewed.transcript_id }}" />
             <input type="hidden" name="return_tab" value="drafts" />
-            <button class="btn sm js-generate-btn" type="submit" {% if not anthropic_ready or not transcript_api_ready or pending_busy %}disabled{% endif %}>{% if pending_busy and viewed.transcript_id in pending_ids %}Generating…{% else %}Regenerate{% endif %}</button>
+            <button class="btn primary sm js-generate-btn" type="submit" {% if not anthropic_ready or not transcript_api_ready or pending_busy %}disabled{% endif %}>{% if pending_busy and viewed.transcript_id in pending_ids %}Generating…{% else %}Regenerate{% endif %}</button>
           </form>
           {% else %}
           <button class="btn sm" type="button" disabled>Regenerate</button>

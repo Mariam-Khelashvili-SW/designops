@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Config — Design Ops{% endblock %}
+{% block title %}{{ 'Design team' if panel|default('connections')=='people' else 'Connections' }} — Design Ops{% endblock %}
 {% block body %}
+{% set panel = panel|default('connections') %}
 <style>
-  .wrap{max-width:1180px}
   .page-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:6px}
   .page-head h1{margin:0}
   .stat-row{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
@@ -15,6 +15,7 @@
   .toolbar .chk input{margin:0}
   .team-list{display:flex;flex-direction:column;gap:8px}
   .person{
+    display:block;
     border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden;
     transition:border-color .15s, box-shadow .15s;
   }
@@ -131,7 +132,8 @@
 {% set out_n = people | selectattr('display_status', 'equalto', 'out') | list | length %}
 {% set unverified_n = people | rejectattr('identity_verified') | rejectattr('display_status', 'equalto', 'out') | list | length %}
 
-{% if google_flash == 'connected' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Google connected{% if google_email %} as <b>{{ google_email }}</b>{% endif %}. Reports can now be emailed.</div>
+{% if panel == 'connections' %}
+{% if google_flash == 'connected' %}<div class="banner ok">✓ Google connected{% if google_email %} as <b>{{ google_email }}</b>{% endif %}. Reports can now be emailed.</div>
 {% elif google_flash == 'disconnected' %}<div class="banner" style="background:#eef0f3;border:1px solid #dfe2e7;color:#5b6470">Google disconnected.</div>
 {% elif google_flash == 'error' %}<div class="banner warn">Google connection failed: {{ google_msg or 'unknown error' }}</div>
 {% elif google_flash == 'notconfigured' %}<div class="banner warn">Google OAuth isn't set up yet — add <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code> first.</div>
@@ -166,22 +168,16 @@
 {% elif figma_probe == 'error' %}
 <div class="banner warn">Figma fetch failed: {{ figma_probe_msg or 'unknown error' }}</div>
 {% endif %}
-{% if flash == 'saved' %}
-<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5c54">Saved.</div>
-{% elif flash == 'added' %}
-<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5c54">Designer added to the team.</div>
-{% elif flash == 'removed' %}
-<div class="banner" style="background:#fff5e8;border:1px solid #f5c66b;color:#8a5a12">Marked <b>out</b> — excluded from digests, kept for history.</div>
-{% elif flash == 'verified' %}
-<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5c54">
-  <b>{{ verify_person or 'Designer' }}</b> verified. {{ verify_msg }}
+
+<div class="page-head">
+  <div>
+    <h1>Connections</h1>
+    <p class="lede">Mailboxes, Figma access and the project registry that maps daily reports to projects.</p>
+  </div>
 </div>
-{% elif flash == 'verify_fail' %}
-<div class="banner warn">
-  <b>{{ verify_person or 'Designer' }}</b> not fully verified. {{ verify_msg }}
-  <div class="hint" style="margin-top:6px">Verified requires both Jira user match and the email appearing in Fairwind export corpus. Save email changes first, then re-check.</div>
+<div class="callout warn">
+  <div><b>Operator area.</b> These screens control how the pipelines run and hold connected credentials. Nothing here is needed to read or regenerate a report.</div>
 </div>
-{% endif %}
 
 <div class="card">
   <b>Delivery</b>
@@ -194,7 +190,7 @@
     </form>
   {% elif google_configured %}
     <p class="sub" style="margin-bottom:8px">Connect your Google account to send reports securely (no password stored).</p>
-    <a class="btn" href="/settings/google/connect">Connect Google</a>
+    <a class="btn primary" href="/settings/google/connect">Connect Google</a>
   {% else %}
     <p class="sub">To email reports, either connect Google (add <code>GOOGLE_CLIENT_ID</code> /
       <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code>, then a Connect button appears here)
@@ -247,7 +243,7 @@
       Connect the Google account that receives <code>{{ cro_mailbox }}</code> (alias).
       We never list the full inbox — only that address.
     </p>
-    <a class="btn" href="/settings/google/cro/connect">Connect CRO mailbox</a>
+    <a class="btn primary" href="/settings/google/cro/connect">Connect CRO mailbox</a>
   {% else %}
     <p class="sub">Add <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code> to enable CRO mailbox connect.</p>
   {% endif %}
@@ -337,7 +333,7 @@
         <button class="btn ghost sm" type="submit">Disconnect</button>
       </form>
     {% elif figma_oauth_configured %}
-      <a class="btn" href="/settings/figma/connect">Connect Figma</a>
+      <a class="btn primary" href="/settings/figma/connect">Connect Figma</a>
     {% else %}
       <p class="sub" style="margin:0">Save Client ID + secret above to enable Connect.</p>
     {% endif %}
@@ -401,12 +397,56 @@
   {% endif %}
 </div>
 
+<div class="card">
+  <div class="card-head">
+    <div class="grow">
+      <h2>Project registry ({{ projects | length }})</h2>
+      <p>Canonical names and aliases used when mapping a daily report line to a project.</p>
+    </div>
+  </div>
+  <div class="card-body" style="padding:0">
+  <table>
+    <thead><tr><th>Canonical</th><th>Aliases</th><th>Jira key</th><th>Fairwind account</th><th>Track daily</th></tr></thead>
+    <tbody>
+    {% for p in projects %}
+      <tr>
+        <td><b>{{ p.canonical_name }}</b></td>
+        <td class="muted">{{ p.aliases | join(' · ') }}</td>
+        <td class="mono">{{ p.jira_project_key or '—' }}</td>
+        <td class="mono">{{ p.fairwind_account_id or '⚠ unresolved' }}</td>
+        <td>{% if p.track_daily %}<span class="pill ok">tracked</span>{% else %}<span class="pill mut">—</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="card-foot">{{ projects | rejectattr('fairwind_account_id') | list | length }} entries have no resolved Fairwind account — they still map by Jira key.</div>
+</div>
+{% else %}
+
+{% if flash == 'saved' %}
+<div class="banner ok">Saved.</div>
+{% elif flash == 'added' %}
+<div class="banner ok">Designer added to the team.</div>
+{% elif flash == 'removed' %}
+<div class="banner warn">Marked <b>out</b> — excluded from digests, kept for history.</div>
+{% elif flash == 'verified' %}
+<div class="banner ok">
+  <b>{{ verify_person or 'Designer' }}</b> verified. {{ verify_msg }}
+</div>
+{% elif flash == 'verify_fail' %}
+<div class="banner warn">
+  <b>{{ verify_person or 'Designer' }}</b> not fully verified. {{ verify_msg }}
+  <div class="hint" style="margin-top:6px">Verified requires both Jira user match and the email appearing in Fairwind export corpus. Save email changes first, then re-check.</div>
+</div>
+{% endif %}
+
 <div class="page-head">
   <div>
     <h1>Design team</h1>
-    <p class="sub" style="margin:4px 0 0">Who counts in digests. Matching is by email / Jira id — edits apply on the next run.</p>
+    <p class="lede" style="margin:4px 0 0">Who counts in the reports. People are matched by email address, never by name, so the spelling in a daily report thread does not matter.</p>
   </div>
-  <button class="btn" type="button" id="toggle-add">+ Add designer</button>
+  <button class="btn primary" type="button" id="toggle-add">Add designer</button>
 </div>
 <div class="stat-row">
   <div class="stat"><div class="n">{{ people | length }}</div><div class="l">Total</div></div>
@@ -505,7 +545,7 @@
       <span class="hint">Appears in reports after the next generate.</span>
       <div class="right">
         <button class="btn ghost sm" type="button" id="cancel-add-2">Cancel</button>
-        <button class="btn" type="submit" id="add-submit-btn">Add to team</button>
+        <button class="btn primary" type="submit" id="add-submit-btn">Add to team</button>
       </div>
     </div>
   </form>
@@ -672,27 +712,10 @@
   </div>
   <p class="empty" id="no-match" style="display:none;padding:18px">No designers match your filter.</p>
 </div>
-
-<div class="card">
-  <b>Project registry ({{ projects | length }})</b>
-  <p class="hint" style="margin-bottom:8px">Canonical names and aliases used when mapping dailies to projects.</p>
-  <table>
-    <thead><tr><th>Canonical</th><th>Aliases</th><th>Jira key</th><th>Fairwind account</th><th>Track daily</th></tr></thead>
-    <tbody>
-    {% for p in projects %}
-      <tr>
-        <td><b>{{ p.canonical_name }}</b></td>
-        <td class="sub">{{ p.aliases | join(' · ') }}</td>
-        <td class="mono">{{ p.jira_project_key or '—' }}</td>
-        <td class="mono">{{ p.fairwind_account_id or '⚠ unresolved' }}</td>
-        <td>{% if p.track_daily %}<span class="pill ok">tracked</span>{% else %}<span class="pill mut">—</span>{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
+{% endif %}
 
 <script>
+{% if panel == 'people' %}
 (function () {
   var addCard = document.getElementById('add-card');
   var toggleAdd = document.getElementById('toggle-add');
@@ -1002,6 +1025,24 @@
   });
 })();
 
+function filterTeam() {
+  var qEl = document.getElementById('q');
+  if (!qEl) return;
+  var q = (qEl.value || '').trim().toLowerCase();
+  var rows = document.querySelectorAll('#team-list details.person');
+  var shown = 0;
+  rows.forEach(function (r) {
+    var hay = r.getAttribute('data-search') || '';
+    var hit = !q || hay.indexOf(q) !== -1;
+    r.hidden = !hit;
+    if (hit) shown++;
+  });
+  var count = document.getElementById('count');
+  if (count) count.textContent = shown + ' shown';
+  var none = document.getElementById('no-match');
+  if (none) none.style.display = shown ? 'none' : 'block';
+}
+{% else %}
 (function () {
   var form = document.getElementById('figma-probe-form');
   if (!form) return;
@@ -1120,19 +1161,6 @@
       });
   });
 })();
-
-function filterTeam() {
-  var q = (document.getElementById('q').value || '').trim().toLowerCase();
-  var rows = document.querySelectorAll('#team-list details.person');
-  var shown = 0;
-  rows.forEach(function (r) {
-    var hay = r.getAttribute('data-search') || '';
-    var hit = !q || hay.indexOf(q) !== -1;
-    r.hidden = !hit;
-    if (hit) shown++;
-  });
-  document.getElementById('count').textContent = shown + ' shown';
-  document.getElementById('no-match').style.display = shown ? 'none' : 'block';
-}
+{% endif %}
 </script>
 {% endblock %}

@@ -36,7 +36,7 @@ Do not invent Jira tickets, reassign work, change statuses, or fabricate progres
 - **Temporal scope is enforced in code.** Client-facing email, transcripts and Jira are
   from the **report day only**. A design daily may carry a **next-morning** timestamp —
   treat it as belonging to the report day; never flag it as late.
-- Jira "Time Logs" buckets and duplicates are already removed.
+- Jira worklogs (including Time Logs retainers) and duplicates are already attached in code.
 
 **Do not filter, exclude, or re-scope. Judge and phrase.**
 

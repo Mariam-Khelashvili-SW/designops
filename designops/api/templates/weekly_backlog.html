@@ -1,14 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Weekly backlog — Design Ops{% endblock %}
+{% from "macros.html" import status_pill, recipient_chips, status_cell, status_banner %}
+{% block title %}Weekly planning — Design Ops{% endblock %}
 {% block body %}
-<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:4px">
-  <div>
-    <h1 style="margin:0">Weekly Planning Board</h1>
-    <p class="sub" style="margin:4px 0 0;max-width:54ch">
-      Monday brief for Olga — Friday-planned tickets, remaining hours vs capacity. Report only; never reassigns.
-    </p>
-  </div>
-  <div class="sub" style="margin:0;text-align:right">Normal week · <b>{{ normal_hours }}h</b></div>
+<div class="page-head">
+  <h1>Weekly planning board</h1>
+  <p class="lede">Monday brief — Friday-planned tickets and remaining hours against a {{ normal_hours }}h week, per designer. Report only: it never reassigns anything.</p>
 </div>
 
 {% if not jira_ready %}
@@ -23,79 +19,144 @@
 </div>
 {% endif %}
 
-<div class="card">
-  <h1 style="font-size:16px;margin-bottom:2px">Weekly schedule</h1>
-  <p class="sub">Fires once a week at the chosen weekday + time (Europe/Riga). Uses last Friday's dailies + live Jira for the current planned week.</p>
-  {% if flash == 'schedule_saved' %}<div class="banner" style="background:#e5f6f2;border:1px solid #9fd9cf;color:#0f5f56">✓ Schedule saved{% if sched_next %} · next run {{ sched_next }}{% endif %}.</div>{% endif %}
-  <form method="post" action="/weekly-backlog/schedule" class="row" style="align-items:flex-end;gap:14px">
-    <div><label>Day</label>
-      <select name="weekday">
-        <option value="mon" {{ 'selected' if sched_weekday=='mon' }}>Monday</option>
-        <option value="tue" {{ 'selected' if sched_weekday=='tue' }}>Tuesday</option>
-        <option value="wed" {{ 'selected' if sched_weekday=='wed' }}>Wednesday</option>
-        <option value="thu" {{ 'selected' if sched_weekday=='thu' }}>Thursday</option>
-        <option value="fri" {{ 'selected' if sched_weekday=='fri' }}>Friday</option>
-      </select>
+<div class="card flush">
+  <div class="card-head plain">
+    <div class="grow">
+      <h2>Generate now</h2>
+      <p>Build the report on demand. It opens here for you to read — <b>nothing is emailed</b>.</p>
     </div>
-    <div><label>Time (Riga)</label><input type="time" name="sched_time" value="{{ sched_time }}"></div>
-    <div><label>Delivery</label>
-      <select name="send_mode">
-        <option value="none" {{ 'selected' if sched_send=='none' }}>Generate only</option>
-        <option value="send" {{ 'selected' if sched_send=='send' }}>Email recipients</option>
-      </select>
-    </div>
-    <div style="flex:1;min-width:240px"><label>Recipients (comma-separated)</label>
-      <input type="text" name="recipients" value="{{ sched_recipients }}" placeholder="olga@scandiweb.com, …" style="width:100%"></div>
-    <div><label style="display:flex;align-items:center;gap:6px;margin-top:14px"><input type="checkbox" name="enabled" {{ 'checked' if sched_enabled }} style="width:auto"> On</label></div>
-    <button class="btn" type="submit">Save</button>
-  </form>
-  <p class="sub" style="margin-top:8px">
-    {% if sched_enabled and sched_next %}⏰ Next run <b>{{ sched_next }}</b>{% if sched_send=='send' %} → emails <b>{{ sched_recipients or '(no recipients!)' }}</b>{% else %} → generates in-app only{% endif %}.
-    {% elif sched_enabled %}Enabled.{% else %}Off — nothing runs automatically.{% endif %}
-    Delivery applies to the schedule only — manual Generate never emails.
-    {% if sched_send=='send' and not can_send %} <span style="color:#b4451f">⚠ <a href="/config">Connect Gmail in Config</a> to actually send.</span>{% endif %}
-  </p>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/weekly-backlog/run" class="form-row">
+      <div class="field">
+        <label>Week of (Monday)</label>
+        <input class="input" type="date" name="week_of" value="{{ default_week }}" required style="width:170px">
+      </div>
+      <div class="field">
+        <label>Data</label>
+        <select class="input" name="reuse_ingest" style="width:250px">
+          <option value="on" selected>Reuse Friday's export</option>
+          <option value="off">Pull everything fresh (slower)</option>
+        </select>
+      </div>
+      <button class="btn primary lg" type="submit">Generate report</button>
+    </form>
+    <p class="muted" style="font-size:12px;margin-top:11px">
+      Pick any Monday. Friday plans come from the previous Friday's dailies; Jira is the current open assigned backlog.
+    </p>
+  </div>
 </div>
 
-<div class="card">
-  <h1 style="font-size:16px;margin-bottom:2px">Generate a planned-week brief</h1>
-  <p class="sub">Pick the Monday of the week. Friday plans = the previous Friday; Jira = current open assigned backlog. Stays in-app — email from the run page if needed.</p>
-  <form method="post" action="/weekly-backlog/run" class="row" style="align-items:flex-end">
-    <div>
-      <label>Week of</label>
-      <input type="date" name="week_of" value="{{ default_week }}" required>
-      <p class="sub" style="margin:4px 0 0;font-size:12px">Mon–Fri → that week’s Monday. Sat/Sun → next Monday (so 26 Jul → 27 Jul, not 20 Jul).</p>
+{% set latest = recent[0] if recent else none %}
+<div class="split">
+  <div>
+    {% if latest %}
+    <div class="card flush">
+      <div class="card-head">
+        <div class="grow">
+          <h2>Latest report — week of {{ latest.report_date }} {{ status_pill(latest.status) }}</h2>
+          <p>Generated {{ latest.started_at | dt }}</p>
+        </div>
+        <div class="btn-row">
+          <a class="btn sm" href="/runs/{{ latest.id }}">Open</a>
+          <a class="btn sm" href="/runs/{{ latest.id }}/download">Download</a>
+        </div>
+      </div>
+      {{ status_banner(latest) }}
+      {% if latest.status == 'running' %}
+      <div class="card-body" style="background:var(--panel-2)"><div class="muted"><span class="spin"></span> Generating…</div></div>
+      {% elif latest.status == 'failed' %}
+      <div class="card-body" style="background:var(--panel-2)"><div class="callout warn" style="margin:0">{{ latest.error or 'Run failed.' }}</div></div>
+      {% else %}
+      <div class="card-body" style="background:var(--panel-2)">
+        <iframe class="digest-preview" src="/runs/{{ latest.id }}/digest" title="Latest planning board"></iframe>
+      </div>
+      {% endif %}
     </div>
-    <div>
-      <label style="display:flex;align-items:center;gap:6px;margin-top:14px">
-        <input type="checkbox" name="reuse_ingest" checked style="width:auto">
-        Reuse Friday's Fairwind export if already pulled
-      </label>
+    {% else %}
+    <div class="card"><p class="sub" style="margin:0">No weekly runs yet.</p></div>
+    {% endif %}
+  </div>
+  <div>
+    <div class="card flush">
+      <div class="card-head"><div class="grow"><h2>Capacity assumptions</h2></div></div>
+      <div class="list-row"><div class="grow">Standard week</div><b>{{ normal_hours }}h</b></div>
+      {% for p in dedicated %}
+      <div class="list-row">
+        <div class="grow">{{ p.full_name }}</div>
+        <b>{% if p.dedicated_weekly_hours %}{{ p.dedicated_weekly_hours|int if p.dedicated_weekly_hours == p.dedicated_weekly_hours|int else p.dedicated_weekly_hours }}h/wk{% else %}dedicated{% endif %}</b>
+      </div>
+      {% endfor %}
+      <div class="card-foot"><span>Dedicated hours are set per person on the <a href="/people">Design team</a> page.</span></div>
     </div>
-    <button class="btn" type="submit">Generate planned week →</button>
-  </form>
+    <div class="callout info" style="margin:0">Designers marked <b>on leave</b> are excluded from capacity automatically — you do not need to remove them.</div>
+  </div>
 </div>
 
-<div class="card">
-  <h1 style="font-size:15px;margin-bottom:2px">Recent planned-week runs</h1>
+<details class="card hist-card">
+  <summary class="card-head">
+    <span class="chev"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg></span>
+    <span class="grow">
+      <span class="h2l">Report history</span>
+      <span class="sub">{{ recent|length }} runs kept · showing the latest {{ [recent|length, 3]|min }} — expand for the rest</span>
+    </span>
+    <span class="btn sm ghost">Show full history</span>
+  </summary>
   {% if recent %}
   <table>
-    <thead><tr><th>Week of</th><th>Started</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Report</th><th>Generated</th><th>Status</th><th></th></tr></thead>
     <tbody>
     {% for r in recent %}
       <tr>
-        <td>{{ r.report_date }}</td>
-        <td>{{ r.started_at | dt }}</td>
-        <td><span class="pill {{ r.status }}">{{ r.status }}</span></td>
-        <td><a href="/runs/{{ r.id }}">Open →</a></td>
+        <td><b>{{ r.report_date }}</b></td>
+        <td class="muted">{{ r.started_at | dt }}</td>
+        <td>{{ status_cell(r) }}</td>
+        <td style="text-align:right"><a class="btn sm ghost" href="/runs/{{ r.id }}">Open</a></td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <p class="sub">No weekly runs yet.</p>
+  <p class="empty">No weekly runs yet.</p>
   {% endif %}
-</div>
+</details>
+
+<form class="card flush" method="post" action="/weekly-backlog/schedule">
+  <div class="card-head">
+    <div class="grow">
+      <h2>Automatic delivery</h2>
+      <p>Fires once a week at the chosen weekday and time (Europe/Riga), covering the week that is starting.</p>
+    </div>
+    <input type="hidden" name="enabled" value="{{ 'on' if sched_enabled else 'off' }}">
+    <button class="switch" type="button" data-enabled-switch aria-checked="{{ 'true' if sched_enabled else 'false' }}" title="Turn automatic delivery on or off"></button>
+  </div>
+  {% if flash == 'schedule_saved' %}<div class="banner ok" style="margin:0 18px">✓ Schedule saved{% if sched_next %} · next run {{ sched_next }}{% endif %}.</div>{% endif %}
+  <div class="card-body">
+    <div class="sched-when">
+      <div class="field"><label>Day</label>
+        <select class="input" name="weekday" style="width:150px">
+          <option value="mon" {{ 'selected' if sched_weekday=='mon' }}>Monday</option>
+          <option value="tue" {{ 'selected' if sched_weekday=='tue' }}>Tuesday</option>
+          <option value="wed" {{ 'selected' if sched_weekday=='wed' }}>Wednesday</option>
+          <option value="thu" {{ 'selected' if sched_weekday=='thu' }}>Thursday</option>
+          <option value="fri" {{ 'selected' if sched_weekday=='fri' }}>Friday</option>
+        </select>
+      </div>
+      <div class="field"><label>Time (Riga)</label><input class="input" type="time" name="sched_time" value="{{ sched_time }}" style="width:120px"></div>
+    </div>
+    {{ recipient_chips(sched_recipients, sched_send) }}
+    <div class="sched-foot"><button class="btn" type="submit">Save</button></div>
+    <div class="callout info" style="margin:14px 0 0">
+      <div>
+        {% if sched_enabled and sched_next %}
+        Next automatic send <b>{{ sched_next }}</b>
+        {% if sched_send=='send' %} to <b>{{ sched_recipients or '(no recipients)' }}</b>.{% else %}. Reports stay in the app.{% endif %}
+        {% elif sched_enabled %}Automatic sending is on.{% else %}Automatic sending is <b>off</b>.{% endif %}
+        {% if sched_send=='send' and not can_send %} <b>Connect Gmail in <a href="/config">Connections</a></b> to actually send.{% endif %}
+      </div>
+    </div>
+  </div>
+</form>
 {% if recent and (recent | selectattr('status', 'equalto', 'running') | list) %}
 <script>setTimeout(function () { location.reload(); }, 4000);</script>
 {% endif %}

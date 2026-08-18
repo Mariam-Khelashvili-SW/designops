@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -59,6 +59,7 @@ from designops.api.auth import (
     safe_next_url,
     session_secret,
 )
+from designops.api.run_status import explain_run_status, status_why
 from designops.pipelines.weekly_health import (
     PIPELINE_KEY as WEEKLY_HEALTH_KEY,
     create_pending_run as create_weekly_health_pending_run,
@@ -73,6 +74,62 @@ _TEMPLATES = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES))
 templates.env.filters["dt"] = lambda v: v.strftime("%Y-%m-%d %H:%M") if v else "—"
 templates.env.globals["login_enabled"] = login_enabled
+templates.env.globals["status_why"] = status_why
+templates.env.globals["status_reasons"] = explain_run_status
+
+
+def _fmt_when(dt: datetime | None) -> str | None:
+    if not dt:
+        return None
+    return dt.strftime("%a %-d %b, %H:%M").replace(" 0", " ")
+
+
+def _latest_run(db: Session, key: str) -> PipelineRun | None:
+    pipeline = db.query(Pipeline).filter_by(key=key).one_or_none()
+    if not pipeline:
+        return None
+    return (
+        db.query(PipelineRun)
+        .filter_by(pipeline_id=pipeline.id)
+        .order_by(PipelineRun.started_at.desc())
+        .first()
+    )
+
+
+def _shell_context() -> dict:
+    """Sidebar badges + next-send footer. Own session so any page can call it."""
+    empty = {"drafts": 0, "people": 0, "next_send": None, "next_label": None}
+    try:
+        from designops.api.scheduler import next_run_time
+        from designops.core.db import session_scope
+
+        with session_scope() as db:
+            drafts = db.query(CallSummaryDraft).count()
+            people_n = (
+                db.query(Person).filter(Person.status != PersonStatus.OUT.value).count()
+            )
+            soonest: datetime | None = None
+            label: str | None = None
+            for key, name in (
+                ("daily-digest", "Daily Pulse"),
+                ("weekly-backlog", "Weekly planning"),
+                ("weekly-health", "Project health"),
+            ):
+                nrt = next_run_time(key)
+                if nrt is not None and (soonest is None or nrt < soonest):
+                    soonest = nrt
+                    label = name
+            return {
+                "drafts": drafts,
+                "people": people_n,
+                "next_send": _fmt_when(soonest),
+                "next_label": label,
+            }
+    except Exception:  # noqa: BLE001 — never break a page for a badge
+        return empty
+
+
+templates.env.globals["shell"] = _shell_context
 
 
 @app.middleware("http")
@@ -137,7 +194,7 @@ def health():
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_form(request: Request, next: str = "/daily-report"):
+def login_form(request: Request, next: str = "/"):
     nxt = safe_next_url(next)
     if not login_enabled() or is_authenticated(request):
         return RedirectResponse(nxt, status_code=302)
@@ -157,7 +214,7 @@ def login_submit(
     request: Request,
     username: str = Form(""),
     password: str = Form(""),
-    next: str = Form("/daily-report"),
+    next: str = Form("/"),
 ):
     nxt = safe_next_url(next)
     if credentials_ok(username, password):
@@ -178,12 +235,102 @@ def login_submit(
 @app.api_route("/logout", methods=["GET", "POST"])
 def logout(request: Request):
     mark_logged_out(request)
-    return RedirectResponse("/login" if login_enabled() else "/daily-report", status_code=302)
+    return RedirectResponse("/login" if login_enabled() else "/", status_code=302)
+
+
+_OVERVIEW_ICOS = {
+    "daily": '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2h10v12H3zM5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>',
+    "plan": '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11v9.5h-11zM2.5 6.8h11M5.5 2v2.6M10.5 2v2.6"/></svg>',
+    "health": '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9h3l1.5-4 2 8 2-5 1.2 1H14"/></svg>',
+}
 
 
 @app.get("/", response_class=HTMLResponse)
-def home():
-    return RedirectResponse("/daily-report", status_code=302)
+def home(request: Request, db: Session = Depends(get_db)):
+    from designops.api.scheduler import next_run_time
+
+    today = date.today()
+    people = db.query(Person).all()
+    active_n = 0
+    leave_n = 0
+    for p in people:
+        st = effective_status(p.status, p.leave_until, today, leave_from=p.leave_from)
+        if st == PersonStatus.ACTIVE.value:
+            active_n += 1
+        elif st == PersonStatus.ON_LEAVE.value:
+            leave_n += 1
+    tracked_n = (
+        db.query(Project)
+        .filter_by(track_weekly_health=True, active=True)
+        .count()
+    )
+
+    def card(key: str, *, title: str, sub: str, ico: str, open_url: str,
+             run_url: str, run_fields: list[tuple[str, str]], next_key: str) -> dict:
+        run = _latest_run(db, key)
+        nrt = next_run_time(next_key)
+        last_for = None
+        if run and run.report_date:
+            last_for = run.report_date.strftime("%a %-d %b").replace(" 0", " ")
+        return {
+            "title": title,
+            "sub": sub,
+            "ico": ico,
+            "last_for": last_for,
+            "last_at": _fmt_when(run.started_at) if run else None,
+            "status": run.status if run else None,
+            "status_why": status_why(run) if run else "",
+            "next": _fmt_when(nrt),
+            "open_url": open_url,
+            "run_url": run_url,
+            "run_fields": run_fields,
+        }
+
+    default_date = _prev_working_day(today).isoformat()
+    default_week = resolve_week_monday(today).isoformat()
+    cards = [
+        card(
+            "daily-digest",
+            title="Daily Pulse",
+            sub="Every weekday · yesterday's work",
+            ico=_OVERVIEW_ICOS["daily"],
+            open_url="/daily-report",
+            run_url="/daily-report/run",
+            run_fields=[("report_date", default_date), ("reuse_ingest", "on")],
+            next_key="daily-digest",
+        ),
+        card(
+            "weekly-backlog",
+            title="Weekly planning board",
+            sub="Mondays · the week ahead",
+            ico=_OVERVIEW_ICOS["plan"],
+            open_url="/weekly-backlog",
+            run_url="/weekly-backlog/run",
+            run_fields=[("week_of", default_week), ("reuse_ingest", "on")],
+            next_key="weekly-backlog",
+        ),
+        card(
+            "weekly-health",
+            title="Project health & budget",
+            sub="Weekly · burn vs signed",
+            ico=_OVERVIEW_ICOS["health"],
+            open_url="/weekly-health",
+            run_url="/weekly-health/run",
+            run_fields=[("reuse_ingest", "on")],
+            next_key="weekly-health",
+        ),
+    ]
+    return templates.TemplateResponse(
+        "overview.html",
+        {
+            "request": request,
+            "nav": "overview",
+            "cards": cards,
+            "active_n": active_n,
+            "leave_n": leave_n,
+            "tracked_n": tracked_n,
+        },
+    )
 
 
 # --- Daily report -------------------------------------------------------------
@@ -262,7 +409,7 @@ def daily_report(request: Request, db: Session = Depends(get_db)):
         db.query(PipelineRun)
         .filter_by(pipeline_id=pipeline.id)
         .order_by(PipelineRun.started_at.desc())
-        .limit(8)
+        .limit(20)
         .all()
         if pipeline
         else []
@@ -332,9 +479,9 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
     s = get_settings()
     # Keep one draft per meeting (cleanup any duplicates from earlier multi-clicks)
     prune_older_drafts(db)
-    tab = (request.query_params.get("tab") or "designers").strip().lower()
+    tab = (request.query_params.get("tab") or "calls").strip().lower()
     if tab not in ("designers", "calls", "drafts"):
-        tab = "designers"
+        tab = "calls"
 
     # In-memory pending is the source of truth (survives refresh / tab switches).
     # URL ?pending= is optional; restore from memory when missing.
@@ -1275,6 +1422,16 @@ def daily_report_run(
     return RedirectResponse(f"/runs/{run_id}", status_code=302)
 
 
+# Call summaries (/call-summary) and Design intake (/intake) keep their DB rows
+# for those dedicated screens; they are not pipeline-config cards.
+_PIPELINES_PAGE_HIDDEN_KEYS = frozenset({"call-summary", "design-intake", "intake"})
+
+
+def _hidden_from_pipelines_page(key: str | None) -> bool:
+    k = (key or "").strip().lower().replace("_", "-")
+    return k in _PIPELINES_PAGE_HIDDEN_KEYS
+
+
 # --- Pipelines ----------------------------------------------------------------
 @app.get("/pipelines", response_class=HTMLResponse)
 def pipelines(request: Request, db: Session = Depends(get_db)):
@@ -1288,6 +1445,8 @@ def pipelines(request: Request, db: Session = Depends(get_db)):
     rows = db.query(Pipeline).order_by(Pipeline.key).all()
     data = []
     for p in rows:
+        if _hidden_from_pipelines_page(p.key):
+            continue
         last = (
             db.query(PipelineRun)
             .filter_by(pipeline_id=p.id)
@@ -1383,12 +1542,18 @@ def weekly_backlog_page(request: Request, db: Session = Depends(get_db)):
         db.query(PipelineRun)
         .filter_by(pipeline_id=pipeline.id)
         .order_by(PipelineRun.started_at.desc())
-        .limit(8)
+        .limit(20)
         .all()
         if pipeline
         else []
     )
     s = get_settings()
+    dedicated = (
+        db.query(Person)
+        .filter(Person.is_dedicated.is_(True))
+        .order_by(Person.full_name)
+        .all()
+    )
     sched_time, _ = _cron_to_fields(pipeline.schedule_cron if pipeline else "0 11 * * mon")
     sched_weekday = _cron_weekday(pipeline.schedule_cron if pipeline else "0 11 * * mon")
     from designops.api.scheduler import next_run_time
@@ -1415,6 +1580,7 @@ def weekly_backlog_page(request: Request, db: Session = Depends(get_db)):
             "can_send": google_oauth.is_connected() or s.smtp_configured,
             "flash": request.query_params.get("flash"),
             "normal_hours": s.normal_week_hours,
+            "dedicated": dedicated,
         },
     )
 
@@ -1473,13 +1639,16 @@ def weekly_health_page(request: Request, db: Session = Depends(get_db)):
         db.query(PipelineRun)
         .filter_by(pipeline_id=pipeline.id)
         .order_by(PipelineRun.started_at.desc())
-        .limit(8)
+        .limit(20)
         .all()
         if pipeline
         else []
     )
     s = get_settings()
     sched_time, _ = _cron_to_fields(pipeline.schedule_cron if pipeline else "0 12 * * tue")
+    sched_weekday = _cron_weekday(
+        pipeline.schedule_cron if pipeline else "0 12 * * tue", default="tue"
+    )
     from designops.api.scheduler import next_run_time
 
     nrt = next_run_time(WEEKLY_HEALTH_KEY)
@@ -1495,7 +1664,11 @@ def weekly_health_page(request: Request, db: Session = Depends(get_db)):
         if p.fairwind_account_id
     }
     accounts_payload = []
+    digest_by_fw: dict[str, bool] = {}
+    acct_by_fw: dict[str, Account] = {}
     for a in db.query(Account).order_by(Account.name).all():
+        acct_by_fw[a.fairwind_account_id] = a
+        digest_by_fw[a.fairwind_account_id] = bool(a.digest_enabled)
         proj = projects_by_fw.get(a.fairwind_account_id)
         accounts_payload.append(
             {
@@ -1508,6 +1681,16 @@ def weekly_health_page(request: Request, db: Session = Depends(get_db)):
                 "project_id": str(proj.id) if proj else None,
             }
         )
+    export_to = _prev_working_day(date.today())
+    export_from = export_to - timedelta(days=6)
+    for t in tracked:
+        acct = acct_by_fw.get(t.fairwind_account_id or "")
+        t.digest_enabled = bool(digest_by_fw.get(t.fairwind_account_id or "", False))
+        t.digest_account_id = t.fairwind_account_id if t.fairwind_account_id else None
+        t.acct_domain = (acct.domains[0] if acct and acct.domains else None)
+        t.acct_synced = acct.synced_at if acct else None
+        t.acct_keys = list(acct.jira_project_keys or []) if acct else []
+        t.acct_notes = (acct.notes if acct else None) or t.notes
     return templates.TemplateResponse(
         "weekly_health.html",
         {
@@ -1517,12 +1700,15 @@ def weekly_health_page(request: Request, db: Session = Depends(get_db)):
             "recent": recent,
             "tracked": tracked,
             "accounts_json": accounts_payload,
+            "export_from": export_from.isoformat(),
+            "export_to": export_to.isoformat(),
             "fairwind_ready": s.fairwind_configured,
             "today_label": date.today().strftime("%a %-d %b %Y"),
             "anthropic_ready": s.anthropic_configured,
             "jira_ready": s.jira_configured,
             "sched_enabled": bool(pipeline and pipeline.enabled),
             "sched_time": sched_time,
+            "sched_weekday": sched_weekday,
             "sched_recipients": ", ".join(pipeline.recipients) if pipeline else "",
             "sched_send": (pipeline.send_mode if pipeline else "none"),
             "sched_next": nrt.strftime("%a %d %b %H:%M %Z") if nrt else None,
@@ -2055,6 +2241,7 @@ def weekly_health_run(
 @app.post("/weekly-health/schedule")
 def weekly_health_schedule(
     sched_time: str = Form("12:00"),
+    weekday: str = Form("tue"),
     recipients: str = Form(""),
     send_mode: str = Form("none"),
     enabled: str = Form("off"),
@@ -2067,7 +2254,10 @@ def weekly_health_schedule(
         h, m = (int(x) for x in sched_time.split(":")[:2])
     except (ValueError, TypeError):
         h, m = 12, 0
-    p.schedule_cron = f"{m} {h} * * tue"  # Tuesdays 12:00 default
+    dow = _CRON_DOW_ALIASES.get((weekday or "").strip().lower(), "tue")
+    if dow not in _CRON_WEEKDAYS:
+        dow = "tue"
+    p.schedule_cron = f"{m} {h} * * {dow}"
     p.recipients = [
         r.strip() for r in recipients.replace("\n", ",").split(",") if r.strip()
     ]
@@ -2538,6 +2728,7 @@ def accounts_screen(request: Request, db: Session = Depends(get_db)):
 def account_enable(
     account_id: str,
     enable: str = Form(...),
+    next: str = Form("/weekly-health"),
     db: Session = Depends(get_db),
 ):
     """Toggle whether this account is included in the daily report (§11 allowlist)."""
@@ -2555,7 +2746,8 @@ def account_enable(
 
         ensure_project_for_account(db, a)
     db.add(a)
-    return RedirectResponse("/accounts", status_code=302)
+    nxt = safe_next_url(next, fallback="/weekly-health")
+    return RedirectResponse(nxt, status_code=302)
 
 
 @app.post("/accounts/{account_id}/export", response_class=HTMLResponse)
@@ -2585,6 +2777,45 @@ def account_export(
     except (FairwindError, ValueError) as e:
         ctx["error"] = str(e)
     return templates.TemplateResponse("account_export_result.html", ctx)
+
+
+def _account_export_zip_path(account_id: str, date_from: date, date_to: date) -> Path:
+    store = Path(get_settings().corpus_store_dir).resolve()
+    root = (store / account_id / f"{date_from.isoformat()}_{date_to.isoformat()}").resolve()
+    zip_path = (root / "export.zip").resolve()
+    try:
+        zip_path.relative_to(store)
+    except ValueError as e:
+        raise HTTPException(400, "invalid export path") from e
+    if zip_path.name != "export.zip":
+        raise HTTPException(400, "invalid export path")
+    return zip_path
+
+
+@app.get("/accounts/{account_id}/export/download")
+def account_export_download(
+    account_id: str,
+    date_from: str,
+    date_to: str,
+    db: Session = Depends(get_db),
+):
+    account = (
+        db.query(Account).filter_by(fairwind_account_id=account_id).one_or_none()
+    )
+    if not account:
+        raise HTTPException(404, "unknown account")
+    try:
+        df, dt = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    except ValueError as e:
+        raise HTTPException(400, "invalid dates") from e
+    if df > dt:
+        raise HTTPException(400, "date_from is after date_to")
+    zip_path = _account_export_zip_path(account_id, df, dt)
+    if not zip_path.is_file():
+        raise HTTPException(404, "no export zip for that range — run the export first")
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", (account.name or account_id).strip())[:60].strip("-")
+    filename = f"{slug or account_id}-{df.isoformat()}_{dt.isoformat()}.zip"
+    return FileResponse(zip_path, media_type="application/zip", filename=filename)
 
 
 # --- Config: roster (§0 screen 5) --------------------------------------------
@@ -2653,8 +2884,17 @@ def _apply_person_form(
         person.identity_verified = False
 
 
+@app.get("/people", response_class=HTMLResponse)
+def people_screen(request: Request, db: Session = Depends(get_db)):
+    return _config_page(request, db, panel="people")
+
+
 @app.get("/config", response_class=HTMLResponse)
 def config_screen(request: Request, db: Session = Depends(get_db)):
+    return _config_page(request, db, panel="connections")
+
+
+def _config_page(request: Request, db: Session, *, panel: str):
     people = db.query(Person).order_by(Person.status, Person.full_name).all()
     today = date.today()
     for p in people:
@@ -2672,7 +2912,7 @@ def config_screen(request: Request, db: Session = Depends(get_db)):
     s = get_settings()
     cro_msgs: list[dict] = []
     cro_err: str | None = None
-    if google_oauth.is_cro_connected(s):
+    if panel == "connections" and google_oauth.is_cro_connected(s):
         try:
             from designops.adapters.gmail import list_cro_messages
 
@@ -2695,7 +2935,8 @@ def config_screen(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "people": people,
             "projects": projects,
-            "nav": "config",
+            "nav": "people" if panel == "people" else "config",
+            "panel": panel,
             "flash": request.query_params.get("flash"),
             "google_flash": google_flash,
             "google_cro_flash": google_cro_flash,
@@ -2828,7 +3069,7 @@ def config_people_create(
     person.identity_verified = jira_ok and fw_ok
     db.add(person)
     db.commit()
-    return RedirectResponse("/config?flash=added", status_code=302)
+    return RedirectResponse("/people?flash=added", status_code=302)
 
 
 @app.post("/config/people/{person_id}")
@@ -2862,7 +3103,7 @@ def config_people_update(
     )
     db.add(person)
     db.commit()
-    return RedirectResponse("/config?flash=saved", status_code=302)
+    return RedirectResponse("/people?flash=saved", status_code=302)
 
 
 @app.post("/config/people/{person_id}/verify")
@@ -2926,7 +3167,7 @@ def config_people_mark_out(person_id: str, db: Session = Depends(get_db)):
     person.status = PersonStatus.OUT.value
     db.add(person)
     db.commit()
-    return RedirectResponse("/config?flash=removed", status_code=302)
+    return RedirectResponse("/people?flash=removed", status_code=302)
 
 
 @app.post("/config/people/{person_id}/delete")

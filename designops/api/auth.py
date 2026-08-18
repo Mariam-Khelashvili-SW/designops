@@ -68,7 +68,7 @@ def mark_logged_out(request: Request) -> None:
     request.session.clear()
 
 
-def safe_next_url(raw: str | None, *, fallback: str = "/daily-report") -> str:
+def safe_next_url(raw: str | None, *, fallback: str = "/") -> str:
     """Only allow same-origin relative paths (no open redirects)."""
     value = (raw or "").strip()
     if not value or not value.startswith("/") or value.startswith("//"):

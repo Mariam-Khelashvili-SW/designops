@@ -7,10 +7,10 @@ from designops.core.config import get_settings
 def test_safe_next_url_rejects_open_redirects():
     assert safe_next_url("/weekly-health") == "/weekly-health"
     assert safe_next_url("/runs/abc?sent=ok") == "/runs/abc?sent=ok"
-    assert safe_next_url("https://evil.example/phish") == "/daily-report"
-    assert safe_next_url("//evil.example") == "/daily-report"
-    assert safe_next_url("/login") == "/daily-report"
-    assert safe_next_url("") == "/daily-report"
+    assert safe_next_url("https://evil.example/phish") == "/"
+    assert safe_next_url("//evil.example") == "/"
+    assert safe_next_url("/login") == "/"
+    assert safe_next_url("") == "/"
 
 
 def test_credentials_require_configured_password(monkeypatch):

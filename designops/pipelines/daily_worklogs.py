@@ -1,8 +1,9 @@
 """Attach Jira tickets the designer logged time against on the report day.
 
 Tickets come from the Atlassian connector (worklogDate + worklogAuthor), not a
-windowed Fairwind export. Time-log buckets, hardware, epics, and obvious
-dev/QA types are dropped. If Jira is unreachable the digest stays report-only.
+windowed Fairwind export. Hardware, epics, VACSICK, and obvious dev/QA types
+are dropped. Time Logs retainer tickets still count toward hours so the
+load bar matches Tempo. If Jira is unreachable the digest stays report-only.
 """
 
 from __future__ import annotations
@@ -21,7 +22,10 @@ from designops.core.identity import effective_status
 from designops.core.registry import ProjectRegistry
 from designops.pipelines.weekly_availability import (
     extract_ticket_keys,
+    is_epic_ticket,
     is_excluded_ticket,
+    is_hardware_ticket,
+    is_timelog_ticket,
 )
 from designops.pipelines.weekly_health_math import (
     DESIGN_COMPONENTS,
@@ -63,6 +67,7 @@ class TicketRow:
     issue_type: str | None = None
     components: list[str] = field(default_factory=list)
     named_only: bool = False  # report named it; no worklog today
+    bucket: bool = False  # Time Logs / retainer — hours count, not a design ticket
 
 
 @dataclass
@@ -104,6 +109,32 @@ def is_design_owned_ticket(ticket: dict) -> bool:
     return True
 
 
+def keep_daily_worklog(ticket: dict) -> bool:
+    """Hours on the Daily Pulse: design work plus Time Logs retainers.
+
+    Hardware, epics, VACSICK, and non-design types (QA/dev without a UX
+    component) stay out. Weekly health still uses is_design_owned_ticket /
+    is_timelog_bucket so retainers do not inflate budget burn.
+    """
+    if is_hardware_ticket(ticket) or is_epic_ticket(ticket):
+        return False
+    pk = (ticket.get("project_key") or "").upper()
+    if pk == VACSICK_PROJECT_KEY:
+        return False
+    if is_timelog_ticket(ticket) or is_timelog_bucket(ticket):
+        return True
+    itype = (ticket.get("issue_type") or "").strip().lower()
+    if itype in _NON_DESIGN_ISSUE_TYPES and not _has_design_component(
+        ticket.get("components")
+    ):
+        return False
+    return True
+
+
+def _is_bucket_ticket(ticket: dict) -> bool:
+    return is_timelog_ticket(ticket) or is_timelog_bucket(ticket)
+
+
 def _ticket_from_doc(
     doc: Document,
     *,
@@ -127,6 +158,14 @@ def _ticket_from_doc(
         issue_type=raw.get("issue_type") or doc.jira_issue_type,
         components=list(raw.get("components") or []),
         named_only=named_only,
+        bucket=_is_bucket_ticket(
+            {
+                "issue_type": raw.get("issue_type") or doc.jira_issue_type,
+                "project_key": raw.get("project_key") or doc.project_hint,
+                "original_hours": raw.get("original_hours") or 0,
+                "spent_hours": raw.get("spent_hours") or 0,
+            }
+        ),
     )
 
 
@@ -212,10 +251,7 @@ def collect_daily_worklogs(
             "original_hours": raw.get("original_hours") or 0,
             "spent_hours": raw.get("spent_hours") or 0,
         }
-        if not is_design_owned_ticket(ticket_dict):
-            continue
-        pk = (raw.get("project_key") or doc.project_hint or "").upper()
-        if pk == VACSICK_PROJECT_KEY:
+        if not keep_daily_worklog(ticket_dict):
             continue
         stale = row.get("status_unchanged_days")
         trow = _ticket_from_doc(doc, hours=float(row.get("hours") or 0), stale_days=stale)
@@ -478,6 +514,7 @@ def _ticket_to_dict(t: TicketRow) -> dict:
         "original_hours": t.original_hours,
         "spent_hours": t.spent_hours,
         "named_only": t.named_only,
+        "bucket": t.bucket,
         "status_class": _status_class(t.status),
     }
 

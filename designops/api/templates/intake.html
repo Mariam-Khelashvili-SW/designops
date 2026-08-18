@@ -1,8 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Design Intake — Design Ops{% endblock %}
+{% block title %}Design intake — Design Ops{% endblock %}
+{% block page_class %}wide{% endblock %}
 {% block body %}
-<h1>Design Intake</h1>
-<p class="sub">Paste handover email content → generate intake page → review → publish to Notion.</p>
+<div class="page-head">
+  <h1>Design intake</h1>
+  <p class="lede">Paste a handover email, generate a designer intake page, review it, publish to Notion.</p>
+</div>
+<div class="callout warn">
+  <div><b>Operator area.</b> These screens control how the pipelines run and hold connected credentials. Nothing here is needed to read or regenerate a report.</div>
+</div>
 
 {% if flash %}
 <div class="banner {% if flash_type=='error' %}warn{% else %}ok{% endif %}" style="{% if flash_type!='error' %}background:#e5f6f2;border:1px solid #9fd9cc;color:#0f5c54{% endif %}">{{ flash }}{% if pending_job %} <span class="spin"></span>{% endif %}</div>
@@ -144,7 +150,7 @@
         <label>Corrections / extra context (optional)</label>
         <textarea name="corrections" rows="2" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px" placeholder="e.g. KAM is actually X, kickoff confirmed Friday"></textarea>
       </div>
-      <button class="btn" type="submit" {% if pending_busy %}disabled{% endif %}>{% if pending_busy %}Generating…{% else %}Generate intake page{% endif %}</button>
+      <button class="btn primary" type="submit" {% if pending_busy %}disabled{% endif %}>{% if pending_busy %}Generating…{% else %}Generate intake page{% endif %}</button>
     </form>
     <script>
     (function () {
@@ -208,7 +214,7 @@
           {% if viewed.status == 'draft' and notion_ready %}
           <form method="post" action="/intake/publish">
             <input type="hidden" name="draft_id" value="{{ viewed.id }}" />
-            <button class="btn" type="submit">Publish to Notion</button>
+            <button class="btn primary" type="submit">Publish to Notion</button>
           </form>
           {% elif viewed.status == 'draft' and not notion_ready %}
           <span class="sub" style="margin:0">Notion not configured</span>
