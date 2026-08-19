@@ -413,7 +413,7 @@ iframe.digest-preview{width:100%;height:680px;border:1px solid var(--line);borde
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
   }
   function wireMail(box) {
-    var hidden = box.querySelector('input[name="recipients"]');
+    var hidden = box.querySelector('input[name="recipients"],input[name="recipient"]');
     var type = box.querySelector('.mail-type');
     var list = box.querySelector('.mail-chips');
     if (!hidden || !type || !list) return;

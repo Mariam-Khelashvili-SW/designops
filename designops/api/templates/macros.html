@@ -52,3 +52,26 @@
   <div class="hint">Press Enter or comma to add. Click × to remove.</div>
 </div>
 {%- endmacro %}
+
+{% macro send_chips(recipients, can_send, run_id) -%}
+<div class="card flush">
+  <div class="card-head"><div class="grow"><h2>Send this report</h2><p>Email the latest report to someone right now.</p></div></div>
+  <div class="card-body">
+    <form method="post" action="/runs/{{ run_id }}/email">
+      <div class="field">
+        <label>Send to</label>
+        <div class="mail-box" data-mail-box>
+          <div class="mail-chips"></div>
+          <input class="mail-type" type="text" inputmode="email" autocomplete="off" placeholder="Add an address and press Enter">
+          <input type="hidden" name="recipient" value="{{ recipients }}">
+        </div>
+        <div class="hint">Press Enter or comma to add. Click × to remove.</div>
+      </div>
+      <div class="sched-foot">
+        <button class="btn primary" type="submit"{% if not can_send %} disabled{% endif %}>Send now</button>
+      </div>
+    </form>
+    {% if not can_send %}<p class="muted" style="font-size:12.5px;margin:10px 0 0">Connect Google or set a Gmail app password on <a href="/config">Connections</a> to enable sending.</p>{% endif %}
+  </div>
+</div>
+{%- endmacro %}

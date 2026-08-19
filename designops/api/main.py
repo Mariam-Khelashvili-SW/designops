@@ -398,12 +398,19 @@ def daily_report(request: Request, db: Session = Depends(get_db)):
     enabled = (
         db.query(Account).filter_by(digest_enabled=True).order_by(Account.name).all()
     )
-    team = (
+    from designops.core.identity import effective_status
+    team_raw = (
         db.query(Person)
         .filter(Person.status != "out")
         .order_by(Person.status, Person.full_name)
         .all()
     )
+    today = date.today()
+    for p in team_raw:
+        p._effective_status = effective_status(
+            p.status, p.leave_until, today, leave_from=p.leave_from
+        )
+    team = team_raw
     pipeline = db.query(Pipeline).filter_by(key="daily-digest").one_or_none()
     recent = (
         db.query(PipelineRun)

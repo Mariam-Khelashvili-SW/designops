@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import status_pill, recipient_chips, status_cell, status_banner %}
+{% from "macros.html" import status_pill, recipient_chips, status_cell, status_banner, send_chips %}
 {% block title %}Weekly planning — Design Ops{% endblock %}
 {% block body %}
 <div class="page-head">
@@ -73,6 +73,9 @@
       </div>
       {% endif %}
     </div>
+    {% if latest.status not in ('running', 'failed') %}
+    {{ send_chips(sched_recipients, can_send, latest.id) }}
+    {% endif %}
     {% else %}
     <div class="card"><p class="sub" style="margin:0">No weekly runs yet.</p></div>
     {% endif %}

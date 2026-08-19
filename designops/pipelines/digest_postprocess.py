@@ -455,6 +455,8 @@ def leave_badge_for_person(
         lu = getattr(p, "leave_until", None)
         if not lf and not lu:
             return None
+        if lu and lu < report_date:
+            return None
         start = lf or lu
         if start is None:
             return None

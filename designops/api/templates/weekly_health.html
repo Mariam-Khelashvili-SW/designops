@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import recipient_chips, status_pill, status_cell, status_banner %}
+{% from "macros.html" import recipient_chips, status_pill, status_cell, status_banner, send_chips %}
 {% block title %}Weekly health — Design Ops{% endblock %}
 {% block body %}
 <style>
@@ -323,6 +323,9 @@
   </div>
   {% endif %}
 </div>
+{% if latest.status not in ('running', 'failed') %}
+{{ send_chips(sched_recipients, can_send, latest.id) }}
+{% endif %}
 {% endif %}
 
 <details class="card hist-card">
