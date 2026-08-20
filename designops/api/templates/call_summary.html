@@ -61,9 +61,38 @@
     <a class="tab {{ 'on' if tab=='calls' }}" href="/call-summary?tab=calls{% if q %}&amp;q={{ q }}{% endif %}">Calls{% if tab=='calls' %}<span class="c">{{ calls_total }}</span>{% endif %}</a>
     <a class="tab {{ 'on' if tab=='drafts' }}" href="/call-summary?tab=drafts{% if draft_id %}&amp;draft_id={{ draft_id }}{% endif %}">Drafts{% if drafts_total is defined %}<span class="c">{{ drafts_total }}</span>{% endif %}</a>
     <a class="tab {{ 'on' if tab=='designers' }}" href="/call-summary?tab=designers">Who is included</a>
+    <a class="tab {{ 'on' if tab=='prompts' }}" href="/call-summary?tab=prompts">Prompts</a>
   </div>
 
-  {% if tab == 'designers' %}
+  {% if tab == 'prompts' %}
+  <div style="padding:18px 20px">
+    <p class="sub" style="margin-top:0">
+      Edit the three LLM system prompts used for follow-up draft generation (pipeline v{{ prompt_cfg.pipeline_version }}).
+      Leave a box as the default text, or clear an override with <strong>Reset to v3 defaults</strong>.
+      Changes apply to the next Generate / Regenerate.
+    </p>
+    <form method="post" action="/call-summary/prompts">
+      {% for key, label in [('extraction','Extraction'), ('critic','Critic'), ('composition','Composition')] %}
+      <div style="margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span>{{ label }}</span>
+          {% if prompt_cfg.overrides[key] %}
+          <span class="pill warn" style="font-size:11px">custom override</span>
+          {% else %}
+          <span class="pill mut" style="font-size:11px">default v3</span>
+          {% endif %}
+        </label>
+        <textarea name="{{ key }}" rows="14" style="width:100%;font:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.45;padding:10px;border:1px solid var(--line);border-radius:8px;resize:vertical">{{ prompt_cfg.prompts[key] }}</textarea>
+      </div>
+      {% endfor %}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn" type="submit">Save prompts</button>
+        <button class="btn ghost" type="submit" name="reset" value="all" onclick="return confirm('Reset all three prompts to built-in v3 defaults?')">Reset to v3 defaults</button>
+      </div>
+    </form>
+  </div>
+
+  {% elif tab == 'designers' %}
   <div style="padding:18px 20px">
     <p class="sub" style="margin-top:0">Include everyone whose role contains a given string, or pick people directly. Role matches are substring (e.g. “Designer” includes “Designer (Creatives)”).</p>
     <form method="post" action="/call-summary/designers">
@@ -661,6 +690,7 @@
                   <th style="padding:6px 8px">Body bullet</th>
                   <th style="padding:6px 8px">Source</th>
                   <th style="padding:6px 8px">Impact</th>
+                  <th style="padding:6px 8px">Owner</th>
                   <th style="padding:6px 8px">Evidence</th>
                 </tr>
               </thead>
@@ -677,6 +707,7 @@
                     {% endif %}
                   </td>
                   <td style="padding:6px 8px">{% if row.impact %}{{ row.impact }}{% else %}—{% endif %}</td>
+                  <td style="padding:6px 8px">{% if row.owner %}{{ row.owner }}{% else %}—{% endif %}</td>
                   <td style="padding:6px 8px;color:var(--mut);font-style:italic">{% if row.evidence %}{{ row.evidence }}{% else %}—{% endif %}</td>
                 </tr>
                 {% endfor %}

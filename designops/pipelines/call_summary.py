@@ -1,7 +1,7 @@
-"""Call summary → client follow-up email draft pipeline (v2).
+"""Call summary → client follow-up email draft pipeline (v3).
 
 Extract → critic → compose. Anthropic for LLM; drafts stored in designops DB.
-NEVER sends email.
+NEVER sends email. Prompts default to v3; admins can override via Pipeline.config.
 """
 
 from __future__ import annotations
@@ -20,211 +20,25 @@ from designops.adapters.llm import LLMClient, LLMResult, parse_digest_json
 from designops.adapters.transcript_api import get_transcript
 from designops.core.models import CallSummaryDraft, Person, Pipeline
 from designops.pipelines.call_scope import is_external_call, is_internal_email
+from designops.pipelines.call_summary_prompts import (
+    COMPOSITION_SYSTEM as _DEFAULT_COMPOSITION,
+    CRITIC_SYSTEM as _DEFAULT_CRITIC,
+    DEFAULT_PROMPTS,
+    EXTRACTION_SYSTEM as _DEFAULT_EXTRACTION,
+    PROMPT_KEYS,
+)
 
 log = logging.getLogger(__name__)
 
 PIPELINE_KEY = "call-summary"
 SKILL_PATH = Path(__file__).resolve().parents[1] / "skills" / "call-summary.md"
 
-EXTRACTION_SYSTEM = """You extract structured facts from a client call transcript for
-scandiweb (ecommerce agency). Output is a single JSON object matching the schema below.
-No markdown fences, no commentary.
+# Re-export defaults for tests / imports that still reference module-level constants.
+EXTRACTION_SYSTEM = _DEFAULT_EXTRACTION
+CRITIC_SYSTEM = _DEFAULT_CRITIC
+COMPOSITION_SYSTEM = _DEFAULT_COMPOSITION
 
-WHAT MATTERS MOST
-The purpose of this fact sheet is a client follow-up email. The most valuable items are
-the decisions that change the shape of the project — scope reversals, integration
-constraints, things that affect many screens or the commercial envelope. Small UI tweaks
-matter least. Capture both, but you MUST classify magnitude (see `impact`).
-
-EVIDENCE
-1. Every item carries evidence quoted verbatim from the transcript.
-2. Evidence MAY stitch up to 3 consecutive turns (join with " / ") when the decision was
-   reached across a short exchange. This is the normal case for important decisions —
-   they are rarely stated in one clean sentence. When stitching, the quote MUST include
-   the line where the CLIENT side agrees, confirms or states the outcome.
-3. If you cannot quote it, do not output it.
-
-DECISIONS vs TOPICS
-4. Auto-transcripts are garbled. A fragment like "configurator" proves a topic was
-   DISCUSSED, not what was DECIDED. Unclear outcomes go in
-   `topics_discussed_unclear_outcome`.
-5. A decision requires agreement or an unambiguous statement of outcome from the CLIENT
-   side. Garbled grammar is NOT a reason to downgrade if the outcome is clear — degraded
-   phrasing is expected. Downgrade only when the OUTCOME is genuinely ambiguous, not when
-   the sentence is merely messy.
-6. Capture decisions at change-point granularity: the specific thing that was agreed.
-
-REVERSAL SWEEP (do this before you finish)
-7. Re-scan the transcript specifically for statements that CHANGE a previously assumed
-   direction. Cue phrases: "we decided", "we talked more and", "we still need not to",
-   "no longer", "instead of", "actually", "we should start with", "probably should
-   remove", "that will not be", "there is not going to be".
-   Any such item is `reverses_prior_assumption: true` and `impact` is at least
-   "multi_template". These are the highest-value items in the whole fact sheet and are
-   the ones most often missed — do not omit one because the phrasing was messy.
-
-IMPACT CLASSIFICATION (required on every decision)
-   "project"        — changes the product model, business model, platform strategy, or
-                      what is being built at all (e.g. open vs closed catalog, B2C
-                      shutdown, source-of-truth ownership, account creation model)
-   "multi_template" — changes 3+ screens, a whole journey, or an integration contract
-   "single_screen"  — changes one page or component
-   "detail"         — copy, field, button, icon, list contents
-
-COMMITMENTS AND TIMING
-8. `date_iso` may ONLY contain a date that literally appears. Never infer.
-9. `timing_verbatim` captures relative timing exactly as said ("by the end of this week",
-   "next week", "this week for sure"). This field is REQUIRED whenever timing was
-   expressed at all. Do not discard a commitment because it lacks a calendar date.
-10. Every deliverable scandiweb promised goes in `our_commitments`, including ones
-    mentioned in passing inside a long monologue. Sweep the last 15% of the transcript
-    specifically — wrap-up commitments cluster there.
-
-OPEN QUESTIONS
-11. `open_questions` = anything ASKED on the call and NOT answered by the end, in either
-    direction. Set `asked_by` and `answer_owner`. These become the client asks in the
-    email — they are as important as decisions and are routinely lost.
-
-FLAGS
-12. `flags` = anything with risk, security, legal, compliance or commercial exposure.
-    severity "urgent" for active security findings, data exposure, compromise indicators,
-    blocked payments, legal risk. Urgent flags must set
-    `recommend_separate_email: true` — they are NOT follow-up email bullets.
-
-ARTIFACTS
-13. Record Figma/Notion/staging references. `state` must be one of:
-    "shared_already" | "will_share_after_changes" | "referenced_only".
-    If the team said they would adjust something and then send it, the state is
-    "will_share_after_changes" — NOT "shared_already".
-
-PEOPLE
-14. Distinguish client vs internal (scandiweb) attendees; if unsure, list under internal.
-    Attribute each decision's confirming quote to a named speaker in `speaker`.
-
-15. If heavily degraded set transcript_quality = "degraded", but apply rule 5 — do not
-    collapse everything into topics.
-
-SCHEMA
-{
-  "meeting": {"title":"", "date_iso":null, "attendees_client":[], "attendees_internal":[]},
-  "transcript_quality": "good" | "degraded",
-  "decisions": [{
-    "text":"", "impact":"project|multi_template|single_screen|detail",
-    "reverses_prior_assumption": false,
-    "type":"scope|design|integration|process|commercial",
-    "confidence":"high|low", "speaker":"", "evidence":""
-  }],
-  "our_commitments": [{"text":"", "timing_verbatim":null, "date_iso":null,
-                       "owner_internal":"", "confidence":"", "evidence":""}],
-  "client_actions": [{"text":"", "blocking":false, "timing_verbatim":null,
-                      "confidence":"", "evidence":""}],
-  "open_questions": [{"question":"", "asked_by":"us|client",
-                      "answer_owner":"us|client", "confidence":"", "evidence":""}],
-  "flags": [{"text":"", "severity":"urgent|normal",
-             "recommend_separate_email": false, "evidence":""}],
-  "artifacts": [{"name":"", "platform":"",
-                 "state":"shared_already|will_share_after_changes|referenced_only",
-                 "explicit_url":null, "evidence":""}],
-  "next_meeting": {"date_iso":null, "timing_verbatim":null, "evidence":""},
-  "topics_discussed_unclear_outcome": [{"topic":"", "evidence":""}]
-}
-"""
-
-CRITIC_SYSTEM = """You audit a fact sheet against the transcript it came from. You do not
-rewrite it. You find what is MISSING or MIS-RATED. Be adversarial: assume the extractor
-was too conservative, because it usually is.
-
-Check in this order:
-1. REVERSALS. Find every point where the call changed a previously assumed direction.
-   Is each one in `decisions` with reverses_prior_assumption=true? Missing reversals are
-   the most common and most expensive failure.
-2. IMPACT RATINGS. For each decision, is `impact` right? Anything touching the product
-   model, who can buy, how accounts are created, which system owns data, or what happens
-   to an existing site is "project" — not "single_screen".
-3. COMMITMENTS. Did scandiweb promise any deliverable that is absent from
-   `our_commitments`? Check the final 15% of the transcript especially.
-4. OPEN QUESTIONS. Was anything asked and left unanswered that is not in
-   `open_questions`?
-5. FLAGS. Any security, legal, data-exposure or commercial-risk item not flagged, or
-   rated too low?
-6. OVER-CAPTURE. Any `decisions` entry rated above "detail" that is actually a detail?
-
-Output JSON only:
-{"additions": [ <objects in the same schema, with a "target_array" key> ],
- "reclassifications": [{"decision_text":"", "field":"", "from":"", "to":"", "why":""}],
- "downgrades": [{"decision_text":"", "to_impact":"", "why":""}]}
-
-Every addition needs verbatim evidence. Return empty arrays if the fact sheet is complete.
-"""
-
-COMPOSITION_SYSTEM = """You write a post-call follow-up email to a client on behalf of a
-scandiweb account owner, from a validated JSON fact sheet. A human reviews before sending.
-
-VOICE
-- Warm, concise, professional. Short sentences, 1-3 sentence paragraphs. No agency jargon.
-- Plain hyphens with spaces ( - ), never em dashes.
-- Frame as confirmation of shared understanding, never as new commitments.
-- No pleasantry preamble ("hope this finds you well"), no corporate filler ("circling
-  back", "touching base", "per my last email").
-- Sign off with the account owner's name only. No signature block.
-
-INPUTS you are given as literal strings — copy them, never reason about them:
-  THANKS_LINE, CLIENT_FIRST_NAMES, SENDER_NAME, PROJECT_NAME
-
-STRUCTURE (omit any empty section)
-1. "Hello {CLIENT_FIRST_NAMES},"
-2. {THANKS_LINE}
-3. SHARING — driven by artifacts[].state:
-     - state "shared_already"           -> "As promised we are sharing ... for you to
-                                           review - [Figma link]"
-     - state "will_share_after_changes" -> "As promised we are adjusting ... and will
-                                           share them with you by email {timing}."
-     - NEVER emit both forms for the same artifact. If any artifact is
-       "will_share_after_changes", do not also present it as available now.
-   Omit the section if there are no artifacts.
-4. CLIENT ACTIONS — "As next steps from your side, please:" + bullets.
-   Source: client_actions[] + open_questions[] where answer_owner="client".
-   Every unanswered question the client owes an answer to becomes a bullet. Phrase as
-   "Confirm ...", "Advise ...", "Review and approve ...".
-   Put the blocking ones first. If a client_action has timing, state it.
-5. OUR ACTIONS — "From our side we will proceed with:" + bullets.
-   Source: our_commitments[]. ALWAYS append the timing to each bullet using
-   timing_verbatim, formatted as " - this week" / " - by the end of this week" /
-   " - next week". A commitment without stated timing is listed without a suffix.
-6. ALIGNMENT RECAP — "We also want to confirm the main points we aligned on:" + bullets.
-   HARD GATE: include a decision ONLY if impact is "project" or "multi_template", OR
-   reverses_prior_assumption is true. Never include impact "single_screen" or "detail" —
-   those live in the wireframes/designs and do not belong in the email.
-   Maximum 5 bullets; if more qualify, keep the 5 with highest impact, preferring
-   reversals. If zero qualify, omit the whole section — that is a normal outcome.
-   One line each, plain outcome language, no evidence quotes.
-7. NEXT REVIEW — "For the next review session we suggest ..." when next_meeting exists or
-   a review was agreed in principle; use [date] or [option 1] / [option 2] when the slot
-   is unset. Omit if nothing was agreed.
-8. "Best regards," / newline / {SENDER_NAME}
-
-ORDERING NOTE: sections 4-6 in that order. Client asks come before our commitments;
-the recap sits last because it is confirmation, not action.
-
-NO DUPLICATION. Every fact appears in exactly one section.
-
-HARD RULES
-- SENDABLE AS-IS. Allowed brackets only: [Figma link], [link], [date], [name],
-  [option 1], [option 2]. No "[CONFIRM: ...]" style meta-placeholders.
-- flags[] with severity="urgent" MUST NOT appear as a body bullet. Instead:
-  (a) add a reviewer_note naming it and recommending a separate email, and
-  (b) populate `separate_email_recommended` with a subject line and a one-line rationale.
-  A normal-severity flag may appear as an our-side bullet.
-- Low-confidence items go to reviewer_notes, not the body.
-- Use ONLY the fact sheet. Never invent prices, hours, budgets, dates or scope.
-- Subject: "{PROJECT_NAME} - follow-up from our call" (no em dash, sentence case).
-- Output JSON only:
-  {"subject":"", "body":"", "reviewer_notes":[],
-   "separate_email_recommended": null | {"subject":"", "why":""}}
-  Body is plain text; "- " bullets; no HTML.
-"""
-
-PIPELINE_VERSION = 2
+PIPELINE_VERSION = 3
 IMPACT_RANK = {"project": 4, "multi_template": 3, "single_screen": 2, "detail": 1}
 VALID_TARGET_ARRAYS = (
     "decisions",
@@ -251,6 +65,42 @@ RECAP_HEADER_RE = re.compile(
 )
 OUR_ACTIONS_HEADER_RE = re.compile(r"from our side we will proceed with", re.I)
 CLIENT_ACTIONS_HEADER_RE = re.compile(r"as next steps from your side", re.I)
+SHARING_SECTION_RE = re.compile(
+    r"as promised|we are sharing|we are adjusting|will share them",
+    re.I,
+)
+CALL_TIME_DEICTIC_RE = re.compile(
+    r"after the call|on my screen|as you can see here|as I showed you",
+    re.I,
+)
+# Greeting token that looks like an email local-part (tsassine, l.shedden, etc.).
+EMAIL_DERIVED_GREETING_RE = re.compile(
+    r"Hello [^,\n]*\b[a-z]\.?[a-z]{4,}\b",
+)
+IMPERATIVE_STEM_RE = re.compile(
+    r"^(?:send|share|deliver|provide|prepare|create|update|confirm|review|"
+    r"advise|check|add|remove|fix|include|write|draft|schedule|book)\b",
+    re.I,
+)
+STOP_HEAD_NOUNS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "our",
+        "your",
+        "their",
+        "this",
+        "that",
+        "these",
+        "those",
+        "new",
+        "updated",
+        "adjusted",
+        "revised",
+        "final",
+    }
+)
 
 
 # ─── Designer config ──────────────────────────────────────────────────────────
@@ -307,6 +157,74 @@ def save_designer_config(session: Session, config: dict) -> dict:
     session.add(pipe)
     session.commit()
     return merged
+
+
+def default_prompt_config() -> dict[str, str]:
+    return {k: DEFAULT_PROMPTS[k] for k in PROMPT_KEYS}
+
+
+def load_prompt_config(session: Session) -> dict[str, Any]:
+    """Effective prompts + whether each key is overridden in Pipeline.config."""
+    pipe = get_call_summary_pipeline(session)
+    stored = (pipe.config or {}).get("prompts")
+    stored = stored if isinstance(stored, dict) else {}
+    effective: dict[str, str] = {}
+    overrides: dict[str, bool] = {}
+    for key in PROMPT_KEYS:
+        raw = stored.get(key)
+        text = str(raw).strip() if raw is not None else ""
+        if text:
+            effective[key] = text
+            overrides[key] = True
+        else:
+            effective[key] = DEFAULT_PROMPTS[key]
+            overrides[key] = False
+    return {
+        "prompts": effective,
+        "overrides": overrides,
+        "defaults": default_prompt_config(),
+        "pipeline_version": PIPELINE_VERSION,
+    }
+
+
+def save_prompt_config(
+    session: Session,
+    prompts: dict[str, str],
+    *,
+    reset_keys: set[str] | None = None,
+) -> dict[str, Any]:
+    """Persist prompt overrides. Empty string or keys in reset_keys clear the override."""
+    pipe = get_call_summary_pipeline(session)
+    cfg = dict(pipe.config or {})
+    stored = dict(cfg.get("prompts") or {}) if isinstance(cfg.get("prompts"), dict) else {}
+    reset = reset_keys or set()
+    for key in PROMPT_KEYS:
+        if key in reset:
+            stored.pop(key, None)
+            continue
+        if key not in prompts:
+            continue
+        text = str(prompts.get(key) or "").strip()
+        if not text or text == DEFAULT_PROMPTS[key].strip():
+            stored.pop(key, None)
+        else:
+            stored[key] = text
+    cfg["prompts"] = stored
+    pipe.config = cfg
+    session.add(pipe)
+    session.commit()
+    return load_prompt_config(session)
+
+
+def resolve_system_prompts(session: Session | None = None) -> dict[str, str]:
+    """Prompts used at generation time (DB overrides or v3 defaults)."""
+    if session is None:
+        return default_prompt_config()
+    try:
+        return dict(load_prompt_config(session)["prompts"])
+    except Exception:  # noqa: BLE001
+        log.warning("Failed to load call-summary prompt overrides; using defaults")
+        return default_prompt_config()
 
 
 def _role_matches(person_role: str | None, include_roles: list[str]) -> bool:
@@ -505,7 +423,11 @@ def validate_extraction_evidence(extraction: dict, transcript: str) -> tuple[dic
 
 
 def compute_thanks_line(*, call_datetime, send_datetime) -> str:
-    """Deterministic greeting thanks line from call vs send calendar days."""
+    """Deterministic greeting thanks line from call vs send calendar days.
+
+    v3: days_delta must be a real non-negative int. Missing call date → generic
+    thanks (no weekday guess). Negative delta raises ValueError.
+    """
     from datetime import date, datetime, timezone
 
     def _as_date(value) -> date | None:
@@ -538,14 +460,33 @@ def compute_thanks_line(*, call_datetime, send_datetime) -> str:
     if call_d is None:
         return "Thank you for the call!"
     delta = (send_d - call_d).days
+    if delta is None or delta < 0:
+        raise ValueError(f"bad thanks-line delta: {delta}")
     if delta == 0:
         return "Thank you for the call earlier today!"
     if delta == 1:
         return "Thank you for the call yesterday!"
-    if 2 <= delta <= 6:
+    if delta <= 6:
         return f"Thank you for the call on {call_d.strftime('%A')}!"
     return "Thank you for the call!"
 
+
+def first_token(name: str | None) -> str:
+    """First whitespace-separated token of a display name (never from an email)."""
+    raw = (name or "").strip()
+    if not raw or "@" in raw:
+        return ""
+    # Drop trailing punctuation / parentheticals
+    token = raw.split()[0].strip(" ,.;:")
+    if not token or "@" in token:
+        return ""
+    return token
+
+
+def sender_first_name(full_name: str | None) -> str:
+    """Sign-off first name only (v3: never full name)."""
+    token = first_token(full_name)
+    return token or "scandiweb"
 
 def merge_critic_into_extraction(
     extraction: dict, critic: dict, transcript: str
@@ -574,7 +515,7 @@ def merge_critic_into_extraction(
     for rec in critic.get("reclassifications") or []:
         if not isinstance(rec, dict):
             continue
-        needle = _normalize(str(rec.get("decision_text") or ""))
+        needle = _normalize(str(rec.get("item_text") or rec.get("decision_text") or ""))
         field = str(rec.get("field") or "").strip()
         to_val = rec.get("to")
         if not needle or not field:
@@ -588,7 +529,7 @@ def merge_critic_into_extraction(
     for down in critic.get("downgrades") or []:
         if not isinstance(down, dict):
             continue
-        needle = _normalize(str(down.get("decision_text") or ""))
+        needle = _normalize(str(down.get("item_text") or down.get("decision_text") or ""))
         to_impact = str(down.get("to_impact") or "").strip()
         if not needle or to_impact not in IMPACT_RANK:
             continue
@@ -685,25 +626,85 @@ def timing_present_in_body(timing_verbatim: str, body: str) -> bool:
     return any(sig in bnorm for sig in signals)
 
 
+def _action_stem(text: str) -> str:
+    """Normalize an action bullet to a short stem for duplication detection."""
+    t = _normalize(text)
+    t = re.sub(r"\s*-\s*(?:by the end of )?(?:this|next) week.*$", "", t)
+    t = re.sub(
+        r"^(?:confirm|advise|review and approve|please|we will|delivering|sharing|"
+        r"preparing|sending|providing|updating|creating)\s+",
+        "",
+        t,
+    )
+    words = [w for w in t.split() if w not in STOP_HEAD_NOUNS]
+    return " ".join(words[:4])
+
+
+def _head_noun(text: str) -> str:
+    words = [w for w in _normalize(text).split() if w not in STOP_HEAD_NOUNS and len(w) > 2]
+    return words[0] if words else ""
+
+
+def _sharing_section_text(body: str) -> str:
+    """Rough slice of the sharing block (before client/our actions headers)."""
+    lines = (body or "").splitlines()
+    out: list[str] = []
+    started = False
+    for line in lines:
+        if CLIENT_ACTIONS_HEADER_RE.search(line) or OUR_ACTIONS_HEADER_RE.search(line) or RECAP_HEADER_RE.search(line):
+            break
+        if SHARING_SECTION_RE.search(line) or started:
+            started = True
+            out.append(line)
+    return "\n".join(out)
+
+
 def validate_composition_draft(
     *,
     body: str,
     extraction: dict,
+    sender_first_name: str | None = None,
+    separate_email_recommended: dict | None = None,
 ) -> tuple[bool, list[str]]:
-    """Cheap regex/code validators (v2 Step 4). Fail → retry composition."""
+    """Cheap regex/code validators (v3 Step 4). Fail → retry composition."""
     reasons: list[str] = []
     text = body or ""
     if EM_DASH_RE.search(text):
         reasons.append("Em dash present in body")
     if BANNED_PHRASE_RE.search(text):
         reasons.append("Banned filler phrase in body")
+    if CALL_TIME_DEICTIC_RE.search(text):
+        reasons.append("Call-time deictic language in body")
+    if text.count("As promised") > 1:
+        reasons.append("'As promised' appears more than once")
     for token in ANY_BRACKET_RE.findall(text):
         inner = token[1:-1].strip().lower()
         if inner not in ALLOWED_BRACKET_TOKENS:
             reasons.append(f"Disallowed bracket token: {token}")
 
+    # Greeting must not look email-derived (tsassine, lshedden, …).
+    first_line = (text.split("\n")[0] if text else "").strip()
+    if first_line.lower().startswith("hello") and EMAIL_DERIVED_GREETING_RE.search(first_line):
+        # Allow normal Titlecase first names; flag only all-lowercase-ish tokens.
+        greeting_names = first_line[len("Hello") :].strip().rstrip(",").strip()
+        for part in greeting_names.split(","):
+            token = part.strip()
+            if token and token == token.lower() and len(token) >= 5 and " " not in token:
+                reasons.append(f"Greeting contains an email-derived token: {token}")
+                break
+
+    if sender_first_name:
+        last = ""
+        for line in reversed(text.strip().splitlines()):
+            if line.strip():
+                last = line.strip()
+                break
+        if last and last != sender_first_name:
+            reasons.append("Sign-off is not SENDER_FIRST_NAME exactly")
+
     # Same artifact must not appear as both shared-now and will-share.
     arts = list(extraction.get("artifacts") or [])
+    sharing_block = _sharing_section_text(text)
     for art in arts:
         name = str(art.get("name") or "").strip()
         if not name:
@@ -714,14 +715,46 @@ def validate_composition_draft(
             SHARING_LATER_RE.search(ln) for ln in mentions
         ):
             reasons.append(f"Artifact dual-share contradiction: {name}")
+        state = str(art.get("state") or "")
+        if state == "referenced_only" and name_l and name_l in sharing_block.lower():
+            if SHARING_SECTION_RE.search(sharing_block):
+                reasons.append(f"Artifact with state referenced_only appears in sharing section: {name}")
+
+    client_bullets = _section_bullets(text, CLIENT_ACTIONS_HEADER_RE)
+    our_bullets = _section_bullets(text, OUR_ACTIONS_HEADER_RE)
+    client_stems = {_action_stem(b) for b in client_bullets if _action_stem(b)}
+    for b in our_bullets:
+        stem = _action_stem(b)
+        if stem and stem in client_stems:
+            reasons.append(f"Same action stem in both client and our-side sections: {stem}")
+            break
+
+    for b in our_bullets:
+        # Strip leading "- " already done; check imperative after optional article.
+        lead = re.sub(r"^(?:the|a|an)\s+", "", b.strip(), flags=re.I)
+        if IMPERATIVE_STEM_RE.match(lead):
+            reasons.append(f"Our-side bullet starts with an imperative verb: {b[:60]}")
+            break
+
+    for section_bullets in (our_bullets, client_bullets):
+        head_counts: dict[str, int] = {}
+        for b in section_bullets:
+            hn = _head_noun(b)
+            if hn:
+                head_counts[hn] = head_counts.get(hn, 0) + 1
+        for hn, n in head_counts.items():
+            if n > 1:
+                reasons.append(f"Duplicate head noun across bullets: {hn}")
+                break
+        else:
+            continue
+        break
 
     recap = _section_bullets(text, RECAP_HEADER_RE)
-    if len(recap) > 5:
-        reasons.append(f"Recap bullet count > 5 ({len(recap)})")
+    if len(recap) > 6:
+        reasons.append(f"Recap bullet count > 6 ({len(recap)})")
 
     decisions = list(extraction.get("decisions") or [])
-    # Match each recap bullet to its BEST decision; only then judge impact.
-    # (Scanning all weak decisions for fuzzy overlap caused false positives.)
     for bullet in recap:
         bnorm = _normalize(bullet)
         best = None
@@ -737,8 +770,45 @@ def validate_composition_draft(
         if best is None or best_score < 0.62:
             continue
         impact = str(best.get("impact") or "")
-        if impact in {"single_screen", "detail"} and not best.get("reverses_prior_assumption"):
+        allowed = (
+            impact in {"project", "multi_template"}
+            or bool(best.get("reverses_prior_assumption"))
+            or bool(best.get("is_rejection"))
+        )
+        if not allowed:
             reasons.append(f"Recap includes low-impact decision: {best.get('text')}")
+
+    # Timing: if a bullet carries a timing cue, it must match that item's timing_verbatim.
+    timed_items: list[tuple[str, str]] = []
+    for commit in extraction.get("our_commitments") or []:
+        timing = str(commit.get("timing_verbatim") or "").strip()
+        if timing:
+            timed_items.append((_normalize(str(commit.get("text") or "")), timing))
+    for action in extraction.get("client_actions") or []:
+        timing = str(action.get("timing_verbatim") or "").strip()
+        if timing:
+            timed_items.append((_normalize(str(action.get("text") or "")), timing))
+
+    for bullet in our_bullets + client_bullets:
+        bnorm = _normalize(bullet)
+        bullet_signals = timing_signals(bullet) if _TIMING_PHRASE_RE.search(bullet) else []
+        if not bullet_signals:
+            continue
+        matched_item = False
+        for ctext, timing in timed_items:
+            if not ctext:
+                continue
+            if ctext in bnorm or bnorm in ctext or dice_coefficient(ctext, bnorm) >= 0.55:
+                if timing_present_in_body(timing, bullet) or any(
+                    sig in _normalize(timing) for sig in bullet_signals
+                ):
+                    matched_item = True
+                    break
+        if not matched_item:
+            # Soft: only fail when the suffix looks like a known timing phrase with no home.
+            reasons.append(
+                f"Timing suffix not traceable to that item's timing_verbatim: {bullet_signals[0]}"
+            )
 
     for commit in extraction.get("our_commitments") or []:
         timing = str(commit.get("timing_verbatim") or "").strip()
@@ -749,12 +819,30 @@ def validate_composition_draft(
                 f"Commitment timing missing from body: {', '.join(timing_signals(timing)) or timing[:60]}"
             )
 
+    urgent_present = False
     for flag in extraction.get("flags") or []:
         if str(flag.get("severity") or "").lower() != "urgent":
             continue
+        urgent_present = True
         ftext = str(flag.get("text") or "").strip()
         if ftext and _normalize(ftext) in _normalize(text):
             reasons.append("Urgent flag text appears in body")
+
+    if urgent_present:
+        sep_ok = (
+            isinstance(separate_email_recommended, dict)
+            and bool(separate_email_recommended.get("subject") or separate_email_recommended.get("why"))
+        )
+        if not sep_ok:
+            reasons.append("Urgent flag present but separate_email_recommended is null")
+
+    # Never end on a bullet list (closer / sign-off must follow).
+    nonempty = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
+    if len(nonempty) >= 3:
+        # Last line = sign-off name; second-to-last often "Best regards,"; check third-to-last.
+        candidate = nonempty[-3] if nonempty[-2].lower().startswith("best regard") else nonempty[-2]
+        if candidate.startswith("- ") or candidate.startswith("* ") or candidate.startswith("-"):
+            reasons.append("Email ends on a bullet")
 
     return (len(reasons) == 0), reasons
 
@@ -824,6 +912,7 @@ def repair_composition_body(*, body: str, extraction: dict) -> str:
                 and best_score >= 0.62
                 and str(best.get("impact") or "") in {"single_screen", "detail"}
                 and not best.get("reverses_prior_assumption")
+                and not best.get("is_rejection")
             ):
                 drop.add(_normalize(bullet))
         if drop:
@@ -873,6 +962,8 @@ def build_review_table(*, body: str, extraction: dict) -> list[dict]:
                 "impact": d.get("impact"),
                 "evidence": d.get("evidence") or "",
                 "reverses_prior_assumption": bool(d.get("reverses_prior_assumption")),
+                "is_rejection": bool(d.get("is_rejection")),
+                "owner": None,
             }
         )
     for c in extraction.get("our_commitments") or []:
@@ -893,6 +984,7 @@ def build_review_table(*, body: str, extraction: dict) -> list[dict]:
                 "impact": None,
                 "evidence": c.get("evidence") or "",
                 "blocking": c.get("blocking"),
+                "owner": c.get("owner"),
             }
         )
     for q in extraction.get("open_questions") or []:
@@ -903,6 +995,7 @@ def build_review_table(*, body: str, extraction: dict) -> list[dict]:
                 "impact": None,
                 "evidence": q.get("evidence") or "",
                 "answer_owner": q.get("answer_owner"),
+                "missing_parameter": q.get("missing_parameter"),
             }
         )
     for a in extraction.get("artifacts") or []:
@@ -937,6 +1030,11 @@ def build_review_table(*, body: str, extraction: dict) -> list[dict]:
                 "source": (best or {}).get("source"),
                 "fact": (best or {}).get("text") if best_score >= 0.45 else None,
                 "impact": (best or {}).get("impact") if best_score >= 0.45 else None,
+                "owner": (
+                    ((best or {}).get("owner") or (best or {}).get("answer_owner"))
+                    if best_score >= 0.45
+                    else None
+                ),
                 "evidence": (best or {}).get("evidence") if best_score >= 0.45 else None,
             }
         )
@@ -1194,6 +1292,7 @@ def skeleton_composition(
     reviewer_notes: list[str] | None = None,
 ) -> dict[str, Any]:
     _ = date_label  # kept for call-site compatibility; subject no longer embeds the date
+    sign_off = sender_first_name(owner_name)
     subject = f"{project_name} - follow-up from our call"
     body = "\n".join(
         [
@@ -1204,8 +1303,10 @@ def skeleton_composition(
             "As next steps from your side, please:",
             "- Follow-up details to be confirmed ([date])",
             "",
+            "We will come back to you once details are confirmed.",
+            "",
             "Best regards,",
-            owner_name,
+            sign_off,
         ]
     )
     return {
@@ -1240,7 +1341,13 @@ def pick_owner_name(
     return "scandiweb"
 
 
-def client_display_names(attendees: list[dict], client_participants: list[str] | None) -> str:
+def client_display_names(
+    attendees: list[dict],
+    client_participants: list[str] | None,
+    *,
+    unresolved: list[str] | None = None,
+) -> str:
+    """Full client display names from attendee name fields only (never email local-parts)."""
     client_set = {e.lower() for e in (client_participants or [])}
     names: list[str] = []
     for a in attendees:
@@ -1250,21 +1357,45 @@ def client_display_names(attendees: list[dict], client_participants: list[str] |
         is_client = email in client_set if client_set else not is_internal_email(email)
         if not is_client:
             continue
-        names.append((a.get("name") or "").strip() or display_name_from_email(email))
+        raw_name = (a.get("name") or a.get("resolvedName") or "").strip()
+        token = first_token(raw_name)
+        if token:
+            # Prefer full display name when it looks human; otherwise first token.
+            if "@" in raw_name:
+                names.append(token)
+            else:
+                names.append(raw_name)
+        else:
+            names.append("[name]")
+            if unresolved is not None:
+                unresolved.append(email or raw_name or "(unknown)")
     return ", ".join(names)
 
 
-def client_first_names(attendees: list[dict], client_participants: list[str] | None) -> str:
-    """First names only for the greeting line."""
-    full = client_display_names(attendees, client_participants)
-    if not full:
-        return "[name]"
+def client_first_names(
+    attendees: list[dict],
+    client_participants: list[str] | None,
+    *,
+    unresolved: list[str] | None = None,
+) -> str:
+    """First names only for the greeting line — transcript attendee names, never emails."""
+    client_set = {e.lower() for e in (client_participants or [])}
     parts: list[str] = []
-    for name in full.split(","):
-        name = name.strip()
-        if not name:
+    for a in attendees:
+        email = (a.get("email") or "").lower()
+        if not email:
             continue
-        parts.append(name.split()[0])
+        is_client = email in client_set if client_set else not is_internal_email(email)
+        if not is_client:
+            continue
+        raw_name = (a.get("name") or a.get("resolvedName") or "").strip()
+        token = first_token(raw_name)
+        if token:
+            parts.append(token)
+        else:
+            parts.append("[name]")
+            if unresolved is not None:
+                unresolved.append(email or raw_name or "(unknown)")
     return ", ".join(parts) if parts else "[name]"
 
 
@@ -1307,12 +1438,68 @@ def _humanize_validator_reason(reason: str) -> dict[str, str]:
         return {
             "label": "Recap is too long",
             "detail": (
-                f"The alignment section has {n} bullets; the house format allows at most 5."
+                f"The alignment section has {n} bullets; the house format allows at most 6."
                 if n
-                else "The alignment section has more than 5 bullets."
+                else "The alignment section has more than 6 bullets."
             ),
-            "fix": "Keep the 5 most important project/multi-template points (prefer reversals), drop the rest.",
+            "fix": "Keep the 6 most important project/multi-template points (prefer reversals/rejections), drop the rest.",
             "tag": "recap",
+        }
+    if "sign-off is not" in low:
+        return {
+            "label": "Sign-off should be first name only",
+            "detail": "The email should end with the sender’s first name, not a full name.",
+            "fix": "Replace the last line with the account owner’s first name.",
+            "tag": "style",
+        }
+    if "email-derived" in low:
+        return {
+            "label": "Greeting looks like an email address",
+            "detail": "Client names in the greeting came from email local-parts instead of real names.",
+            "fix": "Replace with first names from the calendar/transcript attendee list (or [name]).",
+            "tag": "style",
+        }
+    if "call-time deictic" in low:
+        return {
+            "label": "Call-time wording",
+            "detail": "The draft still sounds like it was written during the call (“after the call”, “on my screen”, …).",
+            "fix": "Rewrite for a reader opening this after the meeting (e.g. “today”, “on the call”).",
+            "tag": "style",
+        }
+    if "as promised" in low:
+        return {
+            "label": "“As promised” used more than once",
+            "detail": "House format allows “As promised” at most once in the whole email.",
+            "fix": "Keep one sharing lead-in; drop the extra “As promised”.",
+            "tag": "style",
+        }
+    if "imperative verb" in low:
+        return {
+            "label": "Our-side bullet starts with a command",
+            "detail": "“From our side we will proceed with:” needs a gerund or noun phrase, not “Send …” / “Deliver …”.",
+            "fix": "Rewrite as “Sending …”, “Delivering …”, or a noun phrase.",
+            "tag": "style",
+        }
+    if "same action stem" in low:
+        return {
+            "label": "Same action on both sides",
+            "detail": "The same to-do appears under both client and our-side lists.",
+            "fix": "Keep it on the side that will actually perform the work.",
+            "tag": "ownership",
+        }
+    if "separate_email_recommended is null" in low:
+        return {
+            "label": "Urgent flag not routed",
+            "detail": "An urgent security/legal item was found but no separate-email recommendation was produced.",
+            "fix": "Remove it from the follow-up and send a short separate note.",
+            "tag": "risk",
+        }
+    if "ends on a bullet" in low:
+        return {
+            "label": "Email ends on a bullet list",
+            "detail": "There should be a closer line (next session / we will come back) before the sign-off.",
+            "fix": "Add a one-line closer, then Best regards + first name.",
+            "tag": "structure",
         }
     if "em dash" in low:
         return {
@@ -1722,19 +1909,37 @@ def generate_call_summary_draft(
     account = item.get("account") if isinstance(item.get("account"), dict) else {}
     project_name = (account or {}).get("name") or item.get("name") or "Project"
     owner_name = pick_owner_name(designers_on_call, item.get("organizerEmail"), attendees)
-    client_names = client_first_names(attendees, client_participants)
+    name_notes: list[str] = []
+    unresolved_client: list[str] = []
+    client_names = client_first_names(
+        attendees, client_participants, unresolved=unresolved_client
+    )
+    for email in unresolved_client:
+        name_notes.append(
+            f"Could not resolve client first name from transcript attendees for {email}; used [name]."
+        )
+    sender_name = sender_first_name(owner_name)
     from datetime import datetime as _dt
 
-    thanks_line = compute_thanks_line(
-        call_datetime=item.get("eventStartTime"),
-        send_datetime=_dt.now().astimezone(),
-    )
+    try:
+        thanks_line = compute_thanks_line(
+            call_datetime=item.get("eventStartTime"),
+            send_datetime=_dt.now().astimezone(),
+        )
+    except ValueError as e:
+        thanks_line = "Thank you for the call!"
+        name_notes.append(f"Thanks-line date delta invalid ({e}); used generic thanks.")
 
     client = llm or LLMClient()
     critic_model = getattr(client.s, "call_summary_critic_model", None) or "claude-haiku-4-5-20251001"
     total_in = total_out = 0
     total_cost = 0.0
-    critic_notes: list[str] = []
+    critic_notes: list[str] = list(name_notes)
+
+    prompts = resolve_system_prompts(session)
+    extraction_system = prompts["extraction"]
+    critic_system = prompts["critic"]
+    composition_system = prompts["composition"]
 
     skill_extra = ""
     if SKILL_PATH.is_file():
@@ -1788,7 +1993,7 @@ def generate_call_summary_draft(
         )
 
     try:
-        extraction, r1 = _llm_json(EXTRACTION_SYSTEM + skill_extra, user_extract, client)
+        extraction, r1 = _llm_json(extraction_system + skill_extra, user_extract, client)
         total_in += r1.input_tokens
         total_out += r1.output_tokens
         total_cost += r1.cost_usd
@@ -1803,14 +2008,14 @@ def generate_call_summary_draft(
     if dropped:
         log.info("Dropped %s extraction items with unmatched evidence (%s)", dropped, transcript_id)
 
-    # Critic pass (v2 Step 2) — cheaper model; skip when extraction already empty
+    # Critic pass (v3 Step 2) — cheaper model; skip when extraction already empty
     if not _fact_sheet_empty(extraction) or content.strip():
         user_critic = (
             f"Transcript:\n{content}\n\nFact sheet JSON:\n{json.dumps(extraction, indent=2)}"
         )
         try:
             critic, rc = _llm_json(
-                CRITIC_SYSTEM,
+                critic_system,
                 user_critic,
                 client,
                 model=critic_model,
@@ -1819,7 +2024,8 @@ def generate_call_summary_draft(
             total_in += rc.input_tokens
             total_out += rc.output_tokens
             total_cost += rc.cost_usd
-            extraction, critic_notes = merge_critic_into_extraction(extraction, critic, content)
+            extraction, critic_merge_notes = merge_critic_into_extraction(extraction, critic, content)
+            critic_notes.extend(critic_merge_notes)
             extraction, dropped2 = validate_extraction_evidence(extraction, content)
             if dropped2:
                 log.info(
@@ -1870,7 +2076,7 @@ def generate_call_summary_draft(
         return (
             f"THANKS_LINE: {thanks_line}\n"
             f"CLIENT_FIRST_NAMES: {client_names or '[name]'}\n"
-            f"SENDER_NAME: {owner_name}\n"
+            f"SENDER_FIRST_NAME: {sender_name}\n"
             f"PROJECT_NAME: {project_name}\n"
             f"Fact sheet:\n{json.dumps(extraction, indent=2)}\n"
             f"Resolved links:\n{json.dumps(link_map, indent=2)}"
@@ -1888,7 +2094,7 @@ def generate_call_summary_draft(
         )
     else:
         try:
-            composition, r2 = _llm_json(COMPOSITION_SYSTEM, _composition_user(), client)
+            composition, r2 = _llm_json(composition_system, _composition_user(), client)
             total_in += r2.input_tokens
             total_out += r2.output_tokens
             total_cost += r2.cost_usd
@@ -1908,17 +2114,47 @@ def generate_call_summary_draft(
     source_for_policy = json.dumps(extraction) + "\n" + content
     tq = str(extraction.get("transcript_quality") or "good")
 
-    def _guards(body: str) -> tuple[bool, list[str]]:
+    def _guards(body: str, composition_obj: dict | None = None) -> tuple[bool, list[str]]:
+        sep = None
+        if composition_obj and isinstance(composition_obj.get("separate_email_recommended"), dict):
+            sep = composition_obj.get("separate_email_recommended")
         ok_p, reasons_p = run_policy_guard(
             body=body,
             transcript_quality=tq,
             source_text=source_for_policy,
             allowed_urls=allowed_urls,
         )
-        ok_c, reasons_c = validate_composition_draft(body=body, extraction=extraction)
+        ok_c, reasons_c = validate_composition_draft(
+            body=body,
+            extraction=extraction,
+            sender_first_name=sender_name,
+            separate_email_recommended=sep if isinstance(sep, dict) else None,
+        )
         return (ok_p and ok_c), reasons_p + reasons_c
 
-    ok, reasons = _guards(str(composition.get("body") or ""))
+    ok, reasons = _guards(str(composition.get("body") or ""), composition)
+
+    # Deterministic fill: urgent flags must route to a separate email recommendation.
+    urgent_flags = [
+        f
+        for f in (extraction.get("flags") or [])
+        if str(f.get("severity") or "").lower() == "urgent"
+    ]
+    if urgent_flags:
+        sep = composition.get("separate_email_recommended")
+        if not (isinstance(sep, dict) and (sep.get("subject") or sep.get("why"))):
+            first = str(urgent_flags[0].get("text") or "urgent risk item").strip()
+            composition["separate_email_recommended"] = {
+                "subject": f"{project_name} - urgent follow-up",
+                "why": first[:200],
+            }
+            notes = list(composition.get("reviewer_notes") or [])
+            notes.insert(
+                0,
+                "Urgent flag present — separate_email_recommended was empty; filled a placeholder subject/why for review.",
+            )
+            composition["reviewer_notes"] = notes
+            ok, reasons = _guards(str(composition.get("body") or ""), composition)
 
     policy_blocked = False
     policy_block_reason: str | None = None
@@ -1929,7 +2165,7 @@ def generate_call_summary_draft(
         log.warning("Composition validators failed (%s); regenerating once", reasons)
         try:
             composition, r3 = _llm_json(
-                COMPOSITION_SYSTEM,
+                composition_system,
                 _composition_user(
                     extra=f"Previous draft failed validation: {'; '.join(reasons)}. Fix and regenerate."
                 ),
@@ -1942,7 +2178,7 @@ def generate_call_summary_draft(
             composition.setdefault("separate_email_recommended", None)
         except Exception:
             pass
-        ok, reasons = _guards(str(composition.get("body") or ""))
+        ok, reasons = _guards(str(composition.get("body") or ""), composition)
 
     if not ok and not fact_empty and _only_degraded_quality(reasons):
         policy_blocked = True
@@ -1952,7 +2188,7 @@ def generate_call_summary_draft(
         # Keep the model output as-is, then produce a cleaned "as it should be" body.
         kept_body_raw = str(composition.get("body") or "")
         repaired = repair_composition_body(body=kept_body_raw, extraction=extraction)
-        ok_r, reasons_r = _guards(repaired)
+        ok_r, reasons_r = _guards(repaired, composition)
         composition["body"] = repaired
         policy_blocked = True
         policy_block_reason = "; ".join(reasons_r if not ok_r else reasons)
@@ -2046,6 +2282,7 @@ def generate_call_summary_draft(
         "_pipeline": {
             "version": PIPELINE_VERSION,
             "thanks_line": thanks_line,
+            "sender_first_name": sender_name,
             "separate_email_recommended": separate if isinstance(separate, dict) else None,
             "review_table": review_table,
             "kept_body": kept_body_final,

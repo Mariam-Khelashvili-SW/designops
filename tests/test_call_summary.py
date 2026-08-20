@@ -161,6 +161,42 @@ def test_thanks_line_same_day_and_yesterday():
     assert line.endswith("!")
 
 
+def test_thanks_line_delta_matrix():
+    """v3 required: delta 0, 1, 2, 6, 7."""
+    send = date(2026, 8, 13)  # Thursday
+    assert compute_thanks_line(call_datetime=send, send_datetime=send).endswith("earlier today!")
+    assert compute_thanks_line(
+        call_datetime=send - timedelta(days=1), send_datetime=send
+    ).endswith("yesterday!")
+    assert "on Tuesday" in compute_thanks_line(
+        call_datetime=send - timedelta(days=2), send_datetime=send
+    )
+    assert "on Friday" in compute_thanks_line(
+        call_datetime=send - timedelta(days=6), send_datetime=send
+    )
+    assert (
+        compute_thanks_line(call_datetime=send - timedelta(days=7), send_datetime=send)
+        == "Thank you for the call!"
+    )
+
+
+def test_sender_and_client_first_names_never_from_email():
+    from designops.pipelines.call_summary import client_first_names, sender_first_name
+
+    assert sender_first_name("Elene Chekurishvili") == "Elene"
+    unresolved: list[str] = []
+    names = client_first_names(
+        [
+            {"email": "thierry@felco.com", "name": "Thierry Dupont"},
+            {"email": "lshedden@felco.com", "name": ""},
+        ],
+        ["thierry@felco.com", "lshedden@felco.com"],
+        unresolved=unresolved,
+    )
+    assert names == "Thierry, [name]"
+    assert unresolved == ["lshedden@felco.com"]
+
+
 def test_composition_validator_em_dash_and_banned():
     extraction = {
         "decisions": [],
@@ -204,19 +240,31 @@ def test_composition_validator_timing_and_urgent_flag():
         "Hello Sam,\n\n"
         "Thank you for the call!\n\n"
         "From our side we will proceed with:\n"
-        "- Send adjusted frames\n\n"
-        "- staging credentials exposed\n"
+        "- Sending adjusted frames\n\n"
+        "- staging credentials exposed\n\n"
+        "Best regards,\n"
+        "Alex\n"
     )
-    ok, reasons = validate_composition_draft(body=body, extraction=extraction)
+    ok, reasons = validate_composition_draft(
+        body=body,
+        extraction=extraction,
+        sender_first_name="Alex",
+        separate_email_recommended=None,
+    )
     assert ok is False
     assert any("timing" in r.lower() for r in reasons)
     assert any("Urgent flag" in r for r in reasons)
+    assert any("separate_email_recommended" in r for r in reasons)
 
     # Composition formats timing as a short suffix — long verbatim monologues must not fail.
     body_ok = (
         "Hello Sam,\n\n"
+        "Thank you for the call!\n\n"
         "From our side we will proceed with:\n"
-        "- Send adjusted frames - by the end of this week\n"
+        "- Sending adjusted frames - next week\n\n"
+        "We will come back to you next week.\n\n"
+        "Best regards,\n"
+        "Alex\n"
     )
     extraction_ok = {
         **extraction,
@@ -233,8 +281,9 @@ def test_composition_validator_timing_and_urgent_flag():
         ],
     }
     ok2, reasons2 = validate_composition_draft(
-        body=body_ok.replace("by the end of this week", "next week"),
+        body=body_ok,
         extraction=extraction_ok,
+        sender_first_name="Alex",
     )
     assert ok2 is True, reasons2
 
@@ -412,17 +461,68 @@ def test_repair_appends_timing_and_drops_weak_recap():
     }
     body = (
         "From our side we will proceed with:\n"
-        "- Share adjusted frames\n\n"
+        "- Sharing adjusted frames\n\n"
         "We also want to confirm the main points we aligned on:\n"
         "- Remove the VAT field\n"
-        "- Shut down B2C\n"
+        "- Shut down B2C\n\n"
+        "We will come back to you by the end of this week.\n\n"
+        "Best regards,\n"
+        "Alex\n"
     )
     repaired = repair_composition_body(body=body, extraction=extraction)
     assert "this week" in repaired
     assert "Remove the VAT field" not in repaired
     assert "Shut down B2C" in repaired
-    ok, reasons = validate_composition_draft(body=repaired, extraction=extraction)
+    ok, reasons = validate_composition_draft(
+        body=repaired, extraction=extraction, sender_first_name="Alex"
+    )
     assert ok is True, reasons
+
+
+def test_composition_validator_recap_allows_rejection_and_max_six():
+    decisions = [
+        {
+            "text": f"Decision {i}",
+            "impact": "project",
+            "reverses_prior_assumption": False,
+            "is_rejection": False,
+            "evidence": f"decision {i}",
+        }
+        for i in range(7)
+    ]
+    decisions[0]["is_rejection"] = True
+    decisions[0]["impact"] = "detail"
+    decisions[0]["text"] = "Halved-colour concept dropped"
+    extraction = {
+        "decisions": decisions,
+        "our_commitments": [],
+        "client_actions": [],
+        "open_questions": [],
+        "flags": [],
+        "artifacts": [],
+    }
+    body = (
+        "We also want to confirm the main points we aligned on:\n"
+        "- Halved-colour concept dropped\n"
+        + "".join(f"- Decision {i}\n" for i in range(1, 7))
+        + "\nWe will come back to you next week.\n\nBest regards,\nAlex\n"
+    )
+    ok, reasons = validate_composition_draft(
+        body=body, extraction=extraction, sender_first_name="Alex"
+    )
+    assert ok is False
+    assert any("Recap bullet count > 6" in r for r in reasons)
+
+    body6 = (
+        "We also want to confirm the main points we aligned on:\n"
+        "- Halved-colour concept dropped\n"
+        + "".join(f"- Decision {i}\n" for i in range(1, 6))
+        + "\nWe will come back to you next week.\n\nBest regards,\nAlex\n"
+    )
+    ok2, reasons2 = validate_composition_draft(
+        body=body6, extraction=extraction, sender_first_name="Alex"
+    )
+    assert ok2 is True, reasons2
 
 
 def test_review_table_maps_bullets():

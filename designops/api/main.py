@@ -478,6 +478,7 @@ def _expire_stale_call_summary_jobs() -> None:
 def call_summary_page(request: Request, db: Session = Depends(get_db)):
     from designops.pipelines.call_summary import (
         load_designer_config,
+        load_prompt_config,
         resolve_designer_emails,
         list_matching_calls,
         prune_older_drafts,
@@ -487,7 +488,7 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
     # Keep one draft per meeting (cleanup any duplicates from earlier multi-clicks)
     prune_older_drafts(db)
     tab = (request.query_params.get("tab") or "calls").strip().lower()
-    if tab not in ("designers", "calls", "drafts"):
+    if tab not in ("designers", "calls", "drafts", "prompts"):
         tab = "calls"
 
     # In-memory pending is the source of truth (survives refresh / tab switches).
@@ -562,6 +563,7 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
                 )
 
     cfg = load_designer_config(db)
+    prompt_cfg = load_prompt_config(db)
     designers = resolve_designer_emails(db)
     people = (
         db.query(Person)
@@ -632,6 +634,7 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
                     "manual_emails_text": "\n".join(cfg.get("manual_emails") or []),
                     "selected_person_ids": set(cfg.get("selected_person_ids") or []),
                     "designer_count": len(designers),
+                    "prompt_cfg": prompt_cfg,
                     "calls": [],
                     "calls_total": 0,
                     "call_facets": call_facets,
@@ -781,6 +784,7 @@ def call_summary_page(request: Request, db: Session = Depends(get_db)):
             "manual_emails_text": "\n".join(cfg.get("manual_emails") or []),
             "selected_person_ids": set(cfg.get("selected_person_ids") or []),
             "designer_count": len(designers),
+            "prompt_cfg": prompt_cfg,
             "calls": calls,
             "calls_total": calls_total,
             "call_facets": call_facets,
@@ -836,6 +840,33 @@ async def call_summary_save_designers(
     return RedirectResponse("/call-summary?tab=designers&flash=Designer+selection+saved", status_code=303)
 
 
+@app.post("/call-summary/prompts")
+async def call_summary_save_prompts(
+    request: Request,
+    db: Session = Depends(get_db),
+    extraction: str = Form(""),
+    critic: str = Form(""),
+    composition: str = Form(""),
+    reset: str = Form(""),
+):
+    from designops.pipelines.call_summary import save_prompt_config
+
+    reset_keys = set()
+    if (reset or "").strip().lower() in ("1", "true", "all", "defaults"):
+        reset_keys = {"extraction", "critic", "composition"}
+    save_prompt_config(
+        db,
+        {
+            "extraction": extraction,
+            "critic": critic,
+            "composition": composition,
+        },
+        reset_keys=reset_keys,
+    )
+    flash = "Prompts+reset+to+v3+defaults" if reset_keys else "Prompts+saved"
+    return RedirectResponse(f"/call-summary?tab=prompts&flash={flash}", status_code=303)
+
+
 @app.get("/call-summary/pending-status")
 def call_summary_pending_status(request: Request, db: Session = Depends(get_db)):
     """Lightweight poll for in-flight draft generation (no full page reload)."""
@@ -847,7 +878,7 @@ def call_summary_pending_status(request: Request, db: Session = Depends(get_db))
     except ValueError:
         since = 0.0
     tab = (request.query_params.get("tab") or "calls").strip().lower()
-    if tab not in ("designers", "calls", "drafts"):
+    if tab not in ("designers", "calls", "drafts", "prompts"):
         tab = "calls"
 
     if not tid:
@@ -920,7 +951,7 @@ def call_summary_generate(
     import time as _time
 
     tab = (return_tab or "calls").strip().lower()
-    if tab not in ("designers", "calls", "drafts"):
+    if tab not in ("designers", "calls", "drafts", "prompts"):
         tab = "calls"
 
     tid = (transcript_id or "").strip()
